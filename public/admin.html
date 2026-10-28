@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>陣地取り大戦 管理</title>
+<style>
+  :root { --ink: #222; --cream: #fdf8ea; --red: #d9402b; --sub: #7b7466; --warn: #fde2dc; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif; background: var(--cream); color: var(--ink); }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 22px; margin: 4px 0 12px; }
+  h2 { font-size: 16px; margin: 20px 0 8px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input { font: inherit; padding: 6px 10px; border: 2px solid var(--ink); border-radius: 8px; min-width: 0; }
+  button { font: inherit; padding: 6px 12px; border: 2px solid var(--ink); border-radius: 8px; background: #fff; cursor: pointer; }
+  button.danger { background: var(--red); color: #fff; }
+  .note { color: var(--sub); font-size: 13px; line-height: 1.6; }
+  .wrap { overflow-x: auto; border: 2px solid var(--ink); border-radius: 10px; background: #fff; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid #e6dcc0; text-align: left; white-space: nowrap; }
+  th { background: #f8edc4; position: sticky; top: 0; }
+  tr.sus { background: var(--warn); }
+  .tag { display: inline-block; padding: 1px 6px; border-radius: 6px; background: var(--red); color: #fff; font-size: 11px; margin-right: 4px; }
+  .names { white-space: normal; min-width: 180px; }
+  code { font-size: 12px; color: var(--sub); }
+  #msg { margin-left: 8px; color: var(--red); }
+</style>
+</head>
+<body>
+<main>
+  <h1>陣地取り大戦 管理（回線の監視）</h1>
+  <div class="row">
+    <input id="key" type="password" placeholder="管理キー" autocomplete="current-password">
+    <button id="load">読み込む</button>
+    <label class="row"><input type="checkbox" id="auto"> 30秒ごとに更新</label>
+    <span id="msg"></span>
+  </div>
+  <p class="note" id="limits"></p>
+
+  <h2>回線ごとの記録（今日と過去2日）</h2>
+  <p class="note">IPはハッシュで記録し、ここでは一部を隠して表示しています。携帯回線やマンション・学校などでは、別々の人が同じIPになることがあります。ブロックする前に、アカウント数や行動の様子を確かめてください。</p>
+  <div class="wrap"><table>
+    <thead><tr><th>日付</th><th>回線</th><th>アカウント作成</th><th>行動</th><th>上限で止めた回数</th><th>リクエスト</th><th>参加した人</th><th>最終アクセス</th><th></th></tr></thead>
+    <tbody id="rows"><tr><td colspan="9">管理キーを入れて「読み込む」を押してください</td></tr></tbody>
+  </table></div>
+
+  <h2>ブロック中の回線</h2>
+  <div class="wrap"><table>
+    <thead><tr><th>回線</th><th>ハッシュ</th><th>ブロックした日時</th><th></th></tr></thead>
+    <tbody id="bans"><tr><td colspan="4">—</td></tr></tbody>
+  </table></div>
+
+  <h2>シーズン</h2>
+  <div class="row">
+    <input id="confirmReset" placeholder="リセット と入力">
+    <button class="danger" id="reset">シーズンをリセット</button>
+  </div>
+  <p class="note">マップと全員の参加情報が新しくなります。元に戻せません。</p>
+</main>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  try { $('key').value = sessionStorage.getItem('jintoriAdminKey') || ''; } catch (e) { /* 使えなくてもよい */ }
+  let timer = 0, lastLimits = null;
+
+  async function api(path, body) {
+    const res = await fetch(path, {
+      method: body ? 'POST' : 'GET',
+      headers: { 'X-Admin-Key': $('key').value, 'content-type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || res.status);
+    return data;
+  }
+
+  async function load() {
+    $('msg').textContent = '';
+    try { sessionStorage.setItem('jintoriAdminKey', $('key').value); } catch (e) { /* 使えなくてもよい */ }
+    let data;
+    try { data = await api('/api/admin/ips'); } catch (e) { $('msg').textContent = e.message; return; }
+    lastLimits = data.limits;
+    $('limits').textContent = `今の制限：1分あたり ${data.limits.perMinute} リクエスト／1日のアカウント作成 ${data.limits.accountsPerDay} 件／1日の行動 ${data.limits.actionsPerDay} 回／同時接続 ${data.limits.sockets} 本（すべて1回線あたり）`;
+    const banned = new Set(data.bans.map((b) => b.hash));
+    const rows = data.rows.sort((a, b) => score(b) - score(a) || b.lastSeen - a.lastSeen);
+    $('rows').innerHTML = rows.length ? rows.map((r) => {
+      const tags = [];
+      if (r.accounts >= 2) tags.push('複数アカウント');
+      if (r.blocked) tags.push('上限超え');
+      if (banned.has(r.hash)) tags.push('ブロック中');
+      return `<tr class="${tags.length ? 'sus' : ''}">
+        <td>${esc(r.date)}</td>
+        <td>${tags.map((t) => `<span class="tag">${t}</span>`).join('')}${esc(r.masked)}<br><code>${esc(r.hash.slice(0, 12))}…</code></td>
+        <td>${r.accounts}</td><td>${r.actions}</td><td>${r.blocked}</td><td>${r.requests}</td>
+        <td class="names">${esc((r.players || []).join('、') || '—')}</td>
+        <td>${r.lastSeen ? new Date(r.lastSeen).toLocaleString('ja-JP') : '—'}</td>
+        <td>${banned.has(r.hash)
+          ? `<button data-hash="${esc(r.hash)}" data-ban="0">ブロック解除</button>`
+          : `<button class="danger" data-hash="${esc(r.hash)}" data-masked="${esc(r.masked)}" data-ban="1">ブロック</button>`}</td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="9">まだ記録がありません</td></tr>';
+    $('bans').innerHTML = data.bans.length ? data.bans.map((b) => `<tr>
+      <td>${esc(b.masked || '—')}</td><td><code>${esc(b.hash.slice(0, 12))}…</code></td>
+      <td>${b.at ? new Date(b.at).toLocaleString('ja-JP') : '—'}</td>
+      <td><button data-hash="${esc(b.hash)}" data-ban="0">ブロック解除</button></td></tr>`).join('') : '<tr><td colspan="4">なし</td></tr>';
+  }
+  // 怪しい順に並べる
+  const score = (r) => r.accounts * 3 + r.blocked * 5 + (r.actions > (lastLimits ? lastLimits.actionsPerDay : 2) ? 2 : 0);
+
+  document.addEventListener('click', async (e) => {
+    const b = e.target.closest('button[data-hash]');
+    if (!b) return;
+    try {
+      await api('/api/admin/ban', { hash: b.dataset.hash, masked: b.dataset.masked || '', ban: b.dataset.ban === '1' });
+      await load();
+    } catch (err) { $('msg').textContent = err.message; }
+  });
+  $('load').addEventListener('click', load);
+  $('key').addEventListener('keydown', (e) => { if (e.key === 'Enter') load(); });
+  $('auto').addEventListener('change', () => { clearInterval(timer); if ($('auto').checked) timer = setInterval(load, 30000); });
+  $('reset').addEventListener('click', async () => {
+    if ($('confirmReset').value !== 'リセット') { $('msg').textContent = '確認欄に「リセット」と入力してください'; return; }
+    try { await api('/api/admin/reset', {}); $('confirmReset').value = ''; $('msg').textContent = '新しいシーズンを始めました'; } catch (err) { $('msg').textContent = err.message; }
+  });
+})();
+</script>
+</body>
+</html>

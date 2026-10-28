@@ -1,0 +1,30 @@
+# Cloudflare Workers の設定（オンライン対戦サーバー）
+name = "jintori"
+main = "server/worker.js"
+compatibility_date = "2026-10-01"
+
+# 画面（index.html など）も同じ Worker から配信する
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[durable_objects.bindings]]
+name = "GAME"
+class_name = "GameRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GameRoom"]
+
+# IP ごとの制限（必要に応じて変更）
+[vars]
+RATE_LIMIT_PER_MIN = "60"           # 1分あたりのリクエスト数
+MAX_ACCOUNTS_PER_IP_PER_DAY = "2"   # 1日に作れるアカウント数
+MAX_ACTIONS_PER_IP_PER_DAY = "2"    # 1日に行動（1マス）できる回数
+MAX_SOCKETS_PER_IP = "6"            # 同時に開けるタブ数
+# GitHub Pages など別のドメインから使うときだけ設定する（例："https://kajitsu11.github.io"）
+ALLOWED_ORIGIN = ""
+
+# 秘密の値は wrangler secret で設定する（ファイルには書かない）
+#   npx wrangler secret put ADMIN_KEY   … 管理画面のキー
+#   npx wrangler secret put IP_SALT     … IP をハッシュにするときに混ぜる値

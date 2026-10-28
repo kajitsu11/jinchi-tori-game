@@ -2,7 +2,6 @@
 (() => {
 // ===== 定数 =====
 let W = 30, H = 20, N = W * H;        // マップのマス数（縦長画面では縦長マップ）
-const C = 12;                         // オフスクリーン描画での1マスのピクセル数
 const SEASON_DAYS = 100;
 const WIN_SHARE = 0.6;
 const SAM_RANGE = 5;
@@ -39,6 +38,7 @@ let players, bAt, missiles, effects, logs;
 let state = 'menu', day = 1, landCount = 0, diff = DIFF.normal;
 let me = 0, mode = null, hoverTile = -1, selTile = -1, shake = 0, mapDirty = true, showLabels = true;
 let yesterdayTiles = 0;
+let online = null;   // オンライン対戦中は { token, me, costs, nukeCosts, ... }
 const cam = { x: 0, y: 0, s: 16 };
 
 const $ = (id) => document.getElementById(id);
@@ -46,12 +46,12 @@ const canvas = $('game'), ctx = canvas.getContext('2d');
 const off = document.createElement('canvas');
 const octx = off.getContext('2d');
 let img, pix;
-function setDims() {
+function setDims(w, h) {
   const portrait = window.innerHeight > window.innerWidth * 1.1;
-  [W, H] = portrait ? [20, 30] : [30, 20];
+  [W, H] = w ? [w, h] : portrait ? [20, 30] : [30, 20];
   N = W * H;
-  off.width = W * C; off.height = H * C;
-  img = octx.createImageData(W * C, H * C);
+  off.width = W; off.height = H;   // 1マス＝1ピクセル
+  img = octx.createImageData(W, H);
   pix = img.data;
 }
 
@@ -84,57 +84,10 @@ function neighbors(i) {
 }
 const town = (i) => (prov[i] >= 0 ? provinces[prov[i]].name : '海');
 
-// ===== マップ生成 =====
+// ===== マップ生成（shared/map.js と共通。サーバーも同じ seed から同じマップを作る） =====
 function genMap(seed) {
-  const r = mulberry32(seed);
-  const makeNoise = (cell) => {
-    const gw = Math.ceil(W / cell) + 2, gh = Math.ceil(H / cell) + 2;
-    const g = new Float32Array(gw * gh);
-    for (let k = 0; k < g.length; k++) g[k] = r();
-    return (x, y) => {
-      const fx = x / cell, fy = y / cell, ix = fx | 0, iy = fy | 0;
-      const ax = fx - ix, ay = fy - iy;
-      const sx = ax * ax * (3 - 2 * ax), sy = ay * ay * (3 - 2 * ay);
-      const a = g[iy * gw + ix], b = g[iy * gw + ix + 1], c = g[(iy + 1) * gw + ix], d = g[(iy + 1) * gw + ix + 1];
-      return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
-    };
-  };
-  const oct = [[7, 1], [3.5, 0.5], [1.8, 0.2]].map(([c, w]) => [makeNoise(c), w]);
-  const h = new Float32Array(N);
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    let v = 0;
-    for (const [f, w] of oct) v += f(x, y) * w;
-    v /= 1.7;
-    const dx = (x / (W - 1) - 0.5) * 2, dy = (y / (H - 1) - 0.5) * 2;
-    v -= (dx * dx + dy * dy) * 0.35;
-    h[y * W + x] = v;
-  }
-  const sorted = Array.from(h).sort((a, b) => a - b);
-  const thr = sorted[Math.floor(N * 0.42)], top = sorted[N - 1];
-  terrain = new Uint8Array(N);
-  for (let i = 0; i < N; i++) terrain[i] = h[i] > thr ? 1 : 0;
-
-  // 最大の大陸だけを残す
-  const comp = new Int32Array(N).fill(-1);
-  let best = -1, bestSize = 0, cid = 0;
-  for (let i = 0; i < N; i++) {
-    if (!terrain[i] || comp[i] >= 0) continue;
-    const stack = [i]; comp[i] = cid; let size = 0;
-    while (stack.length) {
-      const j = stack.pop(); size++;
-      for (const k of neighbors(j)) if (terrain[k] && comp[k] < 0) { comp[k] = cid; stack.push(k); }
-    }
-    if (size > bestSize) { bestSize = size; best = cid; }
-    cid++;
-  }
-  landCount = 0;
-  elev = new Float32Array(N);
-  for (let i = 0; i < N; i++) {
-    if (terrain[i] && comp[i] !== best) terrain[i] = 0;
-    if (terrain[i]) { landCount++; elev[i] = (h[i] - thr) / (top - thr); }
-    else elev[i] = Math.min(1, (thr - h[i]) / 0.25);
-  }
-
+  const m = window.JintoriMap.generate(seed, W, H);
+  ({ terrain, elev, prov, provinces, peak, landCount } = m);
   baseRGB = new Uint8Array(N * 3);
   for (let i = 0; i < N; i++) {
     let c;
@@ -142,47 +95,6 @@ function genMap(seed) {
     else if (elev[i] > 0.7) c = [226, 214, 186];   // 山地
     else { const e = elev[i]; c = [246 - e * 12, 240 - e * 10, 222 - e * 18]; }
     baseRGB.set(c.map(Math.round), i * 3);
-  }
-
-  // 町：陸地に中心点を散らし、座標を少し歪ませて一番近い中心に割り当てる
-  const warpX = makeNoise(3), warpY = makeNoise(3);
-  provinces = [];
-  const K = Math.max(8, Math.round(landCount / 9)), used = new Set();
-  for (let tries = 0; provinces.length < K && tries < 20000; tries++) {
-    const i = Math.floor(r() * N);
-    if (!terrain[i]) continue;
-    if (provinces.every((p) => Math.hypot(p.x - tx(i), p.y - ty(i)) > 2.6)) {
-      provinces.push({ x: tx(i), y: ty(i), name: townName(r, used), land: 0, sx: 0, sy: 0 });
-    }
-  }
-  prov = new Int16Array(N).fill(-1);
-  peak = -1;
-  for (let i = 0; i < N; i++) {
-    if (!terrain[i]) continue;
-    const x = tx(i), y = ty(i);
-    const wx = x + (warpX(x, y) - 0.5) * 2.5, wy = y + (warpY(x, y) - 0.5) * 2.5;
-    let bk = 0, bd = Infinity;
-    for (let k = 0; k < provinces.length; k++) {
-      const d = (provinces[k].x - wx) ** 2 + (provinces[k].y - wy) ** 2;
-      if (d < bd) { bd = d; bk = k; }
-    }
-    prov[i] = bk;
-    const P = provinces[bk];
-    P.land++; P.sx += x; P.sy += y;
-    if (peak < 0 || elev[i] > elev[peak]) peak = i;
-  }
-  for (const P of provinces) if (P.land) { P.lx = P.sx / P.land + 0.5; P.ly = P.sy / P.land + 0.5; }
-}
-const TOWN_A = ['桜', '松', '竹', '梅', '青', '白', '赤', '黒', '大', '小', '高', '長', '北', '南', '東', '西', '新', '古',
-  '森', '石', '鳥', '鹿', '花', '月', '星', '金', '銀', '風', '雪', '霧', '虹', '柿', '栗', '蛍'];
-const TOWN_B = ['ヶ丘', '見', '原', '沢', '田', '島', '崎', '浦', '野', '谷', '瀬', '岡', '宮', '津', '浜', '山', '川', '台', '里', '根'];
-const TOWN_C = ['市', '町', '町', '村'];
-function townName(r, used) {
-  for (;;) {
-    const n = TOWN_A[Math.floor(r() * TOWN_A.length)] + TOWN_B[Math.floor(r() * TOWN_B.length)];
-    if (used.has(n)) continue;
-    used.add(n);
-    return n + TOWN_C[Math.floor(r() * TOWN_C.length)];
   }
 }
 
@@ -195,7 +107,8 @@ function makePlayer(id, name, color, isBot) {
   };
 }
 const goldRate = (p) => 2 + p.tiles + p.cnt.city * 4;
-const buildCost = (p, type) => Math.round(BUILD[type].base * (1 + BUILD[type].scale * p.cnt[type]));
+const buildCost = (p, type) => (online ? online.costs[p.id][type] : Math.round(BUILD[type].base * (1 + BUILD[type].scale * p.cnt[type])));
+const nukeCost = (type) => (online ? online.nukeCosts[type] : NUKE[type].cost);
 const shieldCount = (p) => { let n = 0; for (let i = 0; i < N; i++) if (owner[i] === p.id && shield[i]) n++; return n; };
 
 function setOwner(i, o) {
@@ -280,6 +193,7 @@ function canTake(p, i) {
   if (i < 0 || !terrain[i]) return '海は取れません';
   if (owner[i] === p.id) return '自分のマスです';
   if (fallout[i] > 0) return `放射能汚染中（あと${fallout[i]}日）`;
+  if (online && !p.tiles) return owner[i] >= 0 ? '国がなくなったときは、無人のマスから建て直せます' : null;
   if (!adjacentTo(i, p.id)) return '自分の陣地のとなりのマスしか取れません';
   return null;
 }
@@ -311,6 +225,7 @@ function guardTile(p, i) {
 function doPlayerAction(i) {
   const P = players[me];
   if (state !== 'play' || P.actions <= 0) return;
+  if (online) { onlineSend('/api/act', { cell: i, kind: owner[i] === me ? 'guard' : 'take' }); hideSel(); return; }
   if (owner[i] === me) {
     if (shield[i]) { toast('もう守っています'); return; }
     guardTile(P, i);
@@ -497,13 +412,18 @@ function updateMissiles(now) {
     }
     if (f < 1) continue;
     m.dead = true;
+    if (m.visual) {   // オンライン：結果はサーバーが決めるので、見た目だけ
+      if (m.boomR) effects.push({ kind: 'boom', x: m.tx, y: m.ty, r: m.boomR, start: performance.now(), dur: 1500 });
+      if (m.boomR) shake = Math.min(18, shake + m.boomR * 5);
+      continue;
+    }
     if (m.type === 'mirv') spawned.push(...splitMirv(m, now));
     else if (m.type === 'warhead') detonate(m.tx, m.ty, WARHEAD_R, NUKE.mirv.fallout, m.owner);
     else detonate(m.tx, m.ty, NUKE[m.type].r, NUKE[m.type].fallout, m.owner);
   }
   if (missiles.some((m) => m.dead) || spawned.length) {
     missiles = missiles.filter((m) => !m.dead).concat(spawned);
-    scan(); checkEnd(); updateUI();
+    if (!online) { scan(); checkEnd(); updateUI(); }
   }
 }
 function splitMirv(m, now) {
@@ -545,37 +465,38 @@ function missilePos(m, f) {
   return { x: m.sx + (m.tx - m.sx) * f, y: m.sy + (m.ty - m.sy) * f - Math.sin(Math.PI * f) * Math.min(6, dist * 0.35) };
 }
 
-// ===== スキャン（隣接関係・ラベル位置・滅亡） =====
+// ===== スキャン（隣接関係・マス数・ラベル位置・滅亡） =====
 function scan() {
-  const sums = players.map(() => [0, 0]);
-  const inner = players.map(() => []);
+  const P = players.length;
+  const sx = new Float64Array(P), sy = new Float64Array(P), cnt = new Int32Array(P);
   for (const p of players) p.nb = new Set();
   for (let i = 0; i < N; i++) {
     const o = owner[i];
     if (o < 0) continue;
-    sums[o][0] += tx(i); sums[o][1] += ty(i);
-    let isInner = true;
-    for (const j of neighbors(i)) {
-      if (!terrain[j]) continue;
-      if (owner[j] !== o) { players[o].nb.add(owner[j]); isInner = false; }
-    }
-    if (isInner) inner[o].push(i);
+    const x = i % W, y = (i / W) | 0, nb = players[o].nb;
+    sx[o] += x; sy[o] += y; cnt[o]++;
+    if (x > 0 && terrain[i - 1] && owner[i - 1] !== o) nb.add(owner[i - 1]);
+    if (x < W - 1 && terrain[i + 1] && owner[i + 1] !== o) nb.add(owner[i + 1]);
+    if (y > 0 && terrain[i - W] && owner[i - W] !== o) nb.add(owner[i - W]);
+    if (y < H - 1 && terrain[i + W] && owner[i + W] !== o) nb.add(owner[i + W]);
+  }
+  // ラベルは重心に一番近い自分のマスに置く（内側のマスを優先。凹んだ形でも陣地内に表示される）
+  const cx = new Float64Array(P), cy = new Float64Array(P), bd = new Float64Array(P).fill(Infinity), bi = new Int32Array(P).fill(-1);
+  for (let o = 0; o < P; o++) if (cnt[o]) { cx[o] = sx[o] / cnt[o]; cy[o] = sy[o] / cnt[o]; }
+  for (let i = 0; i < N; i++) {
+    const o = owner[i];
+    if (o < 0) continue;
+    const x = i % W, y = (i / W) | 0;
+    const inner = x > 0 && x < W - 1 && y > 0 && y < H - 1 && owner[i - 1] === o && owner[i + 1] === o && owner[i - W] === o && owner[i + W] === o;
+    const d = (x - cx[o]) ** 2 + (y - cy[o]) ** 2 + (inner ? 0 : 6);
+    if (d < bd[o]) { bd[o] = d; bi[o] = i; }
   }
   for (const p of players) {
-    if (!p.tiles) continue;
-    const cx = sums[p.id][0] / p.tiles, cy = sums[p.id][1] / p.tiles;
-    // 重心に一番近い自分のマスにラベルを置く（凹んだ形でも陣地内に表示される）
-    let bi = -1, bd = Infinity;
-    const pool = inner[p.id];
-    if (!pool.length) for (let i = 0; i < N; i++) if (owner[i] === p.id) pool.push(i);
-    for (const i of pool) {
-      const d = Math.hypot(tx(i) - cx, ty(i) - cy);
-      if (d < bd) { bd = d; bi = i; }
-    }
-    p.lx = tx(bi) + 0.5; p.ly = ty(bi) + 0.5;
+    p.tiles = cnt[p.id];
+    if (bi[p.id] >= 0) { p.lx = tx(bi[p.id]) + 0.5; p.ly = ty(bi[p.id]) + 0.5; }
   }
   for (const p of players) {
-    if (p.alive && p.tiles === 0 && state !== 'spawn' && state !== 'menu') {
+    if (!online && p.alive && p.tiles === 0 && state !== 'spawn' && state !== 'menu') {
       p.alive = false;
       log(p.id === me ? 'あなたの国は滅亡しました…' : `${p.name} が滅亡した！`, p.id, p.id === me ? 'warn' : '');
     }
@@ -584,7 +505,7 @@ function scan() {
 
 function ranking() { return players.slice().sort((a, b) => (b.alive - a.alive) || (b.tiles - a.tiles)); }
 function checkEnd() {
-  if (state !== 'play' && state !== 'busy') return;
+  if (online || (state !== 'play' && state !== 'busy')) return;
   const P = players[me];
   const bots = players.filter((p) => p.isBot && p.alive);
   const leader = ranking()[0];
@@ -616,57 +537,54 @@ function frame(now) {
 }
 
 // ===== 描画 =====
+// 地図は「1マス＝1ピクセル」の画像にしておき、拡大して描く。
+// マス目・斜線・町の境界・波・盾などは、画面に見えている範囲のマスだけ上から描く（大きいマップでも軽くするため）
 const mix = (a, b, t) => a + (b - a) * t;
+function paintCell(i) {
+  const o = owner[i];
+  let r, g, b;
+  if (o >= 0) [r, g, b] = players[o].rgb;
+  else { r = baseRGB[i * 3]; g = baseRGB[i * 3 + 1]; b = baseRGB[i * 3 + 2]; }
+  if (fallout[i] > 0 && terrain[i]) { const f = Math.min(0.75, 0.3 + fallout[i] * 0.1); r = mix(r, 150, f); g = mix(g, 220, f); b = mix(b, 40, f); }
+  const p = i * 4;
+  pix[p] = r; pix[p + 1] = g; pix[p + 2] = b; pix[p + 3] = 255;
+}
+let dirtyRect = null;
+function markCell(i) {
+  paintCell(i);
+  const x = i % W, y = (i / W) | 0;
+  if (!dirtyRect) dirtyRect = { x0: x, y0: y, x1: x, y1: y };
+  else {
+    dirtyRect.x0 = Math.min(dirtyRect.x0, x); dirtyRect.y0 = Math.min(dirtyRect.y0, y);
+    dirtyRect.x1 = Math.max(dirtyRect.x1, x); dirtyRect.y1 = Math.max(dirtyRect.y1, y);
+  }
+}
 function renderMap() {
-  const rowW = W * C;
-  for (let i = 0; i < N; i++) {
-    const cx = tx(i) * C, cy = ty(i) * C, o = owner[i];
-    let r = baseRGB[i * 3], g = baseRGB[i * 3 + 1], b = baseRGB[i * 3 + 2];
-    const striped = o >= 0;
-    if (striped) [r, g, b] = players[o].rgb;
-    if (fallout[i] > 0) { const f = Math.min(0.75, 0.3 + fallout[i] * 0.1); r = mix(r, 150, f); g = mix(g, 220, f); b = mix(b, 40, f); }
-    const water = !terrain[i], x = tx(i);
-    const rightB = !water && x < W - 1 && terrain[i + 1] && prov[i + 1] !== prov[i];
-    const downB = !water && i < N - W && terrain[i + W] && prov[i + W] !== prov[i];
-    for (let py = 0; py < C; py++) {
-      let p = ((cy + py) * rowW + cx) * 4;
-      for (let px = 0; px < C; px++, p += 4) {
-        let R = r, G = g, B = b;
-        if ((rightB && px >= C - 2) || (downB && py >= C - 2)) {   // 町の境界線
-          R = mix(R, 255, 0.85); G = mix(G, 255, 0.85); B = mix(B, 255, 0.85);
-        } else if (px === C - 1 || py === C - 1) {                // マス目の線
-          const k = water ? 0.97 : 0.84;
-          R *= k; G *= k; B *= k;
-        } else if (striped && (px + C - py) % 6 < 1.5) {          // 斜線模様
-          R = mix(R, 255, 0.2); G = mix(G, 255, 0.2); B = mix(B, 255, 0.2);
-        }
-        pix[p] = R; pix[p + 1] = G; pix[p + 2] = B; pix[p + 3] = 255;
-      }
-    }
-  }
+  for (let i = 0; i < N; i++) paintCell(i);
   octx.putImageData(img, 0, 0);
-  // 海の波模様
-  octx.beginPath();
-  for (let y = 1; y < H; y += 2) {
-    for (let x = (y >> 1) & 1 ? 2 : 0; x < W; x += 3) {
-      const i = y * W + x;
-      if (terrain[i]) continue;
-      const X = (x + 0.5) * C, Y = (y + 0.5) * C;
-      octx.moveTo(X - C * 0.35, Y + C * 0.1);
-      octx.quadraticCurveTo(X, Y - C * 0.3, X + C * 0.35, Y + C * 0.1);
-    }
-  }
-  octx.strokeStyle = 'rgba(150, 170, 230, 0.6)'; octx.lineWidth = 1.5; octx.lineCap = 'round';
-  octx.stroke();
   mapDirty = false;
+  dirtyRect = null;
 }
 
-function strokeOutline(pid, color, width) {
+// 斜線模様（自分のものになったマスに重ねる）
+const stripeTile = document.createElement('canvas');
+stripeTile.width = stripeTile.height = 12;
+{
+  const g = stripeTile.getContext('2d');
+  g.strokeStyle = 'rgba(255,255,255,0.3)'; g.lineWidth = 1.6;
+  g.beginPath();
+  for (let k = -12; k <= 24; k += 6) { g.moveTo(k, 12); g.lineTo(k + 12, 0); }
+  g.stroke();
+}
+let stripePattern = null;
+
+function strokeOutline(pid, color, width, v) {
   ctx.beginPath();
   const s = cam.s;
-  for (let i = 0; i < N; i++) {
+  for (let y = v.y0; y <= v.y1; y++) for (let x = v.x0; x <= v.x1; x++) {
+    const i = y * W + x;
     if (owner[i] !== pid) continue;
-    const x = tx(i), y = ty(i), X = cam.x + x * s, Y = cam.y + y * s;
+    const X = cam.x + x * s, Y = cam.y + y * s;
     if (x === 0 || owner[i - 1] !== pid) { ctx.moveTo(X, Y); ctx.lineTo(X, Y + s); }
     if (x === W - 1 || owner[i + 1] !== pid) { ctx.moveTo(X + s, Y); ctx.lineTo(X + s, Y + s); }
     if (y === 0 || owner[i - W] !== pid) { ctx.moveTo(X, Y); ctx.lineTo(X + s, Y); }
@@ -702,44 +620,93 @@ function render(now) {
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (mapDirty) renderMap();
+  else if (dirtyRect) {
+    const d = dirtyRect;
+    octx.putImageData(img, 0, 0, d.x0, d.y0, d.x1 - d.x0 + 1, d.y1 - d.y0 + 1);
+    dirtyRect = null;
+  }
   ctx.fillStyle = '#3d4f93';
   ctx.fillRect(0, 0, cw, ch);
 
   ctx.save();
   if (shake > 0.3) { ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake); shake *= 0.9; }
-  ctx.imageSmoothingEnabled = cam.s < C;
+  ctx.imageSmoothingEnabled = false;
   ctx.drawImage(off, cam.x, cam.y, W * cam.s, H * cam.s);
   const s = cam.s;
   const T = (x, y) => [cam.x + x * s, cam.y + y * s];
+  // 画面に見えているマスの範囲
+  const v = {
+    x0: Math.max(0, Math.floor(-cam.x / s)), x1: Math.min(W - 1, Math.floor((cw - cam.x) / s)),
+    y0: Math.max(0, Math.floor(-cam.y / s)), y1: Math.min(H - 1, Math.floor((ch - cam.y) / s)),
+  };
+
+  if (s >= 6 && v.x0 <= v.x1 && v.y0 <= v.y1) {
+    // 斜線模様
+    if (s >= 9) {
+      if (!stripePattern) stripePattern = ctx.createPattern(stripeTile, 'repeat');
+      stripePattern.setTransform(new DOMMatrix([s / 12, 0, 0, s / 12, cam.x, cam.y]));
+      ctx.beginPath();
+      for (let y = v.y0; y <= v.y1; y++) for (let x = v.x0; x <= v.x1; x++) if (owner[y * W + x] >= 0) ctx.rect(cam.x + x * s, cam.y + y * s, s, s);
+      ctx.fillStyle = stripePattern; ctx.fill();
+    }
+    // マス目
+    ctx.beginPath();
+    for (let x = v.x0; x <= v.x1 + 1; x++) { const X = Math.round(cam.x + x * s) + 0.5; ctx.moveTo(X, cam.y + v.y0 * s); ctx.lineTo(X, cam.y + (v.y1 + 1) * s); }
+    for (let y = v.y0; y <= v.y1 + 1; y++) { const Y = Math.round(cam.y + y * s) + 0.5; ctx.moveTo(cam.x + v.x0 * s, Y); ctx.lineTo(cam.x + (v.x1 + 1) * s, Y); }
+    ctx.strokeStyle = 'rgba(30, 30, 60, 0.13)'; ctx.lineWidth = 1; ctx.stroke();
+    // 町の境界線と海の波
+    const border = new Path2D(), waves = new Path2D();
+    for (let y = v.y0; y <= v.y1; y++) for (let x = v.x0; x <= v.x1; x++) {
+      const i = y * W + x, X = cam.x + x * s, Y = cam.y + y * s;
+      if (terrain[i]) {
+        if (x < W - 1 && terrain[i + 1] && prov[i + 1] !== prov[i]) { border.moveTo(X + s, Y); border.lineTo(X + s, Y + s); }
+        if (y < H - 1 && terrain[i + W] && prov[i + W] !== prov[i]) { border.moveTo(X, Y + s); border.lineTo(X + s, Y + s); }
+      } else if (y % 2 === 1 && (x + ((y >> 1) & 1 ? 1 : 0) * 2) % 3 === 0) {
+        const cx = X + s / 2, cy = Y + s / 2;
+        waves.moveTo(cx - s * 0.35, cy + s * 0.1);
+        waves.quadraticCurveTo(cx, cy - s * 0.3, cx + s * 0.35, cy + s * 0.1);
+      }
+    }
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = Math.max(1.5, s * 0.14); ctx.stroke(border);
+    ctx.strokeStyle = 'rgba(150, 170, 230, 0.6)'; ctx.lineWidth = Math.max(1, s * 0.12); ctx.stroke(waves);
+  }
 
   // 自国の輪郭（光る縁取り）
-  if (players[me].tiles) {
-    strokeOutline(me, 'rgba(255, 214, 140, 0.9)', Math.max(4, s * 0.35));
-    strokeOutline(me, '#fffaf0', Math.max(2, s * 0.14));
+  if (players[me] && players[me].tiles) {
+    strokeOutline(me, 'rgba(255, 214, 140, 0.9)', Math.max(3, s * 0.35), v);
+    strokeOutline(me, '#fffaf0', Math.max(1.5, s * 0.14), v);
   }
 
-  // 取れるマスのヒント（自分の番のとき、となりのマスに点）
-  if (state === 'play' && !mode && players[me].actions > 0) {
-    ctx.beginPath();
-    for (let i = 0; i < N; i++) {
-      if (!terrain[i] || owner[i] === me || fallout[i] || !adjacentTo(i, me)) continue;
-      const [X, Y] = T(tx(i) + 0.5, ty(i) + 0.5);
-      ctx.moveTo(X + s * 0.1, Y); ctx.arc(X, Y, s * 0.1, 0, Math.PI * 2);
+  if (s >= 5) {
+    // 取れるマスのヒント（自分の番のとき、となりのマスに点）
+    if (state === 'play' && !mode && players[me].actions > 0) {
+      ctx.beginPath();
+      for (let y = v.y0; y <= v.y1; y++) for (let x = v.x0; x <= v.x1; x++) {
+        const i = y * W + x;
+        if (!terrain[i] || owner[i] === me || fallout[i] || !adjacentTo(i, me)) continue;
+        const X = cam.x + (x + 0.5) * s, Y = cam.y + (y + 0.5) * s;
+        ctx.moveTo(X + s * 0.1, Y); ctx.arc(X, Y, s * 0.1, 0, Math.PI * 2);
+      }
+      ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fill();
+      ctx.strokeStyle = 'rgba(60,40,140,0.6)'; ctx.lineWidth = 1; ctx.stroke();
     }
-    ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fill();
-    ctx.strokeStyle = 'rgba(60,40,140,0.6)'; ctx.lineWidth = 1; ctx.stroke();
-  }
-
-  // 盾（守ったマス）
-  ctx.beginPath();
-  for (let i = 0; i < N; i++) if (shield[i] && owner[i] >= 0) shieldPath(cam.x + (tx(i) + 0.5) * s, cam.y + (ty(i) + 0.5) * s, s * 0.55);
-  ctx.fillStyle = '#fffdf5'; ctx.fill();
-  ctx.strokeStyle = '#2b2b2b'; ctx.lineWidth = Math.max(1, s * 0.07); ctx.stroke();
-
-  // 汚染マーク
-  if (s >= 10) {
-    ctx.font = `${s * 0.5}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = 'rgba(40,60,0,0.7)';
-    for (let i = 0; i < N; i++) if (fallout[i] && terrain[i]) ctx.fillText('☢', cam.x + (tx(i) + 0.5) * s, cam.y + (ty(i) + 0.5) * s);
+    // 盾（守ったマス）
+    ctx.beginPath();
+    for (let y = v.y0; y <= v.y1; y++) for (let x = v.x0; x <= v.x1; x++) {
+      const i = y * W + x;
+      if (shield[i] && owner[i] >= 0) shieldPath(cam.x + (x + 0.5) * s, cam.y + (y + 0.5) * s, s * 0.55);
+    }
+    ctx.fillStyle = '#fffdf5'; ctx.fill();
+    ctx.strokeStyle = '#2b2b2b'; ctx.lineWidth = Math.max(1, s * 0.07); ctx.stroke();
+    // 汚染マーク
+    if (s >= 10) {
+      ctx.font = `${s * 0.5}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = 'rgba(40,60,0,0.7)';
+      for (let y = v.y0; y <= v.y1; y++) for (let x = v.x0; x <= v.x1; x++) {
+        const i = y * W + x;
+        if (fallout[i] && terrain[i]) ctx.fillText('☢', cam.x + (x + 0.5) * s, cam.y + (y + 0.5) * s);
+      }
+    }
   }
 
   // ホバー・選択中のマス
@@ -749,9 +716,9 @@ function render(now) {
   }
   if (selTile >= 0) {
     const [X, Y] = T(tx(selTile), ty(selTile));
-    const pulse = 0.5 + 0.5 * Math.sin(now / 180);
-    ctx.strokeStyle = '#222'; ctx.lineWidth = 5; ctx.strokeRect(X - 1, Y - 1, s + 2, s + 2);
-    ctx.strokeStyle = `rgba(255, 215, 80, ${0.7 + 0.3 * pulse})`; ctx.lineWidth = 3; ctx.strokeRect(X - 1, Y - 1, s + 2, s + 2);
+    const pulse = 0.5 + 0.5 * Math.sin(now / 180), e = Math.max(0, 6 - s);   // 小さいときは枠を大きめに
+    ctx.strokeStyle = '#222'; ctx.lineWidth = 5; ctx.strokeRect(X - 1 - e, Y - 1 - e, s + 2 + e * 2, s + 2 + e * 2);
+    ctx.strokeStyle = `rgba(255, 215, 80, ${0.7 + 0.3 * pulse})`; ctx.lineWidth = 3; ctx.strokeRect(X - 1 - e, Y - 1 - e, s + 2 + e * 2, s + 2 + e * 2);
   }
 
   // 核モード：迎撃範囲と爆発範囲
@@ -802,10 +769,16 @@ function render(now) {
     ctx.beginPath(); ctx.arc(X, Y, h * 0.12, 0, Math.PI * 2); ctx.fillStyle = '#222'; ctx.fill();
   }
 
-  // 建物（丸バッジ）
+  // 建物（丸バッジ）。引いて見ているときは小さい点だけ
   const bs = Math.min(30, Math.max(13, s * 0.85));
   for (const b of bAt.values()) {
     const [X, Y] = T(b.x + 0.5, b.y + 0.5);
+    if (X < -bs || Y < -bs || X > cw + bs || Y > ch + bs) continue;
+    if (s < 4) {
+      ctx.beginPath(); ctx.arc(X, Y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = '#fffdf5'; ctx.fill(); ctx.strokeStyle = '#222'; ctx.lineWidth = 1; ctx.stroke();
+      continue;
+    }
     ctx.beginPath(); ctx.arc(X, Y, bs / 2, 0, Math.PI * 2);
     ctx.fillStyle = '#fffdf5'; ctx.fill();
     ctx.strokeStyle = players[b.owner].color; ctx.lineWidth = 3; ctx.stroke();
@@ -830,10 +803,10 @@ function render(now) {
     if (p.id !== me && placed.some((q) => box[0] < q[2] && box[2] > q[0] && box[1] < q[3] && box[3] > q[1])) continue;
     placed.push(box);
     outlined(p.name, X, Y - size * 0.3, size);
-    outlined(`${p.tiles}マス`, X, Y + size * 0.62, Math.max(9, size * 0.42), '#555');
+    outlined(`${p.tiles.toLocaleString()}マス`, X, Y + size * 0.62, Math.max(9, size * 0.42), '#555');
   }
-  // 町の名前（ズームしたら、国名と重ならないものだけ）
-  if (showLabels && s >= 22) {
+  // 町の名前（ズームしたら、画面内で国名と重ならないものだけ）
+  if (showLabels && s >= 20) {
     const fs = Math.min(14, s * 0.4);
     for (const pv of provinces) {
       if (!pv.land) continue;
@@ -852,7 +825,7 @@ function render(now) {
     const f = Math.min(1, (now - m.start) / m.dur);
     if (f < 0) continue;
     const [TX, TY] = T(m.tx + 0.5, m.ty + 0.5);
-    const r = ((m.type === 'warhead' ? WARHEAD_R : m.type === 'mirv' ? 3 : NUKE[m.type].r) + 0.5) * s;
+    const r = Math.max(6, ((m.type === 'warhead' ? WARHEAD_R : m.type === 'mirv' ? 3 : NUKE[m.type].r) + 0.5) * s);
     ctx.beginPath(); ctx.arc(TX, TY, r * (0.9 + 0.1 * Math.sin(now / 120)), 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(217,64,43,0.9)'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); ctx.stroke(); ctx.setLineDash([]);
     ctx.beginPath();
@@ -880,23 +853,23 @@ function render(now) {
     if (t < 0) continue;
     const [X, Y] = T(e.x + 0.5, e.y + 0.5);
     if (e.kind === 'boom') {
-      const R = (e.r + 0.5) * s * (0.4 + t * 1.2);
+      const R = Math.max(10, (e.r + 0.5) * s) * (0.4 + t * 1.2);
       const grad = ctx.createRadialGradient(X, Y, 0, X, Y, R);
       grad.addColorStop(0, `rgba(255,255,230,${1 - t})`);
       grad.addColorStop(0.4, `rgba(255,170,40,${0.9 * (1 - t)})`);
       grad.addColorStop(1, 'rgba(255,60,20,0)');
       ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(X, Y, R, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(X, Y, (e.r + 0.5) * s * (0.5 + t * 2), 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(X, Y, Math.max(10, (e.r + 0.5) * s) * (0.5 + t * 2), 0, Math.PI * 2);
       ctx.strokeStyle = `rgba(255,255,255,${0.8 * (1 - t)})`; ctx.lineWidth = 4 * (1 - t) + 1; ctx.stroke();
     } else if (e.kind === 'cell') {
-      const R = s * (0.5 + t * 0.8);
+      const R = Math.max(6, s) * (0.5 + t * 0.8);
       ctx.globalAlpha = 1 - t;
       ctx.strokeStyle = e.color; ctx.lineWidth = 4; ctx.strokeRect(X - R, Y - R, R * 2, R * 2);
       ctx.strokeStyle = '#222'; ctx.lineWidth = 1; ctx.strokeRect(X - R - 2, Y - R - 2, R * 2 + 4, R * 2 + 4);
       ctx.globalAlpha = 1;
     } else {
       ctx.globalAlpha = 1 - t;
-      ctx.beginPath(); ctx.arc(X, Y, 4 + t * s, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(X, Y, 4 + t * Math.max(10, s), 0, Math.PI * 2);
       ctx.strokeStyle = e.color; ctx.lineWidth = 3; ctx.stroke();
       ctx.globalAlpha = 1;
     }
@@ -904,23 +877,36 @@ function render(now) {
   ctx.restore();
 }
 
+// 自分の国の形（上のバーの詳細に出す）
 function drawSilhouette() {
   const c = $('silhouette'), g = c.getContext('2d'), P = players[me];
   g.clearRect(0, 0, c.width, c.height);
-  if (!P.tiles) return;
+  if (!P || !P.tiles) return;
   let x0 = W, y0 = H, x1 = 0, y1 = 0;
   for (let i = 0; i < N; i++) if (owner[i] === me) {
-    x0 = Math.min(x0, tx(i)); x1 = Math.max(x1, tx(i)); y0 = Math.min(y0, ty(i)); y1 = Math.max(y1, ty(i));
+    const x = i % W, y = (i / W) | 0;
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
   }
   const bw = x1 - x0 + 1, bh = y1 - y0 + 1, k = Math.min((c.width - 8) / bw, (c.height - 8) / bh, 14);
   const ox = (c.width - bw * k) / 2, oy = (c.height - bh * k) / 2;
+  const id = g.createImageData(c.width, c.height), d = id.data;
+  const fill = (px, py, size, rgb) => {
+    for (let yy = Math.max(0, py); yy < Math.min(c.height, py + size); yy++)
+      for (let xx = Math.max(0, px); xx < Math.min(c.width, px + size); xx++) {
+        const p = (yy * c.width + xx) * 4;
+        d[p] = rgb[0]; d[p + 1] = rgb[1]; d[p + 2] = rgb[2]; d[p + 3] = 255;
+      }
+  };
+  const size = Math.max(1, Math.ceil(k));
   for (let pass = 0; pass < 2; pass++) {
-    g.fillStyle = pass ? P.color : '#222';
-    const o = pass ? 0 : 1.5;
-    for (let i = 0; i < N; i++) if (owner[i] === me) {
-      g.fillRect(ox + (tx(i) - x0) * k - o, oy + (ty(i) - y0) * k - o, k + o * 2 + 0.5, k + o * 2 + 0.5);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      if (owner[y * W + x] !== me) continue;
+      const px = Math.floor(ox + (x - x0) * k), py = Math.floor(oy + (y - y0) * k);
+      if (pass === 0) fill(px - 2, py - 2, size + 4, [34, 34, 34]);
+      else fill(px, py, size, P.rgb);
     }
   }
+  g.putImageData(id, 0, 0);
 }
 
 // ===== カメラ =====
@@ -1002,6 +988,8 @@ function handleClick(sx, sy, button) {
   if (button === 2) { setMode(null); hideSel(); return; }
   if (t < 0) { hideSel(); return; }
   const P = players[me];
+  if (mode && BUILD[mode] && online) { onlineSend('/api/build', { type: mode, cell: t }); setMode(null); return; }
+  if (mode && NUKE[mode] && online) { onlineSend('/api/nuke', { type: mode, cell: t }); setMode(null); return; }
   if (mode && BUILD[mode]) {
     const err = placeBuilding(P, mode, t);
     if (err) toast(err); else { setMode(null); updateUI(); }
@@ -1036,7 +1024,7 @@ function showSel(i) {
       else action = o >= 0 && shield[i] ? '盾をこわす' : '取る！';
     }
   }
-  if (P.actions <= 0) { action = null; sub += '（今日はもう動けません）'; }
+  if (P.actions <= 0) { action = null; sub += online ? '（今日の1マスは使いました。日本時間0時に回復）' : '（今日はもう動けません）'; }
   $('selTitle').textContent = title;
   $('selSub').textContent = sub;
   go.textContent = action || '—';
@@ -1096,9 +1084,9 @@ function buildButtons() {
 let sheetTab = null;
 function updateUI() {
   const P = players[me];
-  $('cName').textContent = P.name;
+  $('cName').textContent = online && online.me ? `${P.name}（${online.me.name}）` : P.name;
   $('cSwatch').style.background = P.color;
-  $('cSub').textContent = '・' + diff.label;
+  $('cSub').textContent = online ? `・オンライン シーズン${online.seasonNo}` : '・' + diff.label;
   const rank = ranking().indexOf(P) + 1;
   $('cRank').textContent = P.alive ? `${rank}位` : '滅亡';
   $('cTiles').textContent = P.tiles;
@@ -1106,23 +1094,25 @@ function updateUI() {
   const d = P.tiles - yesterdayTiles;
   $('cDelta').textContent = '前日比 ' + (d > 0 ? '+' : d < 0 ? '−' : '±') + Math.abs(d);
   $('cGold').textContent = fmt(P.gold);
-  $('cIncome').textContent = goldRate(P);
+  $('cIncome').textContent = online ? 10 + P.cnt.city * 3 : goldRate(P);
   $('cShields').textContent = shieldCount(P);
   $('cCities').textContent = P.cnt.city;
   $('cLeft').textContent = Math.max(0, SEASON_DAYS - day + 1);
   $('dDay').textContent = Math.min(day, SEASON_DAYS);
   $('dLeft').innerHTML = state === 'spawn' ? 'スタート地点をえらぶ'
     : state === 'busy' ? 'ほかの国が動いています…'
+    : online && !P.actions ? `次の1マスまで <b>${untilMidnight()}</b>`
     : `今日の1マス：のこり <b>${P.actions}</b>`;
   $('btnPass').disabled = state !== 'play';
+  $('btnPass').classList.toggle('hidden', !!online);
   const incoming = missiles.some((m) => m.owner !== me && (m.victim === me || (m.type === 'warhead' && owner[m.ty * W + m.tx] === me)));
   $('nukeAlert').classList.toggle('hidden', !incoming);
 
   for (const b of document.querySelectorAll('.bbtn')) {
     const k = b.dataset.type;
-    const cost = BUILD[k] ? buildCost(P, k) : NUKE[k].cost;
+    const cost = BUILD[k] ? buildCost(P, k) : nukeCost(k);
     b.querySelector('.cs').textContent = '💰' + fmt(cost);
-    b.disabled = state !== 'play' || P.gold < cost || (NUKE[k] && !P.cnt.silo);
+    b.disabled = state !== 'play' || P.gold < cost || (NUKE[k] && !P.cnt.silo) || (online && !online.me);
   }
   drawSilhouette();
   if (sheetTab === 'rank') renderRank();
@@ -1136,7 +1126,7 @@ function renderRank() {
       <span class="sw" style="background:${p.color}"></span>
       <span class="nm">${esc(p.name)}</span>
       <span class="v">${p.tiles}マス</span>
-      <span class="v">💰${fmt(p.gold)}</span>
+      <span class="v">${online ? `👥${p.members}人` : `💰${fmt(p.gold)}`}</span>
       <span class="v">${(p.tiles / landCount * 100).toFixed(1)}%</span>
     </div>`).join('');
 }
@@ -1146,6 +1136,11 @@ function renderRecent() {
 }
 function esc(s) { return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 const agoText = (d) => (d === day ? '今日' : d === day - 1 ? '昨日' : `${day - d}日前`);
+// 日本時間0時までの残り時間
+function untilMidnight() {
+  const jst = Date.now() + 9 * 3600e3, left = 864e5 - (jst % 864e5);
+  return `${Math.floor(left / 3600e3)}:${String(Math.floor(left / 60e3) % 60).padStart(2, '0')}`;
+}
 
 function log(text, pid, cls = '') {
   const color = pid != null && players[pid] ? players[pid].color : '#ccc';
@@ -1189,8 +1184,10 @@ function closeSheet() {
 document.querySelectorAll('#tabs button').forEach((b) => b.addEventListener('click', () => openSheet(b.dataset.tab)));
 
 $('btnPass').addEventListener('click', passDay);
-$('btnStart').addEventListener('click', newGame);
+$('btnStart').addEventListener('click', () => { leaveOnline(); newGame(); });
+$('btnOnline').addEventListener('click', startOnline);
 $('btnRestart').addEventListener('click', () => {
+  leaveOnline();
   $('endCard').classList.add('hidden');
   $('menu').classList.remove('hidden');
 });
@@ -1208,6 +1205,291 @@ $('btnLabels').addEventListener('click', () => {
 });
 window.addEventListener('resize', () => { if (state === 'menu' || state === 'spawn') fitCamera(); });
 
+// ===== オンライン対戦 =====
+// 最初に地図をまとめて（圧縮して）受け取り、あとは変わったマスだけをリアルタイムで受け取る。
+// サーバーの場所：同じドメインで配信するときは空のまま。別のドメインなら index.html で window.JINTORI_API を設定する
+const API = String(window.JINTORI_API || '').replace(/\/$/, '');
+const TOKEN_KEY = 'jintoriToken';
+const loadToken = () => { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; } };
+const saveToken = (t) => { try { localStorage.setItem(TOKEN_KEY, t); } catch { /* 保存できなくても遊べる */ } };
+
+async function api(path, body) {
+  const res = await fetch(API + path, {
+    method: body ? 'POST' : 'GET',
+    headers: { 'content-type': 'application/json', 'X-Player-Token': online ? online.token : loadToken() },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `サーバーエラー（${res.status}）`);
+  return data;
+}
+
+// 地図（持ち主・盾・汚染）をまとめて受け取る。戻り値はその時点の配信番号
+async function fetchMap() {
+  const res = await fetch(API + '/api/map', { headers: { 'X-Player-Token': online.token } });
+  if (!res.ok) throw new Error(`地図を読み込めません（${res.status}）`);
+  const seq = +res.headers.get('x-seq') || 0;
+  const buf = new Uint8Array(await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+  if (buf.length !== N * 2) throw new Error('地図の大きさが合いません');
+  for (let i = 0; i < N; i++) {
+    const o = buf[i], f = buf[N + i];
+    owner[i] = o === 255 ? -1 : o;
+    shield[i] = f & 1;
+    fallout[i] = f >> 1;
+  }
+  mapDirty = true;
+  return seq;
+}
+
+async function startOnline() {
+  leaveOnline();
+  $('menuMsg').textContent = 'サーバーに接続中…';
+  online = { token: loadToken(), me: null, seasonNo: 0, costs: null, nukeCosts: null, seed: null, ws: null, poll: 0,
+    seq: 0, ready: false, buffer: [], chain: Promise.resolve(), resyncing: false, shownEnd: false };
+  let data;
+  try {
+    data = await api('/api/state');
+    online.me = data.me;
+    ['infoCard', 'sideBtns', 'bottom'].forEach((id) => $(id).classList.remove('hidden'));
+    setupMap(data.meta);
+    connectSocket();
+    online.seq = await fetchMap();
+  } catch (e) {
+    leaveOnline();
+    $('menuMsg').textContent = location.protocol === 'file:' || !location.host
+      ? 'オンライン対戦はサーバー（Cloudflare）に置いたページから遊べます'
+      : 'オンライン対戦のサーバーにつながりません：' + e.message;
+    return;
+  }
+  $('menuMsg').textContent = '';
+  mode = null; selTile = -1; missiles = []; effects = [];
+  closeSheet(); hideSel(); setHint(null);
+  buildButtons();
+  applyMeta(data.meta);
+  scan();
+  fitCamera();
+  online.ready = true;
+  flushBuffer();
+  if (!data.me) showJoin(data.meta);
+  else { $('overlay').classList.add('hidden'); centerOnMe(); }
+}
+
+function leaveOnline() {
+  if (!online) return;
+  clearInterval(online.poll);
+  if (online.ws) { online.ws.onclose = null; online.ws.close(); }
+  online = null;
+}
+
+// 新しいマップ（シーズン）なら地図を作り直す
+function setupMap(meta) {
+  if (online.seed === meta.seed) return;
+  setDims(meta.W, meta.H);
+  genMap(meta.seed);
+  owner = new Int16Array(N).fill(-1);
+  shield = new Uint8Array(N);
+  fallout = new Uint8Array(N);
+  players = meta.nations.map((n) => Object.assign(makePlayer(n.id, n.name, n.color, false), { capital: n.capital, members: n.members }));
+  online.seed = meta.seed;
+  online.seq = 0;
+  mapDirty = true;
+}
+
+// 地図以外の情報（国・建物・ログ・日付）を反映する
+function applyMeta(meta) {
+  online.seasonNo = meta.seasonNo;
+  online.costs = meta.costs;
+  online.nukeCosts = meta.nukeCosts;
+  for (const n of meta.nations) {
+    const p = players[n.id];
+    p.members = n.members; p.capital = n.capital; p.tiles = n.tiles;
+    p.cnt = { city: 0, silo: 0, sam: 0 };
+    p.gold = 0; p.actions = 0;
+  }
+  bAt = new Map(meta.buildings.map((b) => [b.i, { type: b.type, i: b.i, x: tx(b.i), y: ty(b.i), owner: b.nation, cd: b.cd }]));
+  for (const b of bAt.values()) players[b.owner].cnt[b.type]++;
+  me = online.me ? online.me.nation : 0;
+  if (online.me) { players[me].gold = online.me.gold; players[me].actions = online.me.actedToday ? 0 : 1; }
+  day = meta.day;
+  logs = meta.logs.map((l) => ({ text: l.text, cls: l.cls, day: l.day, color: l.nation >= 0 ? meta.nations[l.nation].color : '#ccc' }));
+  const last = logs[logs.length - 1];
+  if (last) ticker(last.text, last.color, agoText(last.day));
+  state = online.me && !meta.ended ? 'play' : 'watch';
+  if (meta.ended && !online.shownEnd) {
+    online.shownEnd = true;
+    const w = meta.nations[meta.winner];
+    $('endTitle').textContent = online.me && w && w.id === online.me.nation ? '🎉 優勝！' : '🏁 シーズン終了';
+    $('endText').textContent = w ? `シーズン${meta.seasonNo}の優勝は ${w.name}（${w.tiles.toLocaleString()}マス）！次のシーズンをお待ちください。` : '';
+    $('menu').classList.add('hidden'); $('joinCard').classList.add('hidden');
+    $('endCard').classList.remove('hidden'); $('overlay').classList.remove('hidden');
+  }
+}
+
+function applyCells(cells) {
+  for (let k = 0; k < cells.length; k += 3) {
+    const i = cells[k], o = cells[k + 1], f = cells[k + 2];
+    owner[i] = o === 255 ? -1 : o;
+    shield[i] = f & 1;
+    fallout[i] = f >> 1;
+    markCell(i);
+  }
+}
+
+// 画面の数字やラベルを更新（大きいマップなので、続けて来ても0.5秒に1回まで）
+let refreshTimer = 0;
+function refresh() {
+  if (refreshTimer) return;
+  refreshTimer = setTimeout(() => {
+    refreshTimer = 0;
+    if (!online) return;
+    scan();
+    if (selTile >= 0) showSel(selTile);
+    updateUI();
+  }, 500);
+}
+
+function handleDiff(msg) {
+  if (!online.ready) { online.buffer.push(msg); return; }
+  if (msg.seq <= online.seq) return;                       // 地図に入っている古い分
+  if (msg.seq > online.seq + 1) { resync(); return; }      // 取りこぼした → 地図を取り直す
+  online.seq = msg.seq;
+  const nukes = (msg.events || []).filter((e) => e.kind === 'nuke');
+  // 核が飛んできたときは、着弾してから地図を書き換える
+  online.chain = online.chain.then(() => {
+    let delay = 0;
+    for (const e of nukes) delay = Math.max(delay, animateNuke(e));
+    return new Promise((r) => setTimeout(r, delay));
+  }).then(() => {
+    if (!online) return;
+    applyCells(msg.cells);
+    applyMeta(msg.meta);
+    refresh();
+  });
+}
+function flushBuffer() {
+  const buf = online.buffer;
+  online.buffer = [];
+  buf.forEach(handleDiff);
+}
+
+async function resync() {
+  if (!online || online.resyncing) return;
+  online.resyncing = true;
+  online.ready = false;
+  try {
+    const d = await api('/api/state');
+    online.me = d.me;
+    if (d.meta.seed !== online.seed) { setupMap(d.meta); fitCamera(); }
+    online.seq = await fetchMap();
+    applyMeta(d.meta);
+  } catch { /* 次の機会にまた試す */ }
+  if (!online) return;
+  online.resyncing = false;
+  online.ready = true;
+  flushBuffer();
+  refresh();
+}
+
+function animateNuke(e) {
+  const now = performance.now(), dist = Math.hypot(tx(e.to) - tx(e.from), ty(e.to) - ty(e.from));
+  const dur = 1100 + Math.min(dist, 60) * 70;
+  const m = { type: e.type, owner: e.nation, sx: tx(e.from), sy: ty(e.from), tx: tx(e.to), ty: ty(e.to), start: now, dur, intercept: -1, visual: true, victim: owner[e.to] };
+  if (e.interceptBy != null) { m.intercept = 0.82; m.samX = tx(e.interceptBy); m.samY = ty(e.interceptBy); m.samOwner = -1; }
+  else if (!e.warheads) m.boomR = NUKE[e.type].r;
+  missiles.push(m);
+  let end = e.interceptBy != null ? dur * 0.82 : dur;
+  for (const w of e.warheads || []) {
+    const wd = 500 + Math.min(Math.hypot(tx(w) - tx(e.to), ty(w) - ty(e.to)), 60) * 60;
+    missiles.push({ type: 'warhead', owner: e.nation, sx: tx(e.to), sy: ty(e.to), tx: tx(w), ty: ty(w), start: now + dur, dur: wd, intercept: -1, visual: true, boomR: WARHEAD_R });
+    end = Math.max(end, dur + wd);
+  }
+  if (online.me && m.victim === online.me.nation) toast('☢ 核ミサイルが飛んできた！');
+  return end + 50;
+}
+
+async function onlineSend(path, body) {
+  try {
+    const data = await api(path, body);
+    online.me = data.me;
+    // 核は、みんなと同じ配信（ミサイルの演出つき）で反映する
+    if (path !== '/api/nuke') applyCells(data.cells || []);
+    applyMeta(data.meta);
+    if (path === '/api/act' && data.cells && data.cells.length) pop(data.cells[0], players[me].color);
+    refresh();
+  } catch (e) { toast(e.message); }
+}
+
+function showJoin(meta) {
+  $('menu').classList.add('hidden');
+  $('endCard').classList.add('hidden');
+  $('joinCard').classList.remove('hidden');
+  $('overlay').classList.remove('hidden');
+  $('joinNations').innerHTML = meta.nations.map((n) => `
+    <button class="nation" data-id="${n.id}">
+      <span class="sw" style="background:${n.color}"></span>
+      <span class="nm">${esc(n.name)}</span>
+      <small>${n.tiles.toLocaleString()}マス・👥${n.members.toLocaleString()}人</small>
+    </button>`).join('');
+}
+$('joinNations').addEventListener('click', async (e) => {
+  const b = e.target.closest('.nation');
+  if (!b || !online) return;
+  const name = $('joinName').value.trim();
+  if (!name) { $('joinMsg').textContent = '名前を入れてください'; return; }
+  $('joinMsg').textContent = '参加しています…';
+  try {
+    const data = await api('/api/join', { nation: +b.dataset.id, name });
+    saveToken(data.token);
+    online.token = data.token;
+    online.me = data.me;
+    $('joinMsg').textContent = '';
+    $('overlay').classList.add('hidden');
+    $('joinCard').classList.add('hidden');
+    applyMeta(data.meta);
+    scan();
+    updateUI();
+    centerOnMe();
+  } catch (err) { $('joinMsg').textContent = err.message; }
+});
+$('joinBack').addEventListener('click', () => {
+  leaveOnline();
+  $('joinCard').classList.add('hidden');
+  $('menu').classList.remove('hidden');
+});
+function centerOnMe() { const P = players[me]; if (P && P.tiles) centerOn(P.lx, P.ly, Math.max(cam.s, 22)); }
+
+// リアルタイム更新。つながらないときは30秒ごとに、つながっていても10分ごとに地図を取り直す
+function connectSocket() {
+  if (!online) return;
+  clearInterval(online.poll);
+  let ticks = 0;
+  online.poll = setInterval(() => {
+    if (!online) return;
+    ticks++;
+    if (!online.ws || online.ws.readyState !== 1 || ticks % 20 === 0) resync();
+  }, 30000);
+  let url;
+  try {
+    const base = API ? new URL(API) : location;
+    url = `${base.protocol === 'https:' ? 'wss' : 'ws'}://${base.host}/api/ws`;
+  } catch { return; }
+  const ws = new WebSocket(url);
+  online.ws = ws;
+  ws.onmessage = (e) => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    if (!online) return;
+    if (msg.type === 'diff') handleDiff(msg);
+    else if (msg.type === 'reload') { online.shownEnd = false; resync(); }
+  };
+  ws.onclose = (e) => {
+    if (!online || online.ws !== ws) return;
+    if (e.code === 4003) { toast('この回線からは参加できません'); return; }
+    setTimeout(() => { if (online && online.ws === ws) { connectSocket(); resync(); } }, 5000);
+  };
+}
+setInterval(() => { if (online && state === 'play' && !players[me].actions) updateUI(); }, 30000);
+
 // タイトル画面の背景用にマップを生成しておく
 setDims();
 genMap((Math.random() * 1e9) | 0);
@@ -1222,7 +1504,7 @@ requestAnimationFrame(frame);
 // テスト・デバッグ用
 window.__jintori = {
   get players() { return players; }, get state() { return state; }, set state(v) { state = v; }, get day() { return day; },
-  get missiles() { return missiles; }, get landCount() { return landCount; },
+  get missiles() { return missiles; }, get landCount() { return landCount; }, get online() { return online; },
   flushMissiles() { for (let k = 0; k < 3; k++) updateMissiles(performance.now() + 1e7 * (k + 1)); },
   owner: () => owner, shield: () => shield, launchNuke, placeBuilding, doPlayerAction, advanceDay, botAct, canTake,
 };
