@@ -13,6 +13,7 @@ const NONE = 255;                    // owner：だれのものでもない
 const CHUNK = 32768;                 // 保存するときの区切り（マス数）
 const SEASON_DAYS = 100;
 const SAM_RANGE = 12;
+const NO_GUARD_R = 4;                // 大山のまわりは守れない
 const SILO_RELOAD = 2;
 const SAM_RELOAD = 3;
 const LOG_KEEP = 80;
@@ -418,6 +419,7 @@ export class GameRoom {
     if (kind === 'guard') {
       if (this.owner[i] !== n) return { error: '守れるのは自分の国のマスだけです' };
       if (this.shield(i)) return { error: 'もう守っています' };
+      if (Math.hypot(i % m.W - m.peak % m.W, ((i / m.W) | 0) - ((m.peak / m.W) | 0)) <= NO_GUARD_R) return { error: '大山のまわりは守れません' };
       this.setCell(i, n, this.flags[i] | 1);
       this.log(`${who}が ${this.town(i)} を守った`, n);
       return {};

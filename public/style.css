@@ -42,8 +42,10 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .ic-head { display: flex; align-items: center; gap: 10px; }
 .ic-head .sw { width: 30px; height: 30px; border: 3px solid var(--ink); border-radius: 8px; flex: none; }
 .ic-name { font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.ic-short { margin-left: auto; font-size: 14px; color: var(--sub); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.ic-short b { color: var(--ink); margin-right: 4px; }
+.ic-day { margin-left: auto; font-size: 14px; color: var(--sub); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ic-day b { color: var(--ink); }
+button.dark { background: var(--ink); color: #fff; box-shadow: none; padding: 6px 14px; font-size: 14px; white-space: nowrap; flex: none; }
+button.dark:active:not(:disabled) { transform: scale(0.95); box-shadow: none; }
 .circ {
   width: 42px; height: 42px; padding: 0; flex: none; font-size: 16px;
   box-shadow: none; display: grid; place-items: center;
@@ -67,7 +69,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 
 /* 右側ボタン */
 #sideBtns {
-  position: fixed; right: 10px; top: 50%; transform: translateY(-50%); z-index: 3;
+  position: fixed; right: 10px; top: 50%; transform: translateY(-50%); z-index: 5;
   display: flex; flex-direction: column; gap: 12px;
 }
 .round {
@@ -91,34 +93,18 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 
 /* 下部 */
 #bottom { position: fixed; left: 0; right: 0; bottom: 0; z-index: 4; display: flex; flex-direction: column; }
-#actionBar {
-  display: flex; gap: 8px; align-items: center; padding: 6px 8px; overflow-x: auto;
-  scrollbar-width: none;
+/* 核・建設パネル */
+#weapons {
+  margin: 0 8px 6px; background: var(--cream); border: 3px solid var(--ink); border-radius: 18px;
+  box-shadow: 0 4px 0 var(--ink); padding: 8px 10px;
 }
-#actionBar::-webkit-scrollbar { display: none; }
-#dayBox {
-  flex: none; background: var(--cream); border: 3px solid var(--ink); border-radius: 16px;
-  box-shadow: 0 4px 0 var(--ink); padding: 4px 8px; display: grid; grid-template-columns: auto auto;
-  align-items: center; column-gap: 8px; row-gap: 2px;
+.wp-head { font-size: 14px; margin-bottom: 6px; }
+.wp-head small { color: var(--sub); font-weight: 500; font-size: 11px; margin-left: 6px; }
+#weapons #buttons { overflow-x: auto; scrollbar-width: none; padding-bottom: 6px; }
+#caption {
+  align-self: flex-start; margin: 0 0 6px 10px; padding: 3px 12px; border-radius: 999px;
+  background: rgba(255, 253, 245, 0.85); font-size: 12px; pointer-events: none;
 }
-.db-day { font-size: 15px; white-space: nowrap; }
-.db-day b { font-size: 20px; color: var(--red); }
-.db-left { font-size: 11px; color: var(--sub); white-space: nowrap; grid-column: 1; }
-.db-left b { color: var(--red); font-size: 14px; }
-#btnPass { grid-column: 2; grid-row: 1 / span 2; padding: 6px 10px; font-size: 13px; box-shadow: 0 3px 0 var(--ink); background: var(--yellow); white-space: nowrap; }
-
-/* 選んだマスのポップアップ */
-#selPop {
-  margin: 0 8px 4px; background: #fff; border: 3px solid var(--ink); border-radius: 18px;
-  box-shadow: 0 4px 0 var(--ink); padding: 8px 8px 8px 14px; display: flex; align-items: center; gap: 10px;
-}
-.sp-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.sp-text span { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sp-text small { font-size: 12px; color: var(--sub); font-weight: 500; }
-#selPop .go { background: var(--red); color: #fff; font-size: 17px; padding: 8px 18px; white-space: nowrap; }
-#selPop .go.guard { background: #4a7de0; }
-#selPop .go:disabled { background: #ccc; color: #666; }
-
 #buttons { display: flex; gap: 8px; flex: none; }
 .bbtn {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -193,12 +179,13 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 @media (max-width: 600px) {
   .ic-name { font-size: 17px; }
   .ic-head .sw { width: 24px; height: 24px; }
-  .ic-short { font-size: 12px; }
+  .ic-day { font-size: 11px; white-space: normal; text-align: right; line-height: 1.2; }
+  button.dark { padding: 5px 10px; font-size: 12px; }
   #silhouette { width: 64px; height: 48px; }
   .pill { font-size: 12px; padding: 1px 8px; }
   .round { width: 50px; height: 50px; font-size: 22px; border-radius: 16px; }
   .round.txt { font-size: 12px; }
-  #sideBtns { gap: 9px; top: 54%; }
+  #sideBtns { gap: 8px; top: 52%; }
   #tabs button { font-size: 14px; padding: 8px 2px; }
 }
 
@@ -213,3 +200,16 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 #joinNations .nation .sw { width: 22px; height: 22px; border: 3px solid var(--ink); border-radius: 6px; grid-row: 1 / span 2; }
 #joinNations .nation .nm { font-size: 16px; }
 #joinNations .nation small { font-size: 11px; color: var(--sub); font-weight: 500; }
+
+.round.on { background: var(--yellow); }
+.settings { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 600px) {
+  #weapons, #selPop { margin-right: 66px; }   /* 右のボタンと重ならないように */
+}
+@media (max-width: 600px) {
+  .ic-head { gap: 6px; }
+  .ic-name { flex: 0 1 auto; min-width: 5.2em; font-size: 16px; }
+  .ic-day { min-width: 0; white-space: nowrap; font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
+  .circ { width: 36px; height: 36px; font-size: 14px; }
+  #tabs button { font-size: 13px; white-space: nowrap; padding: 10px 2px; }
+}

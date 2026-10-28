@@ -17,7 +17,8 @@
   <div class="ic-head">
     <span class="sw" id="cSwatch"></span>
     <span class="ic-name" id="cName">あなたの国</span>
-    <span class="ic-short">🗺<b id="cTilesShort">0</b> 💰<b id="cGold">0</b></span>
+    <span class="ic-day" id="cDayInfo">今日の1マス：のこり 1</span>
+    <button id="btnPass" class="dark">次の日 ▶</button>
     <button id="btnCollapse" class="circ" title="くわしく">▼</button>
   </div>
   <div id="nukeAlert" class="alert hidden">☢ 核ミサイル接近中！</div>
@@ -26,9 +27,9 @@
     <div class="ic-body">
       <div class="ic-line"><b id="cRank">1位</b>・<span id="cTiles">0</span>マス（<span id="cDelta">±0</span>）<span class="ic-sub" id="cSub"></span></div>
       <div class="ic-pills">
-        <span class="pill">収入 <b>+<span id="cIncome">0</span></b>/日</span>
+        <span class="pill">📅 <b id="cDay">1</b>日目</span>
+        <span class="pill">💰 <b id="cGold">0</b>（1マスで +<span id="cIncome">0</span>）</span>
         <span class="pill">🛡 守り <b id="cShields">0</b></span>
-        <span class="pill">🏙 都市 <b id="cCities">0</b></span>
         <span class="pill">🏁 シーズン終了まで <b id="cLeft">0</b>日</span>
       </div>
     </div>
@@ -40,7 +41,10 @@
   <button class="round" id="btnZoomIn" title="ズームイン">＋</button>
   <button class="round" id="btnZoomOut" title="ズームアウト">－</button>
   <button class="round txt" id="btnHome">わが<br>国へ</button>
-  <button class="round txt" id="btnLabels">国名<br>表示</button>
+  <button class="round txt" id="btnRegion">国で<br>見る</button>
+  <button class="round txt" id="btnLabels">色と<br>国名</button>
+  <button class="round txt" id="btnWeapons">核・<br>建設</button>
+  <button class="round" id="btnSettings" title="設定">⚙</button>
 </div>
 
 <div id="hint" class="hidden"></div>
@@ -49,23 +53,20 @@
 <!-- 下部 -->
 <div id="bottom" class="hidden">
   <div id="sheet" class="hidden"></div>
+  <div id="weapons" class="hidden">
+    <div class="wp-head">💰 <b id="wGold">0</b> <small>建物と核は金だけで使えます（その日の1マスは減りません）</small></div>
+    <div id="buttons"></div>
+  </div>
   <div id="selPop" class="hidden">
     <div class="sp-text"><span id="selTitle"></span><small id="selSub"></small></div>
     <button id="selGo" class="go">取る！</button>
     <button id="selCancel" class="circ" title="やめる">✕</button>
   </div>
-  <div id="actionBar">
-    <div id="dayBox">
-      <div class="db-day">📅 <b id="dDay">1</b>日目</div>
-      <div class="db-left" id="dLeft">今日の1マス：のこり <b>1</b></div>
-      <button id="btnPass">次の日へ ▶</button>
-    </div>
-    <div id="buttons"></div>
-  </div>
+  <div id="caption">1人1日1マスの陣地取り大戦</div>
   <div id="tabs">
     <button data-tab="rank">順位</button>
     <button data-tab="recent">最近</button>
-    <button data-tab="map">全体図</button>
+    <button data-tab="prev">前日の勢力図</button>
     <button data-tab="help">遊び方</button>
   </div>
   <div id="ticker"><span class="sw"></span><span class="tx">スタート地点を選んでください</span><span class="ago">いま</span></div>
@@ -120,6 +121,9 @@
     <li>🛡 <b>迎撃基地</b>：まわり12マス以内に飛んでくる核を撃ち落とす（MIRVは迎撃不可）</li>
     <li>☢ <b>原子爆弾</b> / 💥 <b>水素爆弾</b> / 🎆 <b>MIRV</b>（相手の陣地に6発の弾頭）。被爆したマスは無人に戻り、数日間だれも取れません</li>
     <li>100日のシーズン終了時にあなたの国が1位、または陸地の60%を取るか敵を全滅させれば勝利</li>
+    <li>右の「核・建設」から建物と核を使えます。「国で見る」でマスの記号を消して色だけ、「色と国名」で名前の表示を切り替え</li>
+    <li>「大山」のまわり（赤い点線の中）は<b>守れない</b>場所です。盾を置けません</li>
+    <li>「前日の勢力図」で、きのうの地図とくらべられます</li>
     <li>キーボード：<b>1〜3</b> 建設、<b>4〜6</b> 核、<b>Enter</b> 決定、<b>N</b> 次の日へ、<b>Esc</b> 解除</li>
   </ul>
 </template>

@@ -8,6 +8,7 @@ const SAM_RANGE = 12;
 const SILO_RELOAD = 2;                // 日
 const SAM_RELOAD = 3;                 // 日
 const ACTIVE_RATE = 0.55;             // CPU対戦：1日に行動する住民の割合
+const NO_GUARD_R = 4;                 // 大山のまわりの「守れない」範囲（マス）
 
 const BUILD = {
   city: { name: '都市',        icon: '🏙', base: 50,  scale: 1.0, key: '1' },
@@ -40,6 +41,8 @@ let players, bAt, missiles, effects, logs;
 let state = 'menu', day = 1, landCount = 0, diff = DIFF.normal;
 let me = 0, mode = null, hoverTile = -1, selTile = -1, shake = 0, mapDirty = true, showLabels = true;
 let yesterdayTiles = 0;
+let plainView = false;                // 「国で見る」：マスの記号を消して色だけにする
+let prevOwner = null, savedOwner = null;   // 前日の勢力図
 let online = null;   // オンライン対戦中は { token, me, costs, nukeCosts, ... }
 const cam = { x: 0, y: 0, s: 16 };
 
@@ -102,7 +105,7 @@ function genMap(seed) {
 // ===== プレイヤー =====
 function makePlayer(id, name, color, isBot) {
   return {
-    id, name, color, rgb: hex2rgb(color), isBot, alive: true,
+    id, name, abbr: [...name].slice(0, 2).join(''), color, rgb: hex2rgb(color), isBot, alive: true,
     gold: 30, treasury: 0, members: 0, tiles: 0, cnt: { city: 0, silo: 0, sam: 0 }, actions: 1, capital: -1,
     nb: new Set(), lx: 0, ly: 0, grudge: -1,
   };
@@ -144,6 +147,7 @@ function newGame() {
   for (let k = 0; k < nBots; k++) players.push(makePlayer(k + 1, names[k], cols[k], true));
   for (const p of players) p.members = Math.max(1, Math.round(pop / players.length));   // あなたの国の人数にはあなたも入る
   me = 0; day = 1; mode = null; selTile = -1;
+  prevOwner = null; savedOwner = null;
   state = 'spawn';
   mapDirty = true;
   $('overlay').classList.add('hidden');
@@ -186,12 +190,13 @@ function startGame(spawnTile) {
   state = 'play';
   setHint(null);
   log(`${players[me].name} が ${town(spawnTile)} に建国しました！（仲間 ${players[me].members.toLocaleString()}人）`, me, 'good');
-  centerOn(tx(spawnTile) + 0.5, ty(spawnTile) + 0.5, Math.max(cam.s, 16));
+  centerOn(tx(spawnTile) + 0.5, ty(spawnTile) + 0.5, Math.max(cam.s, 6));
   updateUI();
 }
 
 // ===== 1日の行動 =====
 const adjacentTo = (i, pid) => neighbors(i).some((j) => owner[j] === pid);
+const noGuard = (i) => peak >= 0 && Math.hypot(tx(i) - tx(peak), ty(i) - ty(peak)) <= NO_GUARD_R;
 function canTake(p, i) {
   if (i < 0 || !terrain[i]) return '海は取れません';
   if (owner[i] === p.id) return '自分のマスです';
@@ -230,6 +235,7 @@ function doPlayerAction(i) {
   if (online) { onlineSend('/api/act', { cell: i, kind: owner[i] === me ? 'guard' : 'take' }); hideSel(); return; }
   if (owner[i] === me) {
     if (shield[i]) { toast('もう守っています'); return; }
+    if (noGuard(i)) { toast('大山のまわりは守れません'); return; }
     guardTile(P, i);
   } else {
     const err = canTake(P, i);
@@ -251,6 +257,7 @@ function doPlayerAction(i) {
 // 1日を進める：各国の住民（CPU）がそれぞれ1マスずつ動き、金が入り、汚染が薄れる
 function advanceDay() {
   if (state !== 'busy') return;
+  prevOwner = owner.slice();
   const F = buildFrontiers();
   const stats = players.map(() => ({ done: 0, gained: 0, lostTo: new Map() }));
   // その日に動く人数（あなたの国は、あなたを除いた仲間の分）
@@ -339,7 +346,7 @@ function aiAct(p, F, stats) {
   stats[id].done++;
   // 守る
   if (f.guard.length && Math.random() < diff.defend * (f.neutral.length ? 0.3 : 1)) {
-    const i = pickFrom(f.guard, (i) => owner[i] === id && !shield[i], () => 0);
+    const i = pickFrom(f.guard, (i) => owner[i] === id && !shield[i] && !noGuard(i), () => 0);
     if (i >= 0) { shield[i] = 1; return; }
   }
   // 無人のマスを取る（序盤ほど優先）
@@ -719,7 +726,7 @@ function render(now) {
 
   if (s >= 6 && v.x0 <= v.x1 && v.y0 <= v.y1) {
     // 斜線模様
-    if (s >= 9) {
+    if (s >= 9 && !plainView) {
       if (!stripePattern) stripePattern = ctx.createPattern(stripeTile, 'repeat');
       stripePattern.setTransform(new DOMMatrix([s / 12, 0, 0, s / 12, cam.x, cam.y]));
       ctx.beginPath();
@@ -768,14 +775,39 @@ function render(now) {
       ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fill();
       ctx.strokeStyle = 'rgba(60,40,140,0.6)'; ctx.lineWidth = 1; ctx.stroke();
     }
-    // 盾（守ったマス）
-    ctx.beginPath();
-    for (let y = v.y0; y <= v.y1; y++) for (let x = v.x0; x <= v.x1; x++) {
-      const i = y * W + x;
-      if (shield[i] && owner[i] >= 0) shieldPath(cam.x + (x + 0.5) * s, cam.y + (y + 0.5) * s, s * 0.55);
+    // マスの記号：守っているマスは盾、ほかは国の名前の頭2文字のバッジ
+    if (!plainView) {
+      const shields = new Path2D(), badges = [];
+      for (let y = v.y0; y <= v.y1; y++) for (let x = v.x0; x <= v.x1; x++) {
+        const i = y * W + x, o = owner[i];
+        if (o < 0) continue;
+        const X = cam.x + (x + 0.5) * s, Y = cam.y + (y + 0.5) * s;
+        if (shield[i]) {
+          const w = s * 0.62;
+          shields.moveTo(X - w / 2, Y - w * 0.45);
+          shields.quadraticCurveTo(X, Y - w * 0.6, X + w / 2, Y - w * 0.45);
+          shields.lineTo(X + w / 2, Y);
+          shields.quadraticCurveTo(X + w / 2, Y + w * 0.4, X, Y + w * 0.6);
+          shields.quadraticCurveTo(X - w / 2, Y + w * 0.4, X - w / 2, Y);
+          shields.closePath();
+        } else if (s >= 16) badges.push(X, Y, o);
+      }
+      if (badges.length) {
+        const w = s * 0.7, h = s * 0.66, path = new Path2D();
+        for (let k = 0; k < badges.length; k += 3) {
+          const X = badges[k], Y = badges[k + 1];
+          path.moveTo(X - w / 2, Y - h * 0.5); path.lineTo(X + w / 2, Y - h * 0.5); path.lineTo(X + w / 2, Y + h * 0.12);
+          path.lineTo(X, Y + h * 0.5); path.lineTo(X - w / 2, Y + h * 0.12); path.closePath();
+        }
+        ctx.fillStyle = '#fffdf5'; ctx.fill(path);
+        ctx.strokeStyle = '#2b2b2b'; ctx.lineWidth = Math.max(1, s * 0.05); ctx.lineJoin = 'round'; ctx.stroke(path);
+        ctx.font = `800 ${s * 0.24}px "M PLUS Rounded 1c", sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#2b2b2b';
+        for (let k = 0; k < badges.length; k += 3) ctx.fillText(players[badges[k + 2]].abbr, badges[k], badges[k + 1] - h * 0.08);
+      }
+      ctx.fillStyle = '#fffdf5'; ctx.fill(shields);
+      ctx.strokeStyle = '#2b2b2b'; ctx.lineWidth = Math.max(1, s * 0.07); ctx.stroke(shields);
     }
-    ctx.fillStyle = '#fffdf5'; ctx.fill();
-    ctx.strokeStyle = '#2b2b2b'; ctx.lineWidth = Math.max(1, s * 0.07); ctx.stroke();
     // 汚染マーク
     if (s >= 10) {
       ctx.font = `${s * 0.5}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = 'rgba(40,60,0,0.7)';
@@ -824,14 +856,29 @@ function render(now) {
     }
   }
 
-  // 最高峰
-  if (peak >= 0 && !bAt.has(peak)) {
-    const [X, Y] = T(tx(peak) + 0.5, ty(peak) + 0.5), m = Math.min(24, Math.max(10, s * 0.75));
-    ctx.beginPath(); ctx.moveTo(X - m, Y + m * 0.5); ctx.lineTo(X, Y - m * 0.6); ctx.lineTo(X + m, Y + m * 0.5); ctx.closePath();
-    ctx.fillStyle = '#4a5a9a'; ctx.fill(); ctx.strokeStyle = '#222'; ctx.lineWidth = 1.5; ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(X - m * 0.38, Y - m * 0.18); ctx.lineTo(X, Y - m * 0.6); ctx.lineTo(X + m * 0.38, Y - m * 0.18); ctx.closePath();
+  // 大山（名所）と、そのまわりの「守れない」範囲
+  if (peak >= 0) {
+    const [X, Y] = T(tx(peak) + 0.5, ty(peak) + 0.5), m = Math.min(64, Math.max(12, s * 2.2));
+    if (s >= 3) {
+      ctx.beginPath(); ctx.arc(X, Y, (NO_GUARD_R + 0.5) * s, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(230, 80, 70, 0.12)'; ctx.fill();
+      ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 2; ctx.setLineDash([8, 6]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(X - m, Y + m * 0.45); ctx.lineTo(X, Y - m * 0.55); ctx.lineTo(X + m, Y + m * 0.45); ctx.closePath();
+    ctx.fillStyle = '#4a5a9a'; ctx.fill(); ctx.strokeStyle = '#222'; ctx.lineWidth = Math.max(2, m * 0.07); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(X - m * 0.36, Y - m * 0.19); ctx.lineTo(X - m * 0.15, Y - m * 0.05); ctx.lineTo(X, Y - m * 0.2);
+    ctx.lineTo(X + m * 0.15, Y - m * 0.05); ctx.lineTo(X + m * 0.36, Y - m * 0.19); ctx.lineTo(X, Y - m * 0.55); ctx.closePath();
     ctx.fillStyle = '#fff'; ctx.fill(); ctx.stroke();
-    if (showLabels) outlined('大山', X, Y + m * 0.95, Math.max(10, Math.min(14, s * 0.55)));
+    // 頂上の旗
+    ctx.beginPath(); ctx.moveTo(X, Y - m * 0.55); ctx.lineTo(X, Y - m * 1.05); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(X, Y - m * 1.05); ctx.lineTo(X + m * 0.42, Y - m * 0.92); ctx.lineTo(X, Y - m * 0.8); ctx.closePath();
+    ctx.fillStyle = '#fff'; ctx.fill(); ctx.stroke();
+    if (showLabels) {
+      const fs = Math.max(11, Math.min(20, m * 0.36));
+      outlined('大山', X, Y + m * 0.45 + fs * 0.7, fs);
+      if (s >= 3) outlined('⚠ 守れない', X, Y + m * 0.45 + fs * 1.75, fs * 0.8, '#c0392b');
+    }
   }
 
   // 首都の旗
@@ -991,7 +1038,7 @@ function fitCamera() {
   const cw = canvas.clientWidth, ch = canvas.clientHeight;
   const ui = !$('infoCard').classList.contains('hidden');
   const top = ui ? $('infoCard').getBoundingClientRect().bottom + 12 : 40;
-  const bottom = ui ? ch - $('actionBar').getBoundingClientRect().top + 8 : 40;
+  const bottom = ui ? ch - $('caption').getBoundingClientRect().top + 4 : 40;
   const side = ui && cw < 700 ? 64 : 16;
   cam.s = Math.min((cw - side * 2) / W, (ch - top - bottom) / H);
   cam.x = (cw - W * cam.s) / 2;
@@ -1003,11 +1050,23 @@ function zoomAt(sx, sy, ns) {
   cam.x = sx - (sx - cam.x) * ns / cam.s;
   cam.y = sy - (sy - cam.y) * ns / cam.s;
   cam.s = ns;
+  clampCam();
 }
 function centerOn(x, y, s) {
   if (s) cam.s = s;
   cam.x = canvas.clientWidth / 2 - x * cam.s;
   cam.y = canvas.clientHeight / 2 - y * cam.s;
+  clampCam();
+}
+// 画面がマップの外に出ないようにする（スライドしすぎて海だけの所で迷子にならないように）。
+// マップが画面より小さいときは真ん中に置く
+function clampCam() {
+  const fit = (c, size, view) => {
+    const m = Math.min(80, view * 0.2);   // 端は少しだけはみ出せる
+    return size + m * 2 <= view ? (view - size) / 2 : Math.min(m, Math.max(view - size - m, c));
+  };
+  cam.x = fit(cam.x, W * cam.s, canvas.clientWidth);
+  cam.y = fit(cam.y, H * cam.s, canvas.clientHeight);
 }
 function screenToTile(sx, sy) {
   const x = Math.floor((sx - cam.x) / cam.s), y = Math.floor((sy - cam.y) / cam.s);
@@ -1023,7 +1082,7 @@ canvas.addEventListener('pointerdown', (e) => {
   if (pointers.size === 1) drag = { sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, moved: false };
   else if (pointers.size === 2) {
     const [a, b] = [...pointers.values()];
-    pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), s: cam.s };
+    pinch = { d: Math.max(40, Math.hypot(a.x - b.x, a.y - b.y)), s: cam.s };
     if (drag) drag.moved = true;
   }
 });
@@ -1037,7 +1096,7 @@ canvas.addEventListener('pointermove', (e) => {
   } else if (drag) {
     const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
     if (!drag.moved && Math.hypot(dx, dy) > 8) { drag.moved = true; drag.cx = cam.x - dx; drag.cy = cam.y - dy; }
-    if (drag.moved && !pinch) { cam.x = drag.cx + dx; cam.y = drag.cy + dy; }
+    if (drag.moved && !pinch) { cam.x = drag.cx + dx; cam.y = drag.cy + dy; clampCam(); }
   }
 });
 function endPointer(e) {
@@ -1056,9 +1115,12 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 function handleClick(sx, sy, button) {
   const t = screenToTile(sx, sy);
-  if (state === 'spawn') {
-    if (t >= 0 && terrain[t]) startGame(t);
-    else toast('陸地を選んでね');
+  if (savedOwner) { toast('前日の勢力図を表示中です'); return; }
+  if (state === 'spawn') {   // スタート地点はポップアップで確認してから決める
+    if (t >= 0 && terrain[t]) {
+      if (t === selTile) { hideSel(); startGame(t); return; }
+      showSpawnSel(t);
+    } else { hideSel(); toast('陸地を選んでね'); }
     return;
   }
   if (state !== 'play') return;
@@ -1094,7 +1156,11 @@ function showSel(i) {
     const who = o === me ? '自分' : o >= 0 ? players[o].name : '無人';
     title = `${town(i)}のマス`;
     sub = `${who}${shield[i] ? '・🛡守り中' : ''}${fallout[i] ? `・☢汚染 あと${fallout[i]}日` : ''}${bAt.has(i) ? '・' + BUILD[bAt.get(i).type].name : ''}`;
-    if (o === me) { action = shield[i] ? null : '守る'; if (shield[i]) sub += '（もう守っています）'; }
+    if (o === me) {
+      action = shield[i] || noGuard(i) ? null : '守る';
+      if (shield[i]) sub += '（もう守っています）';
+      else if (noGuard(i)) sub += '（⚠ 大山のまわりは守れません）';
+    }
     else {
       const err = canTake(P, i);
       if (err) sub += `（${err}）`;
@@ -1109,8 +1175,21 @@ function showSel(i) {
   go.classList.toggle('guard', action === '守る');
   $('selPop').classList.remove('hidden');
 }
+function showSpawnSel(i) {
+  selTile = i;
+  $('selTitle').textContent = `${town(i)}に建国する？`;
+  $('selSub').textContent = 'ここがあなたの国のスタート地点になります';
+  $('selGo').textContent = '建国する';
+  $('selGo').disabled = false;
+  $('selGo').classList.remove('guard');
+  $('selPop').classList.remove('hidden');
+}
 function hideSel() { selTile = -1; $('selPop').classList.add('hidden'); }
-$('selGo').addEventListener('click', () => { if (selTile >= 0) doPlayerAction(selTile); });
+$('selGo').addEventListener('click', () => {
+  if (selTile < 0) return;
+  if (state === 'spawn') { const t = selTile; hideSel(); startGame(t); return; }
+  doPlayerAction(selTile);
+});
 $('selCancel').addEventListener('click', hideSel);
 
 window.addEventListener('keydown', (e) => {
@@ -1167,19 +1246,19 @@ function updateUI() {
   const rank = ranking().indexOf(P) + 1;
   $('cRank').textContent = P.alive ? `${rank}位` : '滅亡';
   $('cTiles').textContent = P.tiles;
-  $('cTilesShort').textContent = P.tiles + 'マス';
   const d = P.tiles - yesterdayTiles;
   $('cDelta').textContent = '前日比 ' + (d > 0 ? '+' : d < 0 ? '−' : '±') + Math.abs(d);
   $('cGold').textContent = fmt(P.gold);
+  $('wGold').textContent = fmt(P.gold);
+  $('cDay').textContent = Math.min(day, SEASON_DAYS);
   $('cIncome').textContent = playerIncome(P);
   $('cShields').textContent = shieldCount(P);
-  $('cCities').textContent = P.cnt.city;
   $('cLeft').textContent = Math.max(0, SEASON_DAYS - day + 1);
-  $('dDay').textContent = Math.min(day, SEASON_DAYS);
-  $('dLeft').innerHTML = state === 'spawn' ? 'スタート地点をえらぶ'
+  $('cDayInfo').innerHTML = state === 'spawn' ? 'スタート地点をえらぶ'
     : state === 'busy' ? 'ほかの国が動いています…'
-    : online && !P.actions ? `次の1マスまで <b>${untilMidnight()}</b>`
-    : `今日の1マス：のこり <b>${P.actions}</b>`;
+    : prevOwner && savedOwner ? '前日の勢力図'
+    : online && !P.actions ? `今日の1マス：<b>${untilMidnight()}</b> 後`
+    : P.actions ? '今日の1マス：<b>まだ</b>' : '今日の1マス：<b>済み</b>';
   $('btnPass').disabled = state !== 'play';
   $('btnPass').classList.toggle('hidden', !!online);
   const incoming = missiles.some((m) => m.owner !== me && (m.victim === me || (m.type === 'warhead' && owner[m.ty * W + m.tx] === me)));
@@ -1245,7 +1324,16 @@ function setHint(msg, top) {
 }
 
 function openSheet(tab) {
-  if (tab === 'map') { fitCamera(); closeSheet(); return; }
+  if (tab === 'prev') { togglePrev(); return; }
+  if (tab === 'settings' && sheetTab !== 'settings') {
+    closeSheet();
+    sheetTab = 'settings';
+    $('sheet').innerHTML = '<h3>設定</h3><div class="settings"><button id="btnToTitle">タイトルにもどる</button><button id="btnFit">マップ全体を見る</button></div>';
+    $('sheet').classList.remove('hidden');
+    $('btnToTitle').onclick = () => { leaveOnline(); restorePrev(); closeSheet(); state = 'menu'; ['infoCard', 'sideBtns', 'bottom'].forEach((id) => $(id).classList.add('hidden')); $('menu').classList.remove('hidden'); $('endCard').classList.add('hidden'); $('joinCard').classList.add('hidden'); $('overlay').classList.remove('hidden'); };
+    $('btnFit').onclick = () => { fitCamera(); closeSheet(); };
+    return;
+  }
   if (sheetTab === tab) { closeSheet(); return; }
   sheetTab = tab;
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
@@ -1271,7 +1359,7 @@ $('btnRestart').addEventListener('click', () => {
 $('btnWatch').addEventListener('click', () => { $('overlay').classList.add('hidden'); });
 $('btnZoomIn').addEventListener('click', () => zoomAt(canvas.clientWidth / 2, canvas.clientHeight / 2, cam.s * 1.3));
 $('btnZoomOut').addEventListener('click', () => zoomAt(canvas.clientWidth / 2, canvas.clientHeight / 2, cam.s / 1.3));
-$('btnHome').addEventListener('click', () => { const P = players[me]; if (P.tiles) centerOn(P.lx, P.ly, Math.max(cam.s, 26)); });
+$('btnHome').addEventListener('click', () => { const P = players[me]; if (P.tiles) centerOn(P.lx, P.ly, Math.max(cam.s, 10)); });
 $('btnCollapse').addEventListener('click', () => {
   const c = $('infoCard').classList.toggle('collapsed');
   $('btnCollapse').textContent = c ? '▼' : '▲';
@@ -1280,6 +1368,41 @@ $('btnLabels').addEventListener('click', () => {
   showLabels = !showLabels;
   $('btnLabels').classList.toggle('off', !showLabels);
 });
+$('btnRegion').addEventListener('click', () => {
+  plainView = !plainView;
+  $('btnRegion').innerHTML = plainView ? 'マスで<br>見る' : '国で<br>見る';
+  if (plainView) fitCamera();
+});
+$('btnWeapons').addEventListener('click', () => {
+  const open = $('weapons').classList.toggle('hidden');
+  $('btnWeapons').classList.toggle('on', !open);
+  if (open) setMode(null);
+});
+$('btnSettings').addEventListener('click', () => openSheet('settings'));
+
+// 前日の勢力図：きのうの地図に切りかえて見る（見ている間は操作できない）
+function togglePrev() {
+  if (savedOwner) { restorePrev(); return; }
+  if (!prevOwner || prevOwner.length !== N) { toast('まだ前日の記録がありません（1日進むと見られます）'); return; }
+  closeSheet(); hideSel(); setMode(null);
+  savedOwner = owner;
+  owner = prevOwner;
+  if (online) online.ready = false;   // 見ている間に届いた更新は、もどってからまとめて反映する
+  mapDirty = true; scan();
+  document.querySelector('#tabs button[data-tab=prev]').classList.add('active');
+  setHint('📅 前日の勢力図を表示中（もう一度押すともどる）', true);
+  updateUI();
+}
+function restorePrev() {
+  if (!savedOwner) return;
+  owner = savedOwner;
+  savedOwner = null;
+  mapDirty = true; scan();
+  document.querySelector('#tabs button[data-tab=prev]').classList.remove('active');
+  setHint(null);
+  if (online) { online.ready = true; flushBuffer(); }
+  updateUI();
+}
 window.addEventListener('resize', () => { if (state === 'menu' || state === 'spawn') fitCamera(); });
 
 // ===== オンライン対戦 =====
@@ -1369,11 +1492,13 @@ function setupMap(meta) {
   players = meta.nations.map((n) => Object.assign(makePlayer(n.id, n.name, n.color, false), { capital: n.capital, members: n.members }));
   online.seed = meta.seed;
   online.seq = 0;
+  prevOwner = null; savedOwner = null;
   mapDirty = true;
 }
 
 // 地図以外の情報（国・建物・ログ・日付）を反映する
 function applyMeta(meta) {
+  online.date = meta.date;
   online.seasonNo = meta.seasonNo;
   online.costs = meta.costs;
   online.nukeCosts = meta.nukeCosts;
@@ -1438,6 +1563,7 @@ function handleDiff(msg) {
     return new Promise((r) => setTimeout(r, delay));
   }).then(() => {
     if (!online) return;
+    if (online.date && msg.meta.date !== online.date) prevOwner = owner.slice();   // 日付が変わった → 前日の勢力図として残す
     applyCells(msg.cells);
     applyMeta(msg.meta);
     refresh();
@@ -1533,7 +1659,7 @@ $('joinBack').addEventListener('click', () => {
   $('joinCard').classList.add('hidden');
   $('menu').classList.remove('hidden');
 });
-function centerOnMe() { const P = players[me]; if (P && P.tiles) centerOn(P.lx, P.ly, Math.max(cam.s, 22)); }
+function centerOnMe() { const P = players[me]; if (P && P.tiles) centerOn(P.lx, P.ly, Math.max(cam.s, 6)); }
 
 // リアルタイム更新。つながらないときは30秒ごとに、つながっていても10分ごとに地図を取り直す
 function connectSocket() {
