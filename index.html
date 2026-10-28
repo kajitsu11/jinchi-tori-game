@@ -12,23 +12,27 @@
 <canvas id="game"></canvas>
 <div id="garland"></div>
 
-<!-- 上部の国情報カード -->
-<div id="infoCard" class="hidden">
-  <div class="ic-main">
+<!-- 上部の国情報バー（▼で詳細を開く） -->
+<div id="infoCard" class="hidden collapsed">
+  <div class="ic-head">
+    <span class="sw" id="cSwatch"></span>
+    <span class="ic-name" id="cName">あなたの国</span>
+    <span class="ic-short">🪖<b id="cTroops">0</b> 💰<b id="cGold">0</b></span>
+    <button id="btnCollapse" class="circ" title="くわしく">▼</button>
+  </div>
+  <div id="nukeAlert" class="alert hidden">☢ 核ミサイル接近中！</div>
+  <div class="ic-detail">
     <canvas id="silhouette" width="96" height="72"></canvas>
     <div class="ic-body">
-      <div class="ic-title"><span id="cName">あなたの国</span><span class="ic-sub" id="cSub"></span></div>
-      <div class="ic-line"><b id="cRank">1位</b>・<span id="cTiles">0</span>マス（<span id="cDelta">±0</span>）</div>
-      <div id="nukeAlert" class="alert hidden">☢ 核ミサイル接近中！</div>
+      <div class="ic-line"><b id="cRank">1位</b>・<span id="cTiles">0</span>マス（<span id="cDelta">±0</span>）<span class="ic-sub" id="cSub"></span></div>
       <div class="ic-pills">
-        <span class="pill">🪖 <b id="cTroops">0</b><small> / <span id="cMax">0</span></small></span>
-        <span class="pill">💰 <b id="cGold">0</b><small> +<span id="cIncome">0</span>/s</small></span>
-        <span class="pill">⚔ <b id="cAttack">0</b></span>
+        <span class="pill">最大兵力 <b id="cMax">0</b></span>
+        <span class="pill">収入 <b>+<span id="cIncome">0</span></b>/s</span>
+        <span class="pill">⚔ 攻撃中 <b id="cAttack">0</b></span>
         <span class="pill">⏱ <b id="cTime">0:00</b></span>
       </div>
     </div>
   </div>
-  <button id="btnCollapse" class="round tiny" title="たたむ">▲</button>
 </div>
 
 <!-- 右側ボタン -->
@@ -36,6 +40,7 @@
   <button class="round" id="btnZoomIn" title="ズームイン">＋</button>
   <button class="round" id="btnZoomOut" title="ズームアウト">－</button>
   <button class="round txt" id="btnHome">わが<br>国へ</button>
+  <button class="round txt" id="btnLabels">国名<br>表示</button>
   <button class="round txt" id="btnSpeed">速度<br>1x</button>
   <button class="round" id="btnPause" title="一時停止 (P)">⏸</button>
 </div>

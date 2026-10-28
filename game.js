@@ -32,7 +32,8 @@ const BOT_NAMES = ['ねこ県', 'いぬ市', 'たぬき町', 'きつね村', '�
   'かっぱ国', 'からす藩', 'さる県', 'しか市', 'ぶた町', 'かめ公国', 'たこ帝国'];
 
 // ===== 状態 =====
-let terrain, elev, owner, fallout, baseRGB;
+let terrain, elev, owner, fallout, baseRGB, prov, provinces, peak;
+let showLabels = true;
 let players, bAt, attacks, missiles, effects, logs;
 let state = 'menu', tick = 0, landCount = 0, speed = 1, paused = false, diff = DIFF.normal;
 let me = 0, mode = null, hoverTile = -1, shake = 0, mapDirty = true, tileHistory = [];
@@ -132,7 +133,7 @@ function genMap(seed) {
     let c;
     if (!terrain[i]) {
       const d = elev[i];
-      c = [158 - d * 50, 214 - d * 50, 242 - d * 25];
+      c = [72 - d * 18, 90 - d * 22, 170 - d * 30];
     } else if (elev[i] > 0.62) {
       c = [226, 214, 186];   // 山地
     } else {
@@ -140,6 +141,48 @@ function genMap(seed) {
       c = [246 - e * 12, 240 - e * 10, 222 - e * 18];
     }
     baseRGB.set(c.map(Math.round), i * 3);
+  }
+
+  // 町（地方）を作る：陸地に中心点を散らし、座標を少し歪ませてから一番近い中心に割り当てる
+  const warpX = makeNoise(9), warpY = makeNoise(9);
+  provinces = [];
+  const K = Math.max(12, Math.round(landCount / 150)), used = new Set();
+  for (let tries = 0; provinces.length < K && tries < 20000; tries++) {
+    const i = Math.floor(r() * N);
+    if (!terrain[i]) continue;
+    const x = i % W, y = (i / W) | 0;
+    if (provinces.every((p) => Math.hypot(p.x - x, p.y - y) > 8)) {
+      provinces.push({ x, y, name: townName(r, used), owner: -1, land: 0, sx: 0, sy: 0 });
+    }
+  }
+  prov = new Int16Array(N).fill(-1);
+  peak = -1;
+  for (let i = 0; i < N; i++) {
+    if (!terrain[i]) continue;
+    const x = i % W, y = (i / W) | 0;
+    const wx = x + (warpX(x, y) - 0.5) * 10, wy = y + (warpY(x, y) - 0.5) * 10;
+    let best = 0, bd = Infinity;
+    for (let k = 0; k < provinces.length; k++) {
+      const d = (provinces[k].x - wx) ** 2 + (provinces[k].y - wy) ** 2;
+      if (d < bd) { bd = d; best = k; }
+    }
+    prov[i] = best;
+    const P = provinces[best];
+    P.land++; P.sx += x; P.sy += y;
+    if (peak < 0 || elev[i] > elev[peak]) peak = i;
+  }
+  for (const P of provinces) if (P.land) { P.lx = P.sx / P.land + 0.5; P.ly = P.sy / P.land + 0.5; }
+}
+const TOWN_A = ['桜', '松', '竹', '梅', '青', '白', '赤', '黒', '大', '小', '高', '長', '北', '南', '東', '西', '新', '古',
+  '森', '石', '鳥', '鹿', '花', '月', '星', '金', '銀', '風', '雪', '霧', '虹', '柿', '栗', '蛍'];
+const TOWN_B = ['ヶ丘', '見', '原', '沢', '田', '島', '崎', '浦', '野', '谷', '瀬', '岡', '宮', '津', '浜', '山', '川', '台', '里', '根'];
+const TOWN_C = ['市', '町', '町', '村'];
+function townName(r, used) {
+  for (;;) {
+    const n = TOWN_A[Math.floor(r() * TOWN_A.length)] + TOWN_B[Math.floor(r() * TOWN_B.length)];
+    if (used.has(n)) continue;
+    used.add(n);
+    return n + TOWN_C[Math.floor(r() * TOWN_C.length)];
   }
 }
 function neighbors(i) {
@@ -156,7 +199,7 @@ function makePlayer(id, name, color, isBot) {
   return {
     id, name, color, rgb: hex2rgb(color), isBot, alive: true,
     troops: 2500, gold: 500, tiles: 0, cnt: { city: 0, silo: 0, sam: 0 },
-    nb: new Set(), samples: [], interior: [], lx: 0, ly: 0,
+    nb: new Set(), samples: [], interior: [], lx: 0, ly: 0, capital: -1,
     ai: { next: 20 + Math.floor(Math.random() * 20), grudge: -1, thr: 0.35 + Math.random() * 0.25 },
   };
 }
@@ -206,6 +249,7 @@ function newGame() {
 }
 
 function claimSpawn(p, i) {
+  p.capital = i;
   const x0 = i % W, y0 = (i / W) | 0, R = 3;
   for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
     const x = x0 + dx, y = y0 + dy;
@@ -453,7 +497,28 @@ function scan() {
       log(p.id === me ? 'あなたの国は滅亡しました…' : `${p.name} が滅亡した！`, p.id, p.id === me ? 'warn' : '');
     }
   }
+  scanProvinces();
   checkEnd();
+}
+
+// 町の過半数を取った国が変わったらティッカーに流す
+function scanProvinces() {
+  const P1 = players.length + 1, cnt = new Int32Array(provinces.length * P1);
+  for (let i = 0; i < N; i++) if (prov[i] >= 0) cnt[prov[i] * P1 + owner[i] + 1]++;
+  provinces.forEach((pv, k) => {
+    let bo = -1, bc = 0;
+    for (let o = 0; o < players.length; o++) {
+      const c = cnt[k * P1 + o + 1];
+      if (c > bc) { bc = c; bo = o; }
+    }
+    const now = bc > pv.land * 0.5 ? bo : (cnt[k * P1 + pv.owner + 1] > pv.land * 0.3 ? pv.owner : -1);
+    if (now === pv.owner) return;
+    const prev = pv.owner;
+    pv.owner = now;
+    if (state !== 'play' || now < 0) return;
+    if (prev === me) log(`${players[now].name}に ${pv.name} を取られた！`, now, 'warn');
+    else log(`${players[now].name}が ${pv.name} を取った`, now, now === me ? 'good' : '');
+  });
 }
 
 function checkEnd() {
@@ -591,13 +656,17 @@ function renderMap() {
     }
     const fo = fallout[i];
     if (fo > 0) { const f = fo * 0.65; r = mix(r, 150, f); g = mix(g, 220, f); b = mix(b, 40, f); }
-    const water = !terrain[i];
+    const water = !terrain[i], x = i % W;
+    const rightB = !water && x < W - 1 && terrain[i + 1] && prov[i + 1] !== prov[i];
+    const downB = !water && i < N - W && terrain[i + W] && prov[i + W] !== prov[i];
     for (let py = 0; py < C; py++) {
       let p = ((cy + py) * rowW + cx) * 4;
       for (let px = 0; px < C; px++, p += 4) {
         let R = r, G = g, B = b;
-        if (px === C - 1 || py === C - 1) {          // マス目の線
-          const k = water ? 0.94 : 0.86;
+        if ((rightB && px === C - 1) || (downB && py === C - 1)) {   // 町の境界線
+          R = mix(R, 255, 0.8); G = mix(G, 255, 0.8); B = mix(B, 255, 0.8);
+        } else if (px === C - 1 || py === C - 1) {   // マス目の線
+          const k = water ? 0.97 : 0.86;
           R *= k; G *= k; B *= k;
         } else if (striped && (px + (C - py)) % 4 === 0) {   // 斜線模様
           R = mix(R, 255, 0.22); G = mix(G, 255, 0.22); B = mix(B, 255, 0.22);
@@ -607,6 +676,19 @@ function renderMap() {
     }
   }
   octx.putImageData(img, 0, 0);
+  // 海の波模様
+  octx.beginPath();
+  for (let y = 2; y < H - 1; y += 5) {
+    for (let x = ((y / 5) & 1 ? 4 : 1); x < W - 1; x += 7) {
+      const i = y * W + x;
+      if (terrain[i] || terrain[i - 1] || terrain[i + 1]) continue;
+      const X = (x + 0.5) * C, Y = (y + 0.5) * C;
+      octx.moveTo(X - C, Y + C * 0.3);
+      octx.quadraticCurveTo(X, Y - C * 0.7, X + C, Y + C * 0.3);
+    }
+  }
+  octx.strokeStyle = 'rgba(150, 170, 230, 0.55)'; octx.lineWidth = 1.5; octx.lineCap = 'round';
+  octx.stroke();
   mapDirty = false;
 }
 
@@ -625,13 +707,22 @@ function strokeOutline(pid, color, width) {
   ctx.stroke();
 }
 
-function pillLabel(text, x, y, size, bg, fg) {
+// 白フチ文字
+function outlined(text, x, y, size, fill = '#2b2b2b') {
   ctx.font = `800 ${size}px "M PLUS Rounded 1c", sans-serif`;
-  const w = ctx.measureText(text).width + size * 0.9, h = size * 1.45;
-  ctx.fillStyle = bg; ctx.strokeStyle = '#222'; ctx.lineWidth = Math.max(1.5, size * 0.12);
-  ctx.beginPath(); ctx.roundRect(x - w / 2, y - h / 2, w, h, h / 2); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = fg; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(text, x, y + size * 0.05);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.max(3, size * 0.3); ctx.strokeStyle = '#fff';
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = fill;
+  ctx.fillText(text, x, y);
+}
+function shieldPath(X, Y, w) {
+  ctx.moveTo(X - w / 2, Y - w * 0.45);
+  ctx.quadraticCurveTo(X, Y - w * 0.6, X + w / 2, Y - w * 0.45);
+  ctx.lineTo(X + w / 2, Y);
+  ctx.quadraticCurveTo(X + w / 2, Y + w * 0.4, X, Y + w * 0.6);
+  ctx.quadraticCurveTo(X - w / 2, Y + w * 0.4, X - w / 2, Y);
+  ctx.closePath();
 }
 
 function render(now) {
@@ -642,7 +733,7 @@ function render(now) {
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (mapDirty) renderMap();
-  ctx.fillStyle = '#86c9ea';
+  ctx.fillStyle = '#3d4f93';
   ctx.fillRect(0, 0, cw, ch);
 
   ctx.save();
@@ -689,18 +780,51 @@ function render(now) {
     }
   }
 
-  // 建物（盾型バッジ）
-  const bs = Math.max(14, s * 2.6);
+  // ズーム時：前線のマスに盾マーク
+  if (s >= 12) {
+    const x0 = Math.max(0, Math.floor(-cam.x / s)), x1 = Math.min(W - 1, Math.ceil((cw - cam.x) / s));
+    const y0 = Math.max(0, Math.floor(-cam.y / s)), y1 = Math.min(H - 1, Math.ceil((ch - cam.y) / s));
+    ctx.beginPath();
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const i = y * W + x, o = owner[i];
+      if (o < 0) continue;
+      let front = false;
+      for (const j of neighbors(i)) if (terrain[j] && owner[j] !== o) { front = true; break; }
+      if (front) shieldPath(cam.x + (x + 0.5) * s, cam.y + (y + 0.5) * s, s * 0.5);
+    }
+    ctx.fillStyle = '#fffdf5'; ctx.fill();
+    ctx.strokeStyle = '#2b2b2b'; ctx.lineWidth = Math.max(1, s * 0.07); ctx.stroke();
+  }
+
+  // 最高峰
+  if (peak >= 0) {
+    const [X, Y] = T(peak % W + 0.5, ((peak / W) | 0) + 0.5), m = Math.min(26, Math.max(12, s * 2.4));
+    ctx.beginPath(); ctx.moveTo(X - m, Y + m * 0.5); ctx.lineTo(X, Y - m * 0.6); ctx.lineTo(X + m, Y + m * 0.5); ctx.closePath();
+    ctx.fillStyle = '#4a5a9a'; ctx.fill(); ctx.strokeStyle = '#222'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(X - m * 0.38, Y - m * 0.18); ctx.lineTo(X, Y - m * 0.6); ctx.lineTo(X + m * 0.38, Y - m * 0.18); ctx.closePath();
+    ctx.fillStyle = '#fff'; ctx.fill(); ctx.stroke();
+    if (showLabels && s >= 4) outlined('大山', X, Y + m * 0.95, Math.max(10, Math.min(15, s * 1.6)));
+  }
+
+  // 首都の旗
+  for (const p of players) {
+    if (!p.alive || p.capital < 0 || owner[p.capital] !== p.id) continue;
+    const [X, Y] = T(p.capital % W + 0.5, ((p.capital / W) | 0) + 0.5), h = Math.min(36, Math.max(16, s * 2.4));
+    ctx.beginPath(); ctx.moveTo(X, Y); ctx.lineTo(X, Y - h);
+    ctx.strokeStyle = '#222'; ctx.lineWidth = Math.max(2, h * 0.1); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(X, Y - h); ctx.lineTo(X + h * 0.6, Y - h * 0.78); ctx.lineTo(X, Y - h * 0.56); ctx.closePath();
+    ctx.fillStyle = '#fffdf5'; ctx.fill(); ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.beginPath(); ctx.arc(X + h * 0.2, Y - h * 0.78, h * 0.08, 0, Math.PI * 2); ctx.fillStyle = p.color; ctx.fill();
+    ctx.beginPath(); ctx.arc(X, Y, h * 0.12, 0, Math.PI * 2); ctx.fillStyle = '#222'; ctx.fill();
+  }
+
+  // 建物（丸バッジ）
+  const bs = Math.min(32, Math.max(14, s * 2.6));
   for (const b of bAt.values()) {
     const [X, Y] = T(b.x + 0.5, b.y + 0.5);
     if (X < -bs || Y < -bs || X > cw + bs || Y > ch + bs) continue;
     ctx.beginPath();
-    ctx.moveTo(X - bs / 2, Y - bs / 2);
-    ctx.lineTo(X + bs / 2, Y - bs / 2);
-    ctx.lineTo(X + bs / 2, Y + bs * 0.05);
-    ctx.quadraticCurveTo(X + bs / 2, Y + bs * 0.4, X, Y + bs * 0.6);
-    ctx.quadraticCurveTo(X - bs / 2, Y + bs * 0.4, X - bs / 2, Y + bs * 0.05);
-    ctx.closePath();
+    ctx.arc(X, Y, bs / 2, 0, Math.PI * 2);
     ctx.fillStyle = '#fffdf5'; ctx.fill();
     ctx.strokeStyle = players[b.owner].color; ctx.lineWidth = 3; ctx.stroke();
     ctx.strokeStyle = '#222'; ctx.lineWidth = 1.2; ctx.stroke();
@@ -716,19 +840,31 @@ function render(now) {
   // 国名ラベル（大きい国から順に、重なるものは省略。自国は必ず表示）
   const placed = [];
   const order = players.filter((p) => p.alive && p.tiles).sort((a, b) => (b.id === me) - (a.id === me) || b.tiles - a.tiles);
-  for (const p of order) {
-    const size = Math.min(18, Math.max(9, Math.sqrt(p.tiles) * s * 0.14));
-    if (size < 9.5 && p.id !== me) continue;
+  for (const p of showLabels ? order : []) {
+    const size = Math.min(34, Math.max(10, Math.sqrt(p.tiles) * s * 0.2));
+    if (size < 10.5 && p.id !== me) continue;
     const [X, Y] = T(p.lx, p.ly);
     ctx.font = `800 ${size}px "M PLUS Rounded 1c", sans-serif`;
     const bw = ctx.measureText(p.name).width + size, box = [X - bw / 2, Y - size * 1.4, X + bw / 2, Y + size * 1.5];
     if (placed.some((q) => box[0] < q[2] && box[2] > q[0] && box[1] < q[3] && box[3] > q[1])) continue;
     placed.push(box);
-    pillLabel(p.name, X, Y - size * 0.6, size, p.id === me ? '#fbe7a1' : '#fffdf5', '#222');
-    ctx.font = `800 ${size * 0.8}px "M PLUS Rounded 1c", sans-serif`;
-    ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.fillStyle = '#222';
-    ctx.strokeText('🪖' + fmt(p.troops), X, Y + size * 0.9);
-    ctx.fillText('🪖' + fmt(p.troops), X, Y + size * 0.9);
+    outlined(p.name, X, Y - size * 0.45, size);
+    outlined('🪖' + fmt(p.troops), X, Y + size * 0.65, Math.max(9, size * 0.45), '#555');
+  }
+  // 町の名前（ある程度ズームしたら、国名と重ならないものだけ）
+  if (showLabels && s >= 7) {
+    const fs = Math.min(14, s * 1.1);
+    ctx.font = `800 ${fs}px "M PLUS Rounded 1c", sans-serif`;
+    for (const pv of provinces) {
+      if (!pv.land) continue;
+      const [X, Y] = T(pv.lx, pv.ly);
+      if (X < -50 || Y < -20 || X > cw + 50 || Y > ch + 20) continue;
+      const bw = ctx.measureText(pv.name).width / 2 + 4, box = [X - bw, Y - fs, X + bw, Y + fs];
+      if (placed.some((q) => box[0] < q[2] && box[2] > q[0] && box[1] < q[3] && box[3] > q[1])) continue;
+      placed.push(box);
+      outlined(pv.name, X, Y, fs, '#555');
+      ctx.font = `800 ${fs}px "M PLUS Rounded 1c", sans-serif`;
+    }
   }
 
   // ミサイル
@@ -948,6 +1084,7 @@ function updateUI() {
   if (!players) return;
   const P = players[me];
   $('cName').textContent = P.name;
+  $('cSwatch').style.background = P.color;
   $('cSub').textContent = '・' + diff.label;
   const ranked = players.filter((p) => p.alive).sort((a, b) => b.tiles - a.tiles);
   const rank = ranked.indexOf(P) + 1;
@@ -1060,6 +1197,10 @@ $('btnPause').addEventListener('click', togglePause);
 $('btnCollapse').addEventListener('click', () => {
   const c = $('infoCard').classList.toggle('collapsed');
   $('btnCollapse').textContent = c ? '▼' : '▲';
+});
+$('btnLabels').addEventListener('click', () => {
+  showLabels = !showLabels;
+  $('btnLabels').classList.toggle('off', !showLabels);
 });
 window.addEventListener('resize', () => { if (state === 'menu' || state === 'spawn') fitCamera(); });
 

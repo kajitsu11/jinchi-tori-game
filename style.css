@@ -9,7 +9,7 @@
 * { box-sizing: border-box; }
 html, body {
   margin: 0; height: 100%; overflow: hidden;
-  background: #9ed6f2; color: var(--ink);
+  background: #3d4f93; color: var(--ink);
   font-family: "M PLUS Rounded 1c", "Hiragino Maru Gothic ProN", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
   font-weight: 800;
   user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
@@ -31,32 +31,39 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='110' height='24'%3E%3Cpath d='M0 2H110' stroke='%235a4a3a' stroke-width='2'/%3E%3Cg stroke='%23222' stroke-width='1.5' stroke-linejoin='round'%3E%3Cpath d='M2 3h18l-9 18z' fill='%23f6a5c0'/%3E%3Cpath d='M24 3h18l-9 18z' fill='%23fbe07a'/%3E%3Cpath d='M46 3h18l-9 18z' fill='%23a5d8f6'/%3E%3Cpath d='M68 3h18l-9 18z' fill='%23b8e6a0'/%3E%3Cpath d='M90 3h18l-9 18z' fill='%23c9b5f2'/%3E%3C/g%3E%3C/svg%3E") repeat-x;
 }
 
-/* 国情報カード */
+/* 国情報バー */
 #infoCard {
   position: fixed; top: 30px; left: 50%; transform: translateX(-50%); z-index: 3;
   width: min(560px, calc(100vw - 20px));
-  background: var(--cream); border: 3px solid var(--ink); border-radius: 22px;
-  box-shadow: 0 5px 0 var(--ink); padding: 10px 14px 14px;
+  background: var(--cream); border: 3px solid var(--ink); border-radius: 26px;
+  box-shadow: 0 5px 0 var(--ink); padding: 8px 10px 8px 12px;
 }
-#infoCard.collapsed .ic-pills, #infoCard.collapsed #silhouette { display: none; }
-.ic-main { display: flex; gap: 10px; align-items: center; }
+#infoCard.collapsed .ic-detail { display: none; }
+.ic-head { display: flex; align-items: center; gap: 10px; }
+.ic-head .sw { width: 30px; height: 30px; border: 3px solid var(--ink); border-radius: 8px; flex: none; }
+.ic-name { font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ic-short { margin-left: auto; font-size: 14px; color: var(--sub); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ic-short b { color: var(--ink); margin-right: 4px; }
+.circ {
+  width: 42px; height: 42px; padding: 0; flex: none; font-size: 16px;
+  box-shadow: none; display: grid; place-items: center;
+}
+.circ:active:not(:disabled) { transform: scale(0.92); box-shadow: none; }
+.ic-detail { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
 #silhouette { width: 96px; height: 72px; flex: none; }
 .ic-body { flex: 1; min-width: 0; }
-.ic-title { font-size: 24px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ic-sub { font-size: 13px; color: var(--sub); margin-left: 6px; }
-.ic-line { font-size: 15px; margin: 2px 0 6px; }
+.ic-sub { font-size: 12px; color: var(--sub); margin-left: 6px; }
+.ic-line { font-size: 15px; margin: 0 0 6px; }
 .ic-pills { display: flex; flex-wrap: wrap; gap: 6px; }
 .pill {
-  border: 3px solid var(--ink); border-radius: 999px; padding: 2px 10px; font-size: 13px;
+  border: 3px solid var(--ink); border-radius: 999px; padding: 2px 10px; font-size: 12px;
   background: #e9f7e4; white-space: nowrap; font-variant-numeric: tabular-nums;
 }
-.pill small { color: var(--sub); }
 .alert {
   background: var(--red); color: #fff; border: 3px solid var(--ink); border-radius: 14px;
-  padding: 4px 12px; margin: 4px 0 6px; font-size: 15px; animation: blink 0.8s infinite alternate;
+  padding: 4px 12px; margin-top: 8px; font-size: 15px; animation: blink 0.8s infinite alternate;
 }
 @keyframes blink { from { filter: brightness(1); } to { filter: brightness(1.35); } }
-#btnCollapse { position: absolute; right: 12px; bottom: -18px; padding: 2px 14px; font-size: 14px; }
 
 /* 右側ボタン */
 #sideBtns {
@@ -67,14 +74,14 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   width: 58px; height: 58px; padding: 0; border-radius: 18px; font-size: 26px; line-height: 1;
 }
 .round.txt { font-size: 14px; line-height: 1.15; }
-.round.tiny { width: auto; height: auto; }
+.round.off { background: #ddd; color: #888; }
 
 #hint {
   position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 3;
   background: var(--yellow); border: 3px solid var(--ink); box-shadow: 0 4px 0 var(--ink);
   padding: 10px 20px; border-radius: 999px; pointer-events: none; text-align: center; font-size: 17px;
 }
-#hint.top { top: 200px; }
+#hint.top { top: 110px; }
 #toast {
   position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%); z-index: 6;
   background: var(--ink); color: #fff; padding: 8px 18px; border-radius: 999px; pointer-events: none;
@@ -166,8 +173,9 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .card button.sub { width: 100%; margin-top: 12px; }
 
 @media (max-width: 600px) {
-  #infoCard { padding: 8px 10px 12px; }
-  .ic-title { font-size: 20px; }
+  .ic-name { font-size: 17px; }
+  .ic-head .sw { width: 24px; height: 24px; }
+  .ic-short { font-size: 12px; }
   #silhouette { width: 64px; height: 48px; }
   .pill { font-size: 12px; padding: 1px 8px; }
   .round { width: 50px; height: 50px; font-size: 22px; border-radius: 16px; }
