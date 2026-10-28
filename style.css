@@ -96,11 +96,29 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   scrollbar-width: none;
 }
 #actionBar::-webkit-scrollbar { display: none; }
-#ratioBox {
+#dayBox {
   flex: none; background: var(--cream); border: 3px solid var(--ink); border-radius: 16px;
-  box-shadow: 0 4px 0 var(--ink); padding: 4px 10px; font-size: 12px; display: flex; flex-direction: column; width: 140px;
+  box-shadow: 0 4px 0 var(--ink); padding: 4px 8px; display: grid; grid-template-columns: auto auto;
+  align-items: center; column-gap: 8px; row-gap: 2px;
 }
-#ratioBox input { width: 100%; accent-color: var(--red); margin: 2px 0 0; }
+.db-day { font-size: 15px; white-space: nowrap; }
+.db-day b { font-size: 20px; color: var(--red); }
+.db-left { font-size: 11px; color: var(--sub); white-space: nowrap; grid-column: 1; }
+.db-left b { color: var(--red); font-size: 14px; }
+#btnPass { grid-column: 2; grid-row: 1 / span 2; padding: 6px 10px; font-size: 13px; box-shadow: 0 3px 0 var(--ink); background: var(--yellow); white-space: nowrap; }
+
+/* 選んだマスのポップアップ */
+#selPop {
+  margin: 0 8px 4px; background: #fff; border: 3px solid var(--ink); border-radius: 18px;
+  box-shadow: 0 4px 0 var(--ink); padding: 8px 8px 8px 14px; display: flex; align-items: center; gap: 10px;
+}
+.sp-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sp-text span { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-text small { font-size: 12px; color: var(--sub); font-weight: 500; }
+#selPop .go { background: var(--red); color: #fff; font-size: 17px; padding: 8px 18px; white-space: nowrap; }
+#selPop .go.guard { background: #4a7de0; }
+#selPop .go:disabled { background: #ccc; color: #666; }
+
 #buttons { display: flex; gap: 8px; flex: none; }
 .bbtn {
   display: flex; flex-direction: column; align-items: center; justify-content: center;

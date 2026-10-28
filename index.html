@@ -17,7 +17,7 @@
   <div class="ic-head">
     <span class="sw" id="cSwatch"></span>
     <span class="ic-name" id="cName">あなたの国</span>
-    <span class="ic-short">🪖<b id="cTroops">0</b> 💰<b id="cGold">0</b></span>
+    <span class="ic-short">🗺<b id="cTilesShort">0</b> 💰<b id="cGold">0</b></span>
     <button id="btnCollapse" class="circ" title="くわしく">▼</button>
   </div>
   <div id="nukeAlert" class="alert hidden">☢ 核ミサイル接近中！</div>
@@ -26,10 +26,10 @@
     <div class="ic-body">
       <div class="ic-line"><b id="cRank">1位</b>・<span id="cTiles">0</span>マス（<span id="cDelta">±0</span>）<span class="ic-sub" id="cSub"></span></div>
       <div class="ic-pills">
-        <span class="pill">最大兵力 <b id="cMax">0</b></span>
-        <span class="pill">収入 <b>+<span id="cIncome">0</span></b>/s</span>
-        <span class="pill">⚔ 攻撃中 <b id="cAttack">0</b></span>
-        <span class="pill">⏱ <b id="cTime">0:00</b></span>
+        <span class="pill">収入 <b>+<span id="cIncome">0</span></b>/日</span>
+        <span class="pill">🛡 守り <b id="cShields">0</b></span>
+        <span class="pill">🏙 都市 <b id="cCities">0</b></span>
+        <span class="pill">🏁 シーズン終了まで <b id="cLeft">0</b>日</span>
       </div>
     </div>
   </div>
@@ -41,8 +41,6 @@
   <button class="round" id="btnZoomOut" title="ズームアウト">－</button>
   <button class="round txt" id="btnHome">わが<br>国へ</button>
   <button class="round txt" id="btnLabels">国名<br>表示</button>
-  <button class="round txt" id="btnSpeed">速度<br>1x</button>
-  <button class="round" id="btnPause" title="一時停止 (P)">⏸</button>
 </div>
 
 <div id="hint" class="hidden"></div>
@@ -51,10 +49,16 @@
 <!-- 下部 -->
 <div id="bottom" class="hidden">
   <div id="sheet" class="hidden"></div>
+  <div id="selPop" class="hidden">
+    <div class="sp-text"><span id="selTitle"></span><small id="selSub"></small></div>
+    <button id="selGo" class="go">取る！</button>
+    <button id="selCancel" class="circ" title="やめる">✕</button>
+  </div>
   <div id="actionBar">
-    <div id="ratioBox">
-      <span>送る兵力 <b id="ratioVal">40%</b></span>
-      <input type="range" id="ratio" min="5" max="100" step="5" value="40">
+    <div id="dayBox">
+      <div class="db-day">📅 <b id="dDay">1</b>日目</div>
+      <div class="db-left" id="dLeft">今日の1マス：のこり <b>1</b></div>
+      <button id="btnPass">次の日へ ▶</button>
     </div>
     <div id="buttons"></div>
   </div>
@@ -64,19 +68,19 @@
     <button data-tab="map">全体図</button>
     <button data-tab="help">遊び方</button>
   </div>
-  <div id="ticker"><span class="sw"></span><span class="tx">スポーン地点を選んでください</span><span class="ago">いま</span></div>
+  <div id="ticker"><span class="sw"></span><span class="tx">スタート地点を選んでください</span><span class="ago">いま</span></div>
 </div>
 
 <!-- メニュー -->
 <div id="overlay">
   <div id="menu" class="card">
-    <h1>陣地取り大戦<small>～核の時代～</small></h1>
-    <p class="desc">となりのマスをタップして兵を送り込み、陣地を広げよう！<br>
-      都市で兵力アップ、ミサイル基地から<b>核ミサイル</b>を撃ち込め！<br>
-      全陸地の <b>80%</b> を支配するか、全ての敵を滅ぼせば勝利。</p>
+    <h1>陣地取り大戦<small>～1日1マスと核の時代～</small></h1>
+    <p class="desc">1日に<b>1マス</b>だけ、となりのマスを<b>取る</b>か、自分のマスを<b>守る</b>ことができます。<br>
+      金を貯めて都市やミサイル基地を建て、<b>核ミサイル</b>で敵の陣地を吹き飛ばそう！<br>
+      <b>100日</b>のシーズン終了時に1位なら勝利。</p>
     <div class="row"><label>国名</label><input id="optName" maxlength="10" value="あなたの国"></div>
     <div class="row"><label>敵の数</label>
-      <select id="optBots"><option>3</option><option>5</option><option selected>7</option><option>10</option><option>14</option></select></div>
+      <select id="optBots"><option>3</option><option selected>5</option><option>7</option><option>10</option></select></div>
     <div class="row"><label>難易度</label>
       <select id="optDiff"><option value="easy">かんたん</option><option value="normal" selected>ふつう</option><option value="hard">むずかしい</option></select></div>
     <button id="btnStart" class="big">🏁 ゲーム開始</button>
@@ -85,21 +89,24 @@
     <h1 id="endTitle">勝利！</h1>
     <p id="endText" class="desc"></p>
     <button id="btnRestart" class="big">もう一度あそぶ</button>
-    <button id="btnWatch" class="sub">観戦をつづける</button>
+    <button id="btnWatch" class="sub">マップを見る</button>
   </div>
 </div>
 
 <template id="helpTpl">
   <h3>遊び方</h3>
   <ul>
-    <li><b>タップ / クリック</b>：となりの無人地帯・敵国に攻撃（下のスライダーで送る兵力を調整）</li>
-    <li><b>ドラッグ</b>：マップ移動　<b>ピンチ / ホイール</b>：ズーム</li>
-    <li>🏙 <b>都市</b>：最大兵力＋5000、金収入アップ</li>
-    <li>🚀 <b>ミサイル基地</b>：核ミサイルの発射に必要</li>
-    <li>🛡 <b>迎撃基地</b>：範囲内に飛んでくる核を撃ち落とす（MIRVは迎撃不可）</li>
-    <li>☢ <b>原子爆弾</b> / 💥 <b>水素爆弾</b> / 🎆 <b>MIRV</b>（相手の領土全体に14発の弾頭）</li>
-    <li>被爆したマスは放射能で汚染され、しばらく占領しにくくなります。</li>
-    <li>キーボード：<b>1〜3</b> 建設、<b>4〜6</b> 核、<b>Esc / 右クリック</b> 解除、<b>P</b> 一時停止</li>
+    <li>1日に<b>1マス</b>だけ行動できます。マスをタップして選び、ボタンで決定。</li>
+    <li><b>取る</b>：自分の陣地のとなりのマス（無人・敵）を自分のものにする</li>
+    <li><b>守る</b>：自分のマスに🛡盾を置く。盾のあるマスを攻められると、盾がこわれるだけで取られない</li>
+    <li>行動すると日が進み、CPUの国もそれぞれ1マスずつ動きます</li>
+    <li>💰金は毎日「マス数＋α」もらえます。建物と核は金だけで使え、1日の行動は減りません</li>
+    <li>🏙 <b>都市</b>：毎日の金が増える</li>
+    <li>🚀 <b>ミサイル基地</b>：核の発射に必要（撃ったら2日間再装填）</li>
+    <li>🛡 <b>迎撃基地</b>：まわり5マス以内に飛んでくる核を撃ち落とす（MIRVは迎撃不可）</li>
+    <li>☢ <b>原子爆弾</b> / 💥 <b>水素爆弾</b> / 🎆 <b>MIRV</b>（相手の陣地に6発の弾頭）。被爆したマスは無人に戻り、数日間だれも取れません</li>
+    <li>100日のシーズン終了時に1位、または陸地の60%を取るか敵を全滅させれば勝利</li>
+    <li>キーボード：<b>1〜3</b> 建設、<b>4〜6</b> 核、<b>Enter</b> 決定、<b>N</b> 次の日へ、<b>Esc</b> 解除</li>
   </ul>
 </template>
 
