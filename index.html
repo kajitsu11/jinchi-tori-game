@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>陣地取り大戦 ～核の時代～</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;800&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="garland"></div>
+
+<!-- 上部の国情報カード -->
+<div id="infoCard" class="hidden">
+  <div class="ic-main">
+    <canvas id="silhouette" width="96" height="72"></canvas>
+    <div class="ic-body">
+      <div class="ic-title"><span id="cName">あなたの国</span><span class="ic-sub" id="cSub"></span></div>
+      <div class="ic-line"><b id="cRank">1位</b>・<span id="cTiles">0</span>マス（<span id="cDelta">±0</span>）</div>
+      <div id="nukeAlert" class="alert hidden">☢ 核ミサイル接近中！</div>
+      <div class="ic-pills">
+        <span class="pill">🪖 <b id="cTroops">0</b><small> / <span id="cMax">0</span></small></span>
+        <span class="pill">💰 <b id="cGold">0</b><small> +<span id="cIncome">0</span>/s</small></span>
+        <span class="pill">⚔ <b id="cAttack">0</b></span>
+        <span class="pill">⏱ <b id="cTime">0:00</b></span>
+      </div>
+    </div>
+  </div>
+  <button id="btnCollapse" class="round tiny" title="たたむ">▲</button>
+</div>
+
+<!-- 右側ボタン -->
+<div id="sideBtns" class="hidden">
+  <button class="round" id="btnZoomIn" title="ズームイン">＋</button>
+  <button class="round" id="btnZoomOut" title="ズームアウト">－</button>
+  <button class="round txt" id="btnHome">わが<br>国へ</button>
+  <button class="round txt" id="btnSpeed">速度<br>1x</button>
+  <button class="round" id="btnPause" title="一時停止 (P)">⏸</button>
+</div>
+
+<div id="hint" class="hidden"></div>
+<div id="toast"></div>
+
+<!-- 下部 -->
+<div id="bottom" class="hidden">
+  <div id="sheet" class="hidden"></div>
+  <div id="actionBar">
+    <div id="ratioBox">
+      <span>送る兵力 <b id="ratioVal">40%</b></span>
+      <input type="range" id="ratio" min="5" max="100" step="5" value="40">
+    </div>
+    <div id="buttons"></div>
+  </div>
+  <div id="tabs">
+    <button data-tab="rank">順位</button>
+    <button data-tab="recent">最近</button>
+    <button data-tab="map">全体図</button>
+    <button data-tab="help">遊び方</button>
+  </div>
+  <div id="ticker"><span class="sw"></span><span class="tx">スポーン地点を選んでください</span><span class="ago">いま</span></div>
+</div>
+
+<!-- メニュー -->
+<div id="overlay">
+  <div id="menu" class="card">
+    <h1>陣地取り大戦<small>～核の時代～</small></h1>
+    <p class="desc">となりのマスをタップして兵を送り込み、陣地を広げよう！<br>
+      都市で兵力アップ、ミサイル基地から<b>核ミサイル</b>を撃ち込め！<br>
+      全陸地の <b>80%</b> を支配するか、全ての敵を滅ぼせば勝利。</p>
+    <div class="row"><label>国名</label><input id="optName" maxlength="10" value="あなたの国"></div>
+    <div class="row"><label>敵の数</label>
+      <select id="optBots"><option>3</option><option>5</option><option selected>7</option><option>10</option><option>14</option></select></div>
+    <div class="row"><label>難易度</label>
+      <select id="optDiff"><option value="easy">かんたん</option><option value="normal" selected>ふつう</option><option value="hard">むずかしい</option></select></div>
+    <button id="btnStart" class="big">🏁 ゲーム開始</button>
+  </div>
+  <div id="endCard" class="card hidden">
+    <h1 id="endTitle">勝利！</h1>
+    <p id="endText" class="desc"></p>
+    <button id="btnRestart" class="big">もう一度あそぶ</button>
+    <button id="btnWatch" class="sub">観戦をつづける</button>
+  </div>
+</div>
+
+<template id="helpTpl">
+  <h3>遊び方</h3>
+  <ul>
+    <li><b>タップ / クリック</b>：となりの無人地帯・敵国に攻撃（下のスライダーで送る兵力を調整）</li>
+    <li><b>ドラッグ</b>：マップ移動　<b>ピンチ / ホイール</b>：ズーム</li>
+    <li>🏙 <b>都市</b>：最大兵力＋5000、金収入アップ</li>
+    <li>🚀 <b>ミサイル基地</b>：核ミサイルの発射に必要</li>
+    <li>🛡 <b>迎撃基地</b>：範囲内に飛んでくる核を撃ち落とす（MIRVは迎撃不可）</li>
+    <li>☢ <b>原子爆弾</b> / 💥 <b>水素爆弾</b> / 🎆 <b>MIRV</b>（相手の領土全体に14発の弾頭）</li>
+    <li>被爆したマスは放射能で汚染され、しばらく占領しにくくなります。</li>
+    <li>キーボード：<b>1〜3</b> 建設、<b>4〜6</b> 核、<b>Esc / 右クリック</b> 解除、<b>P</b> 一時停止</li>
+  </ul>
+</template>
+
+<script src="game.js"></script>
+</body>
+</html>
