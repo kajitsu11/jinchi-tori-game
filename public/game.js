@@ -1,29 +1,31 @@
 'use strict';
 (() => {
 // ===== 定数 =====
-let W = 30, H = 20, N = W * H;        // マップのマス数（縦長画面では縦長マップ）
+let W = 440, H = 560, N = W * H;      // 1万人規模のマップ（約25万マス、陸地は約14万マス）。オンライン版と同じ大きさ
 const SEASON_DAYS = 100;
 const WIN_SHARE = 0.6;
-const SAM_RANGE = 5;
+const SAM_RANGE = 12;
 const SILO_RELOAD = 2;                // 日
 const SAM_RELOAD = 3;                 // 日
+const ACTIVE_RATE = 0.55;             // CPU対戦：1日に行動する住民の割合
 
 const BUILD = {
-  city: { name: '都市',        icon: '🏙', base: 40,  scale: 1.0, key: '1' },
-  silo: { name: 'ミサイル基地', icon: '🚀', base: 100, scale: 1.0, key: '2' },
-  sam:  { name: '迎撃基地',    icon: '🛡', base: 70,  scale: 0.6, key: '3' },
+  city: { name: '都市',        icon: '🏙', base: 50,  scale: 1.0, key: '1' },
+  silo: { name: 'ミサイル基地', icon: '🚀', base: 120, scale: 1.0, key: '2' },
+  sam:  { name: '迎撃基地',    icon: '🛡', base: 80,  scale: 0.6, key: '3' },
 };
 const NUKE = {
-  atom:  { name: '原子爆弾', icon: '☢', cost: 120, r: 1.5, fallout: 3, key: '4' },
-  hydro: { name: '水素爆弾', icon: '💥', cost: 300, r: 3,   fallout: 5, key: '5' },
-  mirv:  { name: 'MIRV',    icon: '🎆', cost: 700, r: 6,   fallout: 3, key: '6', warheads: 6 },
+  atom:  { name: '原子爆弾', icon: '☢', cost: 150, r: 4,  fallout: 3, key: '4' },
+  hydro: { name: '水素爆弾', icon: '💥', cost: 400, r: 9,  fallout: 5, key: '5' },
+  mirv:  { name: 'MIRV',    icon: '🎆', cost: 900, r: 14, fallout: 3, key: '6', warheads: 6 },
 };
-const WARHEAD_R = 1.2;
+const WARHEAD_R = 3;
 
+// power：CPUの国の住民がどれくらい動くか（あなたの国は 1）
 const DIFF = {
-  easy:   { label: 'かんたん',  skip: 0.3, extraEvery: 0, hateMe: 0.1,  nukeStart: 30, nukeRate: 0.05, defend: 0.25 },
-  normal: { label: 'ふつう',    skip: 0.1, extraEvery: 0, hateMe: 0.25, nukeStart: 20, nukeRate: 0.1,  defend: 0.35 },
-  hard:   { label: 'むずかしい', skip: 0,   extraEvery: 3, hateMe: 0.4,  nukeStart: 14, nukeRate: 0.18, defend: 0.45 },
+  easy:   { label: 'かんたん',  power: 0.85, hateMe: 0.03,  nukeStart: 25, nukeRate: 0.05, defend: 0.15 },
+  normal: { label: 'ふつう',    power: 1.0,  hateMe: 0.1, nukeStart: 18, nukeRate: 0.1,  defend: 0.2 },
+  hard:   { label: 'むずかしい', power: 1.15, hateMe: 0.25,  nukeStart: 12, nukeRate: 0.16, defend: 0.25 },
 };
 
 const ME_COLOR = '#8a6cf0';
@@ -47,8 +49,7 @@ const off = document.createElement('canvas');
 const octx = off.getContext('2d');
 let img, pix;
 function setDims(w, h) {
-  const portrait = window.innerHeight > window.innerWidth * 1.1;
-  [W, H] = w ? [w, h] : portrait ? [20, 30] : [30, 20];
+  [W, H] = w ? [w, h] : [440, 560];
   N = W * H;
   off.width = W; off.height = H;   // 1マス＝1ピクセル
   img = octx.createImageData(W, H);
@@ -102,11 +103,11 @@ function genMap(seed) {
 function makePlayer(id, name, color, isBot) {
   return {
     id, name, color, rgb: hex2rgb(color), isBot, alive: true,
-    gold: 30, tiles: 0, cnt: { city: 0, silo: 0, sam: 0 }, actions: 1, capital: -1,
+    gold: 30, treasury: 0, members: 0, tiles: 0, cnt: { city: 0, silo: 0, sam: 0 }, actions: 1, capital: -1,
     nb: new Set(), lx: 0, ly: 0, grudge: -1,
   };
 }
-const goldRate = (p) => 2 + p.tiles + p.cnt.city * 4;
+const playerIncome = (p) => 10 + p.cnt.city * 3;   // あなたが1マス動くたびにもらえる金
 const buildCost = (p, type) => (online ? online.costs[p.id][type] : Math.round(BUILD[type].base * (1 + BUILD[type].scale * p.cnt[type])));
 const nukeCost = (type) => (online ? online.nukeCosts[type] : NUKE[type].cost);
 const shieldCount = (p) => { let n = 0; for (let i = 0; i < N; i++) if (owner[i] === p.id && shield[i]) n++; return n; };
@@ -124,12 +125,13 @@ function setOwner(i, o) {
     if (o >= 0) { b.owner = o; players[o].cnt[b.type]++; }   // 建物は占領される
     else bAt.delete(i);
   }
-  mapDirty = true;
+  markCell(i);
 }
 
 // ===== ゲーム開始 =====
 function newGame() {
   const nBots = parseInt($('optBots').value, 10);
+  const pop = parseInt($('optPop').value, 10);
   diff = DIFF[$('optDiff').value];
   setDims();
   genMap((Math.random() * 1e9) | 0);
@@ -140,6 +142,7 @@ function newGame() {
   players = [makePlayer(0, $('optName').value.trim() || 'あなたの国', ME_COLOR, false)];
   const names = shuffle(BOT_NAMES.slice()), cols = shuffle(PALETTE.slice());
   for (let k = 0; k < nBots; k++) players.push(makePlayer(k + 1, names[k], cols[k], true));
+  for (const p of players) p.members = Math.max(1, Math.round(pop / players.length));   // あなたの国の人数にはあなたも入る
   me = 0; day = 1; mode = null; selTile = -1;
   state = 'spawn';
   mapDirty = true;
@@ -149,7 +152,7 @@ function newGame() {
   closeSheet();
   hideSel();
   fitCamera();
-  setHint('🏁 スタート地点をタップしてね');
+  setHint('🏁 あなたの国のスタート地点をタップしてね');
   ticker('スタート地点を選んでください', null);
   buildButtons();
   updateUI();
@@ -167,8 +170,8 @@ function startGame(spawnTile) {
   for (const p of players) {
     if (p.id === me) continue;
     let minD = Math.sqrt(landCount / players.length) * 1.1, placed = false;
-    for (let tries = 0; tries < 5000 && !placed; tries++) {
-      if (tries % 300 === 299) minD *= 0.85;
+    for (let tries = 0; tries < 20000 && !placed; tries++) {
+      if (tries % 500 === 499) minD *= 0.85;
       const i = Math.floor(Math.random() * N);
       if (!terrain[i] || owner[i] >= 0) continue;
       if (neighbors(i).some((j) => owner[j] >= 0)) continue;
@@ -182,8 +185,8 @@ function startGame(spawnTile) {
   yesterdayTiles = players[me].tiles;
   state = 'play';
   setHint(null);
-  log(`${players[me].name} が ${town(spawnTile)} に建国しました！`, me, 'good');
-  centerOn(tx(spawnTile) + 0.5, ty(spawnTile) + 0.5);
+  log(`${players[me].name} が ${town(spawnTile)} に建国しました！（仲間 ${players[me].members.toLocaleString()}人）`, me, 'good');
+  centerOn(tx(spawnTile) + 0.5, ty(spawnTile) + 0.5, Math.max(cam.s, 16));
   updateUI();
 }
 
@@ -197,28 +200,27 @@ function canTake(p, i) {
   if (!adjacentTo(i, p.id)) return '自分の陣地のとなりのマスしか取れません';
   return null;
 }
-// 取る。盾があれば盾がこわれるだけ。戻り値：'took' | 'blocked'
+// あなたが取る。盾があれば盾がこわれるだけ
 function takeTile(p, i) {
   const o = owner[i];
   if (o >= 0 && shield[i]) {
     shield[i] = 0;
-    mapDirty = true;
+    markCell(i);
     pop(i, '#ffffff');
-    log(`${players[o].name}が ${town(i)} を守った（${p.name}の攻撃）`, o, o === me ? 'good' : p.id === me ? 'warn' : '');
+    log(`${players[o].name}が ${town(i)} を守った（${p.name}の攻撃）`, o, 'warn');
     return 'blocked';
   }
   setOwner(i, p.id);
   pop(i, p.color);
-  if (o === me) log(`${p.name}に ${town(i)} を取られた！`, p.id, 'warn');
-  else log(`${p.name}が ${town(i)} を取った`, p.id, p.id === me ? 'good' : '');
+  log(`${p.name}が ${o >= 0 ? players[o].name + 'の ' : ''}${town(i)} を取った`, p.id, 'good');
   if (o >= 0 && players[o].isBot) players[o].grudge = p.id;
   return 'took';
 }
 function guardTile(p, i) {
   shield[i] = 1;
-  mapDirty = true;
+  markCell(i);
   pop(i, '#ffffff');
-  log(`${p.name}が ${town(i)} を守った`, p.id, p.id === me ? 'good' : '');
+  log(`${p.name}が ${town(i)} を守った`, p.id, 'good');
 }
 
 // プレイヤーの1マス
@@ -235,109 +237,183 @@ function doPlayerAction(i) {
     takeTile(P, i);
   }
   P.actions--;
+  P.gold += playerIncome(P);
   hideSel();
   scan();
   updateUI();
   if (P.actions <= 0 && state === 'play') {
     state = 'busy';
-    setTimeout(advanceDay, 550);
+    updateUI();
+    setTimeout(advanceDay, 400);
   }
 }
 
-// 1日を進める：CPUが動き、金が入り、汚染が薄れる
+// 1日を進める：各国の住民（CPU）がそれぞれ1マスずつ動き、金が入り、汚染が薄れる
 function advanceDay() {
   if (state !== 'busy') return;
-  const bots = shuffle(players.filter((p) => p.isBot && p.alive));
-  bots.forEach((p, k) => {
-    let n = Math.random() < diff.skip ? 0 : 1;
-    if (diff.extraEvery && day % diff.extraEvery === 0) n++;
-    for (let a = 0; a < n; a++) botAct(p);
-    botEconomy(p, k);
+  const F = buildFrontiers();
+  const stats = players.map(() => ({ done: 0, gained: 0, lostTo: new Map() }));
+  // その日に動く人数（あなたの国は、あなたを除いた仲間の分）
+  const quota = players.map((p) => {
+    if (!p.alive || !p.tiles) return 0;
+    const mul = p.id === me ? 1 : diff.power;
+    const n = Math.round(p.members * ACTIVE_RATE * mul * (0.9 + Math.random() * 0.2));
+    return Math.max(0, n - (p.id === me ? 1 : 0));
+  });
+  // 先に動いた国が得をしないよう、少しずつ順番に動かす
+  for (let left = true; left;) {
+    left = false;
+    for (const p of shuffle(players.filter((q) => quota[q.id] > 0))) {
+      const n = Math.min(quota[p.id], 40);
+      for (let k = 0; k < n; k++) aiAct(p, F, stats);
+      quota[p.id] -= n;
+      if (quota[p.id] > 0) left = true;
+    }
+  }
+  // 1日のまとめ
+  const P = players[me], st = stats[me];
+  let lost = 0, worst = -1, worstN = 0;
+  for (const [o, c] of st.lostTo) { lost += c; if (c > worstN) { worstN = c; worst = o; } }
+  if (P.tiles) log(`${day}日目：${P.name}は仲間と +${st.gained.toLocaleString()}マス / −${lost.toLocaleString()}マス`, me, st.gained >= lost ? 'good' : 'warn');
+  if (worst >= 0 && worstN >= 5) log(`${players[worst].name}に ${worstN.toLocaleString()}マス取られた！`, worst, 'warn');
+  players.forEach((p, k) => {   // いちばん多く取ってきた国を恨む（あなたの国の仲間も）
+    let wo = -1, wn = 0;
+    for (const [o, c] of stats[k].lostTo) if (c > wn) { wn = c; wo = o; }
+    if (wo >= 0 && wn >= 10) p.grudge = wo;
+  });
+  // お金・建設・核（各国の金庫から。あなたの国の金庫は仲間が使う）
+  players.forEach((p, k) => {
+    if (!p.alive) return;
+    p.treasury += stats[p.id].done * 2 + p.cnt.city * 20;
+    nationEconomy(p, k);
   });
   day++;
-  for (const p of players) if (p.alive) { p.gold += goldRate(p); p.actions = 1; }
-  for (let i = 0; i < N; i++) if (fallout[i] > 0) { fallout[i]--; mapDirty = true; }
+  P.actions = 1;
+  for (let i = 0; i < N; i++) if (fallout[i] > 0) { fallout[i]--; markCell(i); }
   for (const b of bAt.values()) if (b.cd > 0) b.cd--;
-  yesterdayTiles = players[me].tiles;
+  yesterdayTiles = P.tiles;
   scan();
   state = 'play';
   checkEnd();
   updateUI();
 }
 
-// ===== AI =====
-function botAct(p) {
-  const neutral = [], enemy = [], threatened = [];
+// ===== CPU（住民）の動き =====
+// 1日のはじめに、各国が「取れる無人のマス」「取れる敵のマス」「守るべきマス」の候補を作る。
+// 動くたびに候補を足していき、使えなくなった候補は選ばれたときに捨てる（毎回マップ全体を調べないため）
+function buildFrontiers() {
+  const F = players.map(() => ({ neutral: [], enemy: [], guard: [] }));
   for (let i = 0; i < N; i++) {
     if (!terrain[i]) continue;
-    const o = owner[i];
-    if (o === p.id) {
-      if (!shield[i] && neighbors(i).some((j) => terrain[j] && owner[j] >= 0 && owner[j] !== p.id)) threatened.push(i);
-      continue;
+    const o = owner[i], x = i % W, y = (i / W) | 0;
+    let a = -2, b = -2, threatened = false;
+    for (let d = 0; d < 4; d++) {
+      const j = d === 0 ? (x > 0 ? i - 1 : -1) : d === 1 ? (x < W - 1 ? i + 1 : -1) : d === 2 ? (y > 0 ? i - W : -1) : (y < H - 1 ? i + W : -1);
+      if (j < 0 || !terrain[j]) continue;
+      const q = owner[j];
+      if (q < 0 || q === o || q === a || q === b) continue;
+      if (a === -2) a = q; else b = q;
+      if (o < 0) { if (!fallout[i]) F[q].neutral.push(i); }
+      else { F[q].enemy.push(i); threatened = true; }
     }
-    if (fallout[i] > 0 || !adjacentTo(i, p.id)) continue;
-    (o < 0 ? neutral : enemy).push(i);
+    if (o >= 0 && threatened && !shield[i]) F[o].guard.push(i);
   }
-  const ownN = (i) => neighbors(i).filter((j) => owner[j] === p.id).length;
-  const best = (arr, score) => { let b = -1, bs = -Infinity; for (const i of arr) { const s = score(i) + Math.random(); if (s > bs) { bs = s; b = i; } } return b; };
-
-  // 守る：首都や建物、敵に多く面しているマスを優先
-  if (threatened.length && Math.random() < diff.defend * (neutral.length ? 0.5 : 1)) {
-    const i = best(threatened, (i) => neighbors(i).filter((j) => owner[j] >= 0 && owner[j] !== p.id).length + (bAt.has(i) || i === p.capital ? 2 : 0));
-    guardTile(p, i);
-    return;
+  return F;
+}
+// 候補から有効なものを1つ選ぶ（となりの自分のマスが多い方を優先して、まとまって広がる）
+function pickFrom(list, valid, score) {
+  let best = -1, bs = -1;
+  for (let tries = 0; tries < 3 && list.length;) {
+    const k = Math.floor(Math.random() * list.length), i = list[k];
+    if (!valid(i)) { list[k] = list[list.length - 1]; list.pop(); continue; }
+    const s = score(i) + Math.random();
+    if (s > bs) { bs = s; best = i; }
+    tries++;
   }
-  if (neutral.length && (!enemy.length || Math.random() < 0.75)) {
-    takeTile(p, best(neutral, (i) => ownN(i) * 1.5));
-    return;
+  return best;
+}
+function aiAct(p, F, stats) {
+  const f = F[p.id], id = p.id;
+  const ownN = (i) => { let c = 0; for (const j of neighbors(i)) if (owner[j] === id) c++; return c; };
+  const takeable = (i) => owner[i] !== id && terrain[i] && !fallout[i] && adjacentTo(i, id);
+  stats[id].done++;
+  // 守る
+  if (f.guard.length && Math.random() < diff.defend * (f.neutral.length ? 0.3 : 1)) {
+    const i = pickFrom(f.guard, (i) => owner[i] === id && !shield[i], () => 0);
+    if (i >= 0) { shield[i] = 1; return; }
   }
-  if (enemy.length) {
-    const foes = [...new Set(enemy.map((i) => owner[i]))];
-    let target;
-    if (p.grudge >= 0 && foes.includes(p.grudge) && Math.random() < 0.6) target = p.grudge;
-    else if (foes.includes(me) && Math.random() < diff.hateMe) target = me;
-    else target = foes.reduce((a, b) => (players[b].tiles < players[a].tiles ? b : a));
-    const cand = enemy.filter((i) => owner[i] === target);
-    takeTile(p, best(cand, (i) => ownN(i) * 1.5 - shield[i] * 2 + (bAt.has(i) ? 1.5 : 0)));
-    return;
+  // 無人のマスを取る（序盤ほど優先）
+  if (f.neutral.length && (!f.enemy.length || Math.random() < Math.max(0.35, 0.9 - day / 80))) {
+    const i = pickFrom(f.neutral, (i) => owner[i] < 0 && takeable(i), ownN);
+    if (i >= 0) { aiTake(p, i, F, stats); return; }
   }
-  if (threatened.length) guardTile(p, pick(threatened));
+  // 敵のマスを取る（恨みのある国・あなたの国をねらうことも）
+  if (f.enemy.length) {
+    const want = p.grudge >= 0 && Math.random() < 0.5 ? p.grudge : id !== me && Math.random() < diff.hateMe ? me : -1;
+    let i = -1;
+    if (want >= 0) i = pickFrom(f.enemy, (i) => owner[i] >= 0 && takeable(i), (i) => (owner[i] === want ? 5 : 0) + ownN(i));
+    else i = pickFrom(f.enemy, (i) => owner[i] >= 0 && takeable(i), (i) => ownN(i) - shield[i] * 2);
+    if (i >= 0) { aiTake(p, i, F, stats); return; }
+  }
+  if (f.neutral.length) {
+    const i = pickFrom(f.neutral, (i) => owner[i] < 0 && takeable(i), ownN);
+    if (i >= 0) aiTake(p, i, F, stats);
+  }
+}
+function aiTake(p, i, F, stats) {
+  const o = owner[i];
+  if (o >= 0 && shield[i]) { shield[i] = 0; markCell(i); return; }   // 盾がこわれるだけ
+  setOwner(i, p.id);
+  stats[p.id].gained++;
+  if (o >= 0) stats[o].lostTo.set(p.id, (stats[o].lostTo.get(p.id) || 0) + 1);
+  // 新しく取ったマスのまわりを候補に足す
+  for (const j of neighbors(i)) {
+    if (!terrain[j]) continue;
+    const q = owner[j];
+    if (q < 0) { if (!fallout[j]) F[p.id].neutral.push(j); }
+    else if (q !== p.id) { F[p.id].enemy.push(j); F[q].enemy.push(i); F[q].guard.push(j); F[p.id].guard.push(i); }
+  }
 }
 
-function botEconomy(p, k) {
-  // 建設
-  let type = null;
-  if (day > diff.nukeStart * 0.6 && p.tiles >= 12 && p.cnt.silo < 1 + Math.floor(p.tiles / 60)) type = 'silo';
-  else if (p.cnt.silo && p.cnt.sam < p.cnt.silo) type = 'sam';
-  else if (p.cnt.city < 1 + p.tiles / 15) type = 'city';
-  const reserve = p.cnt.silo && type === 'city' ? NUKE.atom.cost : 0;
-  if (type && p.gold >= buildCost(p, type) + reserve) {
-    const own = [];
-    for (let i = 0; i < N; i++) if (owner[i] === p.id && !bAt.has(i)) own.push(i);
-    const inner = own.filter((i) => neighbors(i).every((j) => owner[j] === p.id));
-    const spot = pick(inner.length ? inner : own);
-    if (spot !== undefined) placeBuilding(p, type, spot);
+// 国の金庫で建設と核（あなたの国では、仲間が金庫で建てたり撃ったりする）
+function randomTileOf(pid, tries = 4000) {
+  for (let k = 0; k < tries; k++) { const i = Math.floor(Math.random() * N); if (owner[i] === pid) return i; }
+  for (let i = 0; i < N; i++) if (owner[i] === pid) return i;
+  return -1;
+}
+function nationEconomy(p, k) {
+  for (let n = 0; n < 10; n++) {
+    let type = null;
+    if (day > diff.nukeStart * 0.6 && p.cnt.silo < 1 + Math.floor(p.tiles / 2500)) type = 'silo';
+    else if (p.cnt.silo && p.cnt.sam < p.cnt.silo) type = 'sam';
+    else if (p.cnt.city < 1 + Math.floor(p.tiles / 600)) type = 'city';
+    if (!type) break;
+    const reserve = p.cnt.silo && type === 'city' ? NUKE.hydro.cost : 0;
+    if (p.treasury < buildCost(p, type) + reserve) break;
+    let spot = -1;
+    for (let t = 0; t < 50 && spot < 0; t++) {
+      const i = randomTileOf(p.id, 500);
+      if (i >= 0 && !bAt.has(i) && neighbors(i).every((j) => owner[j] === p.id)) spot = i;
+    }
+    if (spot < 0 || placeBuilding(p, type, spot, 'treasury')) break;
   }
-  // 核
-  if (!p.cnt.silo || day < diff.nukeStart || Math.random() > diff.nukeRate) return;
-  let nt = null;
-  if (p.gold >= NUKE.mirv.cost && Math.random() < 0.3) nt = 'mirv';
-  else if (p.gold >= NUKE.hydro.cost && Math.random() < 0.6) nt = 'hydro';
-  else if (p.gold >= NUKE.atom.cost) nt = 'atom';
-  if (!nt) return;
-  const others = players.filter((q) => q.alive && q.id !== p.id && q.tiles > 0);
-  if (!others.length) return;
-  let t = p.grudge >= 0 && players[p.grudge].alive ? players[p.grudge] : null;
-  if (!t) t = players[me].alive && Math.random() < diff.hateMe ? players[me] : others.reduce((a, b) => (b.tiles > a.tiles ? b : a));
-  const cities = [...bAt.values()].filter((b) => b.owner === t.id);
-  let ti;
-  if (cities.length && Math.random() < 0.5) ti = pick(cities).i;
-  else {
-    const own = [];
-    for (let i = 0; i < N; i++) if (owner[i] === t.id) own.push(i);
-    ti = pick(own);
+  if (!p.cnt.silo || day < diff.nukeStart) return;
+  for (const b of [...bAt.values()]) {
+    if (b.owner !== p.id || b.type !== 'silo' || b.cd || Math.random() > diff.nukeRate) continue;
+    let nt = null;
+    if (p.treasury >= NUKE.mirv.cost && Math.random() < 0.25) nt = 'mirv';
+    else if (p.treasury >= NUKE.hydro.cost && Math.random() < 0.5) nt = 'hydro';
+    else if (p.treasury >= NUKE.atom.cost) nt = 'atom';
+    if (!nt) break;
+    const others = players.filter((q) => q.alive && q.id !== p.id && q.tiles > 0);
+    if (!others.length) break;
+    let t = p.grudge >= 0 && players[p.grudge].alive && players[p.grudge].tiles ? players[p.grudge] : null;
+    if (!t) t = p.id !== me && players[me].tiles && Math.random() < diff.hateMe ? players[me] : others.reduce((a, c) => (c.tiles > a.tiles ? c : a));
+    if (t.id === p.id) continue;
+    const cities = [...bAt.values()].filter((c) => c.owner === t.id);
+    const ti = cities.length && Math.random() < 0.5 ? pick(cities).i : randomTileOf(t.id);
+    if (ti >= 0) launchNuke(p, nt, ti, k * 300, 'treasury');
   }
-  if (ti !== undefined) launchNuke(p, nt, ti, k * 350);
 }
 
 // ===== 建設 =====
@@ -346,15 +422,16 @@ function canPlace(p, i) {
   if (bAt.has(i)) return 'そのマスにはもう建物があります';
   return null;
 }
-function placeBuilding(p, type, i) {
+// purse：'gold'（あなたの金）か 'treasury'（国の金庫）
+function placeBuilding(p, type, i, purse = 'gold') {
   const cost = buildCost(p, type);
-  if (p.gold < cost) return '金が足りません';
+  if (p[purse] < cost) return '金が足りません';
   const err = canPlace(p, i);
   if (err) return err;
-  p.gold -= cost;
+  p[purse] -= cost;
   bAt.set(i, { type, i, x: tx(i), y: ty(i), owner: p.id, cd: 0 });
   p.cnt[type]++;
-  if (p.id === me) log(`${town(i)} に${BUILD[type].name}を建てた`, me, 'good');
+  if (p.id === me && purse === 'gold') log(`${town(i)} に${BUILD[type].name}を建てた`, me, 'good');
   return null;
 }
 
@@ -368,18 +445,18 @@ function readySilo(p, x, y) {
   }
   return best;
 }
-function launchNuke(p, type, ti, delay = 0) {
+function launchNuke(p, type, ti, delay = 0, purse = 'gold') {
   const NK = NUKE[type];
-  if (p.gold < NK.cost) return '金が足りません';
+  if (p[purse] < NK.cost) return '金が足りません';
   if (!p.cnt.silo) return 'ミサイル基地がありません';
   const x = tx(ti), y = ty(ti);
   const silo = readySilo(p, x, y);
   if (!silo) return 'ミサイル基地が再装填中です';
-  p.gold -= NK.cost;
+  p[purse] -= NK.cost;
   silo.cd = SILO_RELOAD;
   const dist = Math.hypot(x - silo.x, y - silo.y);
   const victim = terrain[ti] ? owner[ti] : -1;
-  const m = { type, owner: p.id, sx: silo.x, sy: silo.y, tx: x, ty: y, start: performance.now() + delay, dur: 1100 + dist * 70, victim, intercept: -1 };
+  const m = { type, owner: p.id, sx: silo.x, sy: silo.y, tx: x, ty: y, start: performance.now() + delay, dur: 1100 + Math.min(dist, 60) * 70, victim, intercept: -1 };
   if (type !== 'mirv') {
     for (const b of bAt.values()) {
       if (b.type !== 'sam' || b.owner === p.id || b.cd > 0) continue;
@@ -431,7 +508,7 @@ function splitMirv(m, now) {
   if (m.victim >= 0) for (let i = 0; i < N; i++) if (owner[i] === m.victim) targets.push(i);
   targets = shuffle(targets).slice(0, NUKE.mirv.warheads);
   while (targets.length < NUKE.mirv.warheads) {
-    const x = Math.round(m.tx + (Math.random() - 0.5) * 8), y = Math.round(m.ty + (Math.random() - 0.5) * 8);
+    const x = Math.round(m.tx + (Math.random() - 0.5) * 40), y = Math.round(m.ty + (Math.random() - 0.5) * 40);
     if (x >= 0 && y >= 0 && x < W && y < H) targets.push(y * W + x);
   }
   return targets.map((ti) => ({
@@ -1094,7 +1171,7 @@ function updateUI() {
   const d = P.tiles - yesterdayTiles;
   $('cDelta').textContent = '前日比 ' + (d > 0 ? '+' : d < 0 ? '−' : '±') + Math.abs(d);
   $('cGold').textContent = fmt(P.gold);
-  $('cIncome').textContent = online ? 10 + P.cnt.city * 3 : goldRate(P);
+  $('cIncome').textContent = playerIncome(P);
   $('cShields').textContent = shieldCount(P);
   $('cCities').textContent = P.cnt.city;
   $('cLeft').textContent = Math.max(0, SEASON_DAYS - day + 1);
@@ -1125,8 +1202,8 @@ function renderRank() {
       <span class="no">${p.alive ? k + 1 + '位' : '—'}</span>
       <span class="sw" style="background:${p.color}"></span>
       <span class="nm">${esc(p.name)}</span>
-      <span class="v">${p.tiles}マス</span>
-      <span class="v">${online ? `👥${p.members}人` : `💰${fmt(p.gold)}`}</span>
+      <span class="v">${p.tiles.toLocaleString()}マス</span>
+      <span class="v">👥${p.members.toLocaleString()}人</span>
       <span class="v">${(p.tiles / landCount * 100).toFixed(1)}%</span>
     </div>`).join('');
 }
@@ -1506,6 +1583,12 @@ window.__jintori = {
   get players() { return players; }, get state() { return state; }, set state(v) { state = v; }, get day() { return day; },
   get missiles() { return missiles; }, get landCount() { return landCount; }, get online() { return online; },
   flushMissiles() { for (let k = 0; k < 3; k++) updateMissiles(performance.now() + 1e7 * (k + 1)); },
-  owner: () => owner, shield: () => shield, launchNuke, placeBuilding, doPlayerAction, advanceDay, botAct, canTake,
+  owner: () => owner, shield: () => shield, launchNuke, placeBuilding, doPlayerAction, advanceDay, canTake,
+  // テスト用：あなたの1マスを自動で選んで動く
+  autoMe() {
+    const f = buildFrontiers()[me], ok = (i) => canTake(players[me], i) === null;
+    const i = pickFrom(f.neutral.length ? f.neutral : f.enemy, ok, () => 0);
+    if (i >= 0) doPlayerAction(i); else passDay();
+  },
 };
 })();

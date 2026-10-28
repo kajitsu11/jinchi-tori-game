@@ -12,7 +12,7 @@ const W = 440, H = 560;              // 約25万マス（陸地は約14万マス
 const NONE = 255;                    // owner：だれのものでもない
 const CHUNK = 32768;                 // 保存するときの区切り（マス数）
 const SEASON_DAYS = 100;
-const SAM_RANGE = 5;
+const SAM_RANGE = 12;
 const SILO_RELOAD = 2;
 const SAM_RELOAD = 3;
 const LOG_KEEP = 80;
@@ -26,9 +26,9 @@ const BUILD = {
   sam:  { name: '迎撃基地', base: 80, scale: 0.6 },
 };
 const NUKE = {
-  atom:  { name: '原子爆弾', cost: 150, r: 1.5, fallout: 3 },
-  hydro: { name: '水素爆弾', cost: 400, r: 3, fallout: 5 },
-  mirv:  { name: 'MIRV', cost: 900, r: 1.2, fallout: 3, warheads: 6 },
+  atom:  { name: '原子爆弾', cost: 150, r: 4, fallout: 3 },
+  hydro: { name: '水素爆弾', cost: 400, r: 9, fallout: 5 },
+  mirv:  { name: 'MIRV', cost: 900, r: 3, fallout: 3, warheads: 6 },
 };
 
 // IP ごとの制限（wrangler.toml の [vars] で上書きできる）
@@ -493,7 +493,7 @@ export class GameRoom {
     }
     targets = targets.slice(0, NK.warheads);
     while (targets.length < NK.warheads) {
-      const tx = Math.round(x + (Math.random() - 0.5) * 8), ty = Math.round(y + (Math.random() - 0.5) * 8);
+      const tx = Math.round(x + (Math.random() - 0.5) * 40), ty = Math.round(y + (Math.random() - 0.5) * 40);
       if (tx >= 0 && ty >= 0 && tx < m.W && ty < m.H) targets.push(ty * m.W + tx);
     }
     for (const t of targets) this.detonate(t, NK.r, NK.fallout);

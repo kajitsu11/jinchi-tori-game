@@ -76,11 +76,14 @@
   <div id="menu" class="card">
     <h1>陣地取り大戦<small>～1日1マスと核の時代～</small></h1>
     <p class="desc">1日に<b>1マス</b>だけ、となりのマスを<b>取る</b>か、自分のマスを<b>守る</b>ことができます。<br>
+      あなたの国の仲間や敵の国の住民（CPU）も、毎日1人1マスずつ動きます。<br>
       金を貯めて都市やミサイル基地を建て、<b>核ミサイル</b>で敵の陣地を吹き飛ばそう！<br>
-      <b>100日</b>のシーズン終了時に1位なら勝利。</p>
+      <b>100日</b>のシーズン終了時にあなたの国が1位なら勝利。</p>
     <div class="row"><label>国名</label><input id="optName" maxlength="10" value="あなたの国"></div>
-    <div class="row"><label>敵の数</label>
+    <div class="row"><label>敵の国</label>
       <select id="optBots"><option>3</option><option selected>5</option><option>7</option><option>10</option></select></div>
+    <div class="row"><label>全体の人数</label>
+      <select id="optPop"><option value="1000">1,000人</option><option value="5000">5,000人</option><option value="10000" selected>10,000人</option></select></div>
     <div class="row"><label>難易度</label>
       <select id="optDiff"><option value="easy">かんたん</option><option value="normal" selected>ふつう</option><option value="hard">むずかしい</option></select></div>
     <button id="btnStart" class="big">🏁 CPUと対戦</button>
@@ -110,13 +113,13 @@
     <li>1日に<b>1マス</b>だけ行動できます。マスをタップして選び、ボタンで決定。</li>
     <li><b>取る</b>：自分の陣地のとなりのマス（無人・敵）を自分のものにする</li>
     <li><b>守る</b>：自分のマスに🛡盾を置く。盾のあるマスを攻められると、盾がこわれるだけで取られない</li>
-    <li>行動すると日が進み、CPUの国もそれぞれ1マスずつ動きます</li>
-    <li>💰金は毎日「マス数＋α」もらえます。建物と核は金だけで使え、1日の行動は減りません</li>
+    <li>行動すると日が進み、あなたの国の仲間や敵の国の住民（CPU）も、それぞれ1人1マスずつ動きます</li>
+    <li>💰金は1マス動くたびにもらえます。建物と核は金だけで使え、1日の行動は減りません。国の金庫は仲間（CPU）が使います</li>
     <li>🏙 <b>都市</b>：毎日の金が増える</li>
     <li>🚀 <b>ミサイル基地</b>：核の発射に必要（撃ったら2日間再装填）</li>
-    <li>🛡 <b>迎撃基地</b>：まわり5マス以内に飛んでくる核を撃ち落とす（MIRVは迎撃不可）</li>
+    <li>🛡 <b>迎撃基地</b>：まわり12マス以内に飛んでくる核を撃ち落とす（MIRVは迎撃不可）</li>
     <li>☢ <b>原子爆弾</b> / 💥 <b>水素爆弾</b> / 🎆 <b>MIRV</b>（相手の陣地に6発の弾頭）。被爆したマスは無人に戻り、数日間だれも取れません</li>
-    <li>100日のシーズン終了時に1位、または陸地の60%を取るか敵を全滅させれば勝利</li>
+    <li>100日のシーズン終了時にあなたの国が1位、または陸地の60%を取るか敵を全滅させれば勝利</li>
     <li>キーボード：<b>1〜3</b> 建設、<b>4〜6</b> 核、<b>Enter</b> 決定、<b>N</b> 次の日へ、<b>Esc</b> 解除</li>
   </ul>
 </template>
