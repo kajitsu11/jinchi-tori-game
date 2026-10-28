@@ -109,6 +109,9 @@ function makePlayer(id, name, color, isBot) {
     id, name, abbr: [...name].slice(0, 2).join(''), color, rgb: hex2rgb(color), isBot, alive: true,
     gold: 30, treasury: 0, members: 0, tiles: 0, cnt: { city: 0, silo: 0, sam: 0 }, actions: 1, capital: -1,
     nb: new Set(), lx: 0, ly: 0, grudge: -1,
+    // AI会議で決める方針と同盟
+    persona: '', policy: { focus: 'expand', target: -1, nuke: -1 }, allies: new Set(), allyReq: new Set(),
+    aiLed: false, summonedBy: -1, lastSummon: -99,
   };
 }
 const playerIncome = (p) => 10 + p.cnt.city * 3;   // あなたが1マス動くたびにもらえる金
@@ -147,6 +150,9 @@ function newGame() {
   const names = shuffle(BOT_NAMES.slice()), cols = shuffle(PALETTE.slice());
   for (let k = 0; k < nBots; k++) players.push(makePlayer(k + 1, names[k], cols[k], true));
   for (const p of players) p.members = Math.max(1, Math.round(pop / players.length));   // あなたの国の人数にはあなたも入る
+  const personas = shuffle(PERSONAS.slice());
+  players.forEach((p, k) => { if (p.isBot) p.persona = personas[k % personas.length]; });
+  council.msgs = []; council.lastDay = 0; council.running = false; council.waiting = false; council.thinking = -1;
   me = 0; day = 1; mode = null; selTile = -1;
   prevOwner = null; savedOwner = null;
   state = 'spawn';
@@ -343,21 +349,28 @@ function pickFrom(list, valid, score) {
 function aiAct(p, F, stats) {
   const f = F[p.id], id = p.id;
   const ownN = (i) => { let c = 0; for (const j of neighbors(i)) if (owner[j] === id) c++; return c; };
-  const takeable = (i) => owner[i] !== id && terrain[i] && !fallout[i] && adjacentTo(i, id);
+  const pol = p.policy;
+  const takeable = (i) => owner[i] !== id && terrain[i] && !fallout[i] && !p.allies.has(owner[i]) && adjacentTo(i, id);
   stats[id].done++;
-  // 守る
-  if (f.guard.length && Math.random() < diff.defend * (f.neutral.length ? 0.3 : 1)) {
+  // 守る（方針が「守る」なら多め、「攻める」なら少なめ）
+  const defendRate = diff.defend * (pol.focus === 'defend' ? 2.5 : pol.focus === 'attack' ? 0.5 : 1);
+  if (f.guard.length && Math.random() < defendRate * (f.neutral.length ? 0.3 : 1)) {
     const i = pickFrom(f.guard, (i) => owner[i] === id && !shield[i] && !noGuard(i), () => 0);
     if (i >= 0) { shield[i] = 1; return; }
   }
   // 無人のマスを取る（序盤ほど優先）
-  if (f.neutral.length && (!f.enemy.length || Math.random() < Math.max(0.35, 0.9 - day / 80))) {
+  let np = Math.max(0.35, 0.9 - day / 80);
+  if (pol.focus === 'attack') np *= 0.4; else if (pol.focus === 'expand') np = Math.min(0.97, np * 1.3);
+  if (f.neutral.length && (!f.enemy.length || Math.random() < np)) {
     const i = pickFrom(f.neutral, (i) => owner[i] < 0 && takeable(i), ownN);
     if (i >= 0) { aiTake(p, i, F, stats); return; }
   }
   // 敵のマスを取る（恨みのある国・あなたの国をねらうことも）
   if (f.enemy.length) {
-    const want = p.grudge >= 0 && Math.random() < 0.5 ? p.grudge : id !== me && Math.random() < diff.hateMe ? me : -1;
+    const tgt = pol.target >= 0 && players[pol.target] && players[pol.target].alive && !p.allies.has(pol.target) ? pol.target : -1;
+    const want = tgt >= 0 && Math.random() < 0.75 ? tgt
+      : p.grudge >= 0 && !p.allies.has(p.grudge) && Math.random() < 0.5 ? p.grudge
+      : id !== me && !p.allies.has(me) && Math.random() < diff.hateMe ? me : -1;
     let i = -1;
     if (want >= 0) i = pickFrom(f.enemy, (i) => owner[i] >= 0 && takeable(i), (i) => (owner[i] === want ? 5 : 0) + ownN(i));
     else i = pickFrom(f.enemy, (i) => owner[i] >= 0 && takeable(i), (i) => ownN(i) - shield[i] * 2);
@@ -405,7 +418,20 @@ function nationEconomy(p, k) {
     }
     if (spot < 0 || placeBuilding(p, type, spot, 'treasury')) break;
   }
-  if (!p.cnt.silo || day < diff.nukeStart) return;
+  if (!p.cnt.silo) return;
+  // AI会議で核の目標が決まっていれば、それを撃つ
+  if (p.policy.nuke >= 0) {
+    const t = players[p.policy.nuke];
+    p.policy.nuke = -1;
+    if (t && t.alive && t.tiles && t.id !== p.id && !p.allies.has(t.id)) {
+      const nt = p.treasury >= NUKE.hydro.cost ? 'hydro' : p.treasury >= NUKE.atom.cost ? 'atom' : null;
+      const cities = [...bAt.values()].filter((c) => c.owner === t.id);
+      const ti = cities.length && Math.random() < 0.5 ? pick(cities).i : randomTileOf(t.id);
+      if (nt && ti >= 0) launchNuke(p, nt, ti, k * 300, 'treasury');
+    }
+    return;
+  }
+  if (p.aiLed || day < diff.nukeStart) return;   // AIが率いる国は、会議で決めたときだけ撃つ
   for (const b of [...bAt.values()]) {
     if (b.owner !== p.id || b.type !== 'silo' || b.cd || Math.random() > diff.nukeRate) continue;
     let nt = null;
@@ -413,10 +439,10 @@ function nationEconomy(p, k) {
     else if (p.treasury >= NUKE.hydro.cost && Math.random() < 0.5) nt = 'hydro';
     else if (p.treasury >= NUKE.atom.cost) nt = 'atom';
     if (!nt) break;
-    const others = players.filter((q) => q.alive && q.id !== p.id && q.tiles > 0);
+    const others = players.filter((q) => q.alive && q.id !== p.id && q.tiles > 0 && !p.allies.has(q.id));
     if (!others.length) break;
-    let t = p.grudge >= 0 && players[p.grudge].alive && players[p.grudge].tiles ? players[p.grudge] : null;
-    if (!t) t = p.id !== me && players[me].tiles && Math.random() < diff.hateMe ? players[me] : others.reduce((a, c) => (c.tiles > a.tiles ? c : a));
+    let t = p.grudge >= 0 && !p.allies.has(p.grudge) && players[p.grudge].alive && players[p.grudge].tiles ? players[p.grudge] : null;
+    if (!t) t = p.id !== me && !p.allies.has(me) && players[me].tiles && Math.random() < diff.hateMe ? players[me] : others.reduce((a, c) => (c.tiles > a.tiles ? c : a));
     if (t.id === p.id) continue;
     const cities = [...bAt.values()].filter((c) => c.owner === t.id);
     const ti = cities.length && Math.random() < 0.5 ? pick(cities).i : randomTileOf(t.id);
@@ -946,7 +972,7 @@ function render(now) {
     const bw = ctx.measureText(p.name).width / 2 + 4, box = [X - bw, Y - size * 1.1, X + bw, Y + size * 1.1];
     if (p.id !== me && placed.some((q) => box[0] < q[2] && box[2] > q[0] && box[1] < q[3] && box[3] > q[1])) continue;
     placed.push(box);
-    outlined(p.name, X, Y - size * 0.3, size);
+    outlined((p.id !== me && players[me].allies.has(p.id) ? '🤝' : '') + p.name, X, Y - size * 0.3, size);
     outlined(`${p.tiles.toLocaleString()}マス`, X, Y + size * 0.62, Math.max(9, size * 0.42), '#555');
   }
   // 町の名前（ズームしたら、画面内で国名と重ならないものだけ）
@@ -1310,6 +1336,7 @@ function updateUI() {
   drawSilhouette();
   if (sheetTab === 'rank') renderRank();
   if (sheetTab === 'recent') renderRecent();
+  if (sheetTab === 'council') renderCouncil();
 }
 
 function renderRank() {
@@ -1362,24 +1389,40 @@ function setHint(msg, top) {
 
 function openSheet(tab) {
   if (tab === 'prev') { togglePrev(); return; }
+  if (tab === 'council') {
+    if (sheetTab === 'council') { closeSheet(); return; }
+    closeSheet();
+    sheetTab = 'council';
+    document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === 'council'));
+    $('sheet').innerHTML = '';
+    $('sheet').classList.remove('hidden');
+    document.body.classList.add('sheet-open');
+    renderCouncil();
+    return;
+  }
   if (tab === 'settings' && sheetTab !== 'settings') {
     closeSheet();
+    $('sheet').onclick = null;
     sheetTab = 'settings';
-    $('sheet').innerHTML = '<h3>設定</h3><div class="settings"><button id="btnToTitle">タイトルにもどる</button><button id="btnFit">マップ全体を見る</button></div>';
+    $('sheet').innerHTML = '<h3>設定</h3><div class="settings"><button id="btnToTitle">タイトルにもどる</button><button id="btnFit">マップ全体を見る</button><button id="btnPrevMap">前日の勢力図</button></div>';
     $('sheet').classList.remove('hidden');
+    document.body.classList.add('sheet-open');
     $('btnToTitle').onclick = () => { leaveOnline(); restorePrev(); closeSheet(); state = 'menu'; ['infoCard', 'sideBtns', 'bottom'].forEach((id) => $(id).classList.add('hidden')); $('menu').classList.remove('hidden'); $('endCard').classList.add('hidden'); $('joinCard').classList.add('hidden'); $('overlay').classList.remove('hidden'); };
     $('btnFit').onclick = () => { fitCamera(); closeSheet(); };
+    $('btnPrevMap').onclick = () => { closeSheet(); togglePrev(); };
     return;
   }
   if (sheetTab === tab) { closeSheet(); return; }
   sheetTab = tab;
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   $('sheet').classList.remove('hidden');
+  document.body.classList.add('sheet-open');
   if (tab === 'help') $('sheet').innerHTML = $('helpTpl').innerHTML;
   updateUI();
 }
 function closeSheet() {
   sheetTab = null;
+  document.body.classList.remove('sheet-open');
   $('sheet').classList.add('hidden');
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.remove('active'));
 }
@@ -1426,7 +1469,6 @@ function togglePrev() {
   owner = prevOwner;
   if (online) online.ready = false;   // 見ている間に届いた更新は、もどってからまとめて反映する
   mapDirty = true; scan();
-  document.querySelector('#tabs button[data-tab=prev]').classList.add('active');
   setHint('📅 前日の勢力図を表示中（もう一度押すともどる）', true);
   updateUI();
 }
@@ -1435,12 +1477,282 @@ function restorePrev() {
   owner = savedOwner;
   savedOwner = null;
   mapDirty = true; scan();
-  document.querySelector('#tabs button[data-tab=prev]').classList.remove('active');
   setHint(null);
   if (online) { online.ready = true; flushBuffer(); }
   updateUI();
 }
 window.addEventListener('resize', () => { if (state === 'menu' || state === 'spawn') fitCamera(); });
+
+// ===== AI会議（本物のAIが各国のリーダーになって話し合う） =====
+// 会議はあなたがボタンを押したときだけ開く（AIを呼ぶたびに、あなたの Claude の利用枠を使うため）。
+// AIが使えない場所（claude.ai の外など）では、決まったルールとセリフで代わりに動く。
+const PERSONAS = ['気まぐれで負けずぎらいな女王', '慎重で計算高い町長', '血の気が多い将軍', 'お人よしだが裏切りは許さない村長',
+  '口はうまいが平気で裏切る外交官', '平和主義だが核には容赦しない博士', 'ダジャレ好きの陽気な王様', '寡黙で冷徹な戦略家',
+  '目立ちたがりの若きリーダー', '古いしきたりを重んじる長老', '甘いもの好きでのんびりした領主', '正義感の強い元警察官'];
+const SUMMON_COST = 300, SUMMON_COOLDOWN = 15, MAX_NATIONS = 14;
+const council = { msgs: [], running: false, lastDay: 0, waiting: false };
+let samplePromise = null, aiDisabled = false, aiNoticeShown = false;
+function getSample() {
+  if (!samplePromise) {
+    samplePromise = (window.claude && window.claude.use ? window.claude.use('sample') : Promise.resolve(null)).catch(() => null);
+  }
+  return samplePromise;
+}
+const aiNations = () => players.filter((p) => p.isBot && p.alive && p.tiles);
+const nameOf = (id) => (id === me ? `${players[me].name}（あなた）` : id >= 0 && players[id] ? players[id].name : '全員');
+function findNation(name) {
+  if (name == null) return -1;
+  const n = String(name).replace(/（あなた）|\(あなた\)/g, '').trim();
+  if (!n || n === 'null' || n === '全員' || n === 'なし') return -1;
+  if (n === 'あなた') return me;
+  let hit = players.find((p) => p.alive && p.name === n);
+  if (!hit) hit = players.find((p) => p.alive && (n.includes(p.name) || p.name.includes(n)));
+  return hit ? hit.id : -1;
+}
+const asList = (v) => (Array.isArray(v) ? v : v ? [v] : []);
+
+function addMsg(from, to, text) {
+  council.msgs.push({ from, to, text, day });
+  if (council.msgs.length > 120) council.msgs.shift();
+  const c = players[from] ? players[from].color : '#ccc';
+  ticker(`${nameOf(from)}${to >= 0 ? `→${nameOf(to)}` : ''}「${text}」`, c, '今日');
+}
+
+function formAlliance(a, b, quiet) {
+  const A = players[a], B = players[b];
+  A.allies.add(b); B.allies.add(a);
+  A.allyReq.delete(b); B.allyReq.delete(a);
+  if (A.policy.target === b) A.policy.target = -1;
+  if (B.policy.target === a) B.policy.target = -1;
+  if (A.grudge === b) A.grudge = -1;
+  if (B.grudge === a) B.grudge = -1;
+  if (!quiet) log(`🤝 ${nameOf(a)}と${nameOf(b)}が同盟を結んだ`, a, 'good');
+}
+function breakAlliance(a, b) {
+  players[a].allies.delete(b); players[b].allies.delete(a);
+  players[a].allyReq.delete(b); players[b].allyReq.delete(a);
+  log(`💔 ${nameOf(a)}が${nameOf(b)}との同盟を破棄した！`, a, 'warn');
+}
+function requestAlliance(a, b) {
+  if (a === b || players[a].allies.has(b)) return;
+  if (players[b].allyReq.has(a)) formAlliance(a, b);   // おたがいに申し込んだら成立
+  else players[a].allyReq.add(b);
+}
+
+// あいている色（なければパステル色を作る）
+function freeColor() {
+  const used = new Set(players.map((p) => p.color));
+  const c = PALETTE.find((x) => !used.has(x) && x !== ME_COLOR);
+  if (c) return c;
+  const ch = () => Math.round(140 + Math.random() * 100).toString(16).padStart(2, '0');   // 明るめのランダムな色
+  return `#${ch()}${ch()}${ch()}`;
+}
+// AIが新しいAI（同盟国）を呼び起こす：自分の土地の一部と住民を分けて新しい国を作る
+function summonNation(parent, name, persona, purse = 'treasury') {
+  if (players.length >= MAX_NATIONS) return '国の数が上限です';
+  if (day - parent.lastSummon < SUMMON_COOLDOWN) return `あと${SUMMON_COOLDOWN - (day - parent.lastSummon)}日は呼べません`;
+  if (parent[purse] < SUMMON_COST) return '金が足りません';
+  if (parent.tiles < 60) return '土地が少なすぎます';
+  name = String(name || '').replace(/[<>&"'`\s]/g, '').slice(0, 8) || '名もなき国';
+  while (players.some((p) => p.name === name)) name += '2';
+  const start = randomTileOf(parent.id);
+  if (start < 0) return '土地が見つかりません';
+  // 自分の土地から、まとまった一部を切り分ける
+  const want = Math.min(400, Math.floor(parent.tiles * 0.15)), region = [start], seen = new Set([start]);
+  for (let k = 0; k < region.length && region.length < want; k++) {
+    for (const j of neighbors(region[k])) if (!seen.has(j) && owner[j] === parent.id) { seen.add(j); region.push(j); if (region.length >= want) break; }
+  }
+  const q = makePlayer(players.length, name, freeColor(), true);
+  q.persona = String(persona || pick(PERSONAS)).slice(0, 30);
+  q.summonedBy = parent.id;
+  q.members = Math.max(1, Math.round(parent.members * 0.25));
+  parent.members -= q.members;
+  q.treasury = 100;
+  q.capital = start;
+  q.lastSummon = day;
+  players.push(q);
+  for (const i of region) setOwner(i, q.id);
+  parent[purse] -= SUMMON_COST;
+  parent.lastSummon = day;
+  formAlliance(parent.id, q.id, true);
+  log(`✨ ${nameOf(parent.id)}がAI「${name}」を呼び起こした！（${q.persona}）`, q.id, 'good');
+  scan();
+  mapDirty = true;
+  return null;
+}
+
+function nationStatus(p) {
+  const rel = (q) => (p.allies.has(q.id) ? '同盟' : p.allyReq.has(q.id) ? '同盟を申込中' : q.allyReq.has(p.id) ? '相手から同盟の申込あり' : p.grudge === q.id ? '恨んでいる' : '中立');
+  const others = players.filter((q) => q.alive && q.tiles && q.id !== p.id)
+    .map((q) => `- ${nameOf(q.id)}：${q.tiles}マス、${p.nb.has(q.id) ? 'となり' : '離れている'}、${rel(q)}${q.cnt.silo ? '、ミサイル基地あり' : ''}`);
+  return `${day}日目／全${SEASON_DAYS}日。陸地は全部で${landCount}マス。
+あなたの国「${p.name}」：${p.tiles}マス（${ranking().indexOf(p) + 1}位）、住民${p.members}人、金庫${Math.round(p.treasury)}、ミサイル基地${p.cnt.silo}、無人の土地に${p.nb.has(-1) ? '接している' : '接していない'}。
+今の方針：${p.policy.focus}${p.policy.target >= 0 ? `（${nameOf(p.policy.target)}を攻める）` : ''}
+ほかの国：
+${others.join('\n')}`;
+}
+function aiPrompt(p, extra) {
+  const recent = council.msgs.slice(-14).map((m) => `[${m.day}日目] ${nameOf(m.from)}→${nameOf(m.to)}：「${m.text}」`).join('\n') || '（まだ会話はありません）';
+  return `あなたは陣地取りゲームに登場する国「${p.name}」のリーダーです。性格：${p.persona}。この性格になりきって考え、話してください。
+ルール：毎日、各国の住民が1人1マスずつとなりのマスを取り合う。100日目に一番マスが多い国が勝ち。同盟国どうしは攻撃しない（同盟はおたがいが申し込むと成立し、いつでも破棄できる）。ミサイル基地があれば金庫の金で核を撃てる。金庫${SUMMON_COST}で、自分の土地の一部を分けて新しいAIの国（同盟国）を呼び起こせる（${SUMMON_COOLDOWN}日に1回）。「（あなた）」が付いた国は人間のプレイヤーです。
+
+${nationStatus(p)}
+
+最近の会話：
+${recent}
+${extra ? `\n${extra}\n` : ''}
+次の行動を決めて、JSONだけで答えてください。国名は上に出てくる名前をそのまま使うこと。
+{"say":"ほかの国へのひとこと（日本語40字以内、性格どおりの口調で）","to":"全員 または 国名","focus":"expand（無人地を広げる）/attack（攻める）/defend（守る）のどれか","target":"攻める国名 または null","ally":["同盟を申し込む国名"],"breakAlly":["同盟を破棄する国名"],"nuke":"核を撃つ国名 または null","summon":null または {"name":"呼び起こす新しい国の名前（6字以内）","persona":"その国のリーダーの性格（20字以内）"}}`;
+}
+// AIが使えないときの代わりの判断
+const CANNED = ['うちの国はまだまだ広がるぞ！', 'となりの国、油断するなよ。', '同盟を組む相手を探している。', '今日は守りを固めよう。', 'ふん、まだ本気を出していないだけだ。'];
+function ruleDecision(p) {
+  const foes = [...p.nb].filter((o) => o >= 0 && !p.allies.has(o));
+  const focus = p.nb.has(-1) && Math.random() < 0.7 ? 'expand' : foes.length ? 'attack' : 'defend';
+  const target = foes.length ? players[foes.reduce((a, b) => (players[b].tiles < players[a].tiles ? b : a))].name : null;
+  const cand = players.filter((q) => q.alive && q.tiles && q.id !== p.id && !p.allies.has(q.id) && q.id !== p.grudge);
+  return { say: pick(CANNED), to: '全員', focus, target: focus === 'attack' ? target : null, ally: cand.length && Math.random() < 0.3 ? [pick(cand).name] : [], breakAlly: [], nuke: null, summon: null };
+}
+async function askAI(p, extra = '') {
+  const sample = aiDisabled ? null : await getSample();
+  if (!sample) { aiNotice('AIが使えないため、決まったルールとセリフで動いています'); return ruleDecision(p); }
+  try {
+    const d = await sample.json(aiPrompt(p, extra), { modelTier: 'quick', cache: false });
+    return d && typeof d === 'object' ? d : ruleDecision(p);
+  } catch (e) {
+    if (['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed', 'session_expired'].includes(e && e.code)) aiDisabled = true;
+    aiNotice(e && e.code === 'rate_limited' ? 'AIの利用が混み合っているため、今回は決まったルールで動きます' : 'AIの返事が受け取れなかったため、決まったルールで動きます');
+    return ruleDecision(p);
+  }
+}
+function aiNotice(msg) { if (!aiNoticeShown) { aiNoticeShown = true; toast(msg); } }
+
+function applyDecision(p, d, replyTo = -1) {
+  p.aiLed = true;
+  const say = String(d.say || '').replace(/\s+/g, ' ').slice(0, 80);
+  const to = replyTo >= 0 ? replyTo : findNation(d.to);
+  if (say) addMsg(p.id, to, say);
+  if (['expand', 'attack', 'defend'].includes(d.focus)) p.policy.focus = d.focus;
+  const t = findNation(d.target);
+  p.policy.target = t >= 0 && t !== p.id && !p.allies.has(t) ? t : -1;
+  for (const n of asList(d.ally)) { const q = findNation(n); if (q >= 0 && q !== p.id) requestAlliance(p.id, q); }
+  for (const n of asList(d.breakAlly)) { const q = findNation(n); if (q >= 0 && p.allies.has(q)) breakAlliance(p.id, q); }
+  const nk = findNation(d.nuke);
+  if (nk >= 0 && nk !== p.id && !p.allies.has(nk) && p.cnt.silo && p.treasury >= NUKE.atom.cost) {
+    p.policy.nuke = nk;
+    log(`☢ ${nameOf(p.id)}が${nameOf(nk)}に核を撃つと宣言した！`, p.id, nk === me ? 'warn' : '');
+  }
+  if (d.summon && typeof d.summon === 'object' && d.summon.name) summonNation(p, d.summon.name, d.summon.persona);
+}
+
+async function runCouncil() {
+  if (state !== 'play' || council.running || council.lastDay === day) return;
+  council.running = true;
+  state = 'busy';
+  setHint('🗣 AIたちが会議中…', true);
+  updateUI();
+  for (const p of shuffle(aiNations())) {
+    council.thinking = p.id;
+    renderCouncil();
+    applyDecision(p, await askAI(p));
+    renderCouncil();
+  }
+  council.thinking = -1;
+  council.lastDay = day;
+  council.running = false;
+  state = 'play';
+  setHint(null);
+  scan();
+  updateUI();
+}
+
+// あなたからのメッセージ。相手を選んだときは、その国のAIがすぐに返事をする
+async function sendPlayerMsg(text, to, extra) {
+  text = String(text || '').trim().slice(0, 60);
+  if (!text || council.waiting || council.running || state !== 'play') return;
+  addMsg(me, to, text);
+  renderCouncil();
+  const target = to >= 0 && players[to].isBot ? players[to] : null;
+  if (!target) return;
+  council.waiting = true;
+  council.thinking = target.id;
+  renderCouncil();
+  const d = await askAI(target, `${nameOf(me)}から、あなたに直接メッセージが届きました：「${text}」${extra || ''}\nこのメッセージに必ず返事をしてください（sayは${nameOf(me)}への返事）。`);
+  applyDecision(target, d, me);
+  council.waiting = false;
+  council.thinking = -1;
+  scan();
+  updateUI();
+}
+
+function renderCouncil() {
+  if (sheetTab !== 'council') return;
+  const sh = $('sheet');
+  if (!sh.querySelector('.cc')) {
+    sh.innerHTML = `<div class="cc">
+      <div class="cc-head"><h3>AI会議</h3><button id="ccRun" class="cc-run">🗣 AI会議を開く</button></div>
+      <p class="cc-note" id="ccNote"></p>
+      <div id="ccMsgs" class="cc-msgs"></div>
+      <div class="cc-send"><select id="ccTo"></select><input id="ccText" maxlength="60" placeholder="AIの国に話しかける"><button id="ccSendBtn">送る</button></div>
+      <div class="cc-policy">
+        <label>あなたの国の方針 <select id="ccFocus"><option value="expand">広げる</option><option value="attack">攻める</option><option value="defend">守る</option></select></label>
+        <label>攻める国 <select id="ccTarget"></select></label>
+      </div>
+      <div id="ccNations" class="cc-nations"></div>
+    </div>`;
+    $('ccRun').onclick = runCouncil;
+    $('ccFocus').onchange = () => { players[me].policy.focus = $('ccFocus').value; };
+    $('ccTarget').onchange = () => { players[me].policy.target = +$('ccTarget').value; };
+    $('ccSendBtn').onclick = () => { sendPlayerMsg($('ccText').value, +$('ccTo').value); $('ccText').value = ''; };
+    $('ccText').onkeydown = (e) => { if (e.key === 'Enter') $('ccSendBtn').click(); };
+    sh.onclick = onCouncilClick;
+  }
+  const P = players[me], others = players.filter((q) => q.alive && q.tiles && q.id !== me);
+  const busy = council.running || council.waiting;
+  $('ccRun').disabled = busy || state !== 'play' || council.lastDay === day;
+  $('ccRun').textContent = council.running ? '🗣 会議中…' : council.lastDay === day ? '🗣 今日は会議済み' : '🗣 AI会議を開く';
+  $('ccNote').textContent = '会議は1日1回。AIのリーダーが順番に話し、同盟・裏切り・攻める国・核・新しいAIの呼び起こしを決めます。AIを呼ぶたびに、あなたの Claude の利用枠を使います。';
+  $('ccFocus').value = P.policy.focus;
+  const opts = (sel, first) => {
+    const v = sel.value;
+    sel.innerHTML = first + others.map((q) => `<option value="${q.id}">${esc(q.name)}</option>`).join('');
+    sel.value = [...sel.options].some((o) => o.value === v) ? v : sel.options[0].value;
+  };
+  opts($('ccTarget'), '<option value="-1">なし</option>');
+  $('ccTarget').value = String(P.policy.target);
+  if ($('ccTarget').value === '') $('ccTarget').value = '-1';
+  opts($('ccTo'), '<option value="-1">全員</option>');
+  $('ccSendBtn').disabled = busy || state !== 'play';
+  $('ccNations').innerHTML = others.map((q) => {
+    const ally = P.allies.has(q.id), asked = q.allyReq.has(me), mine = P.allyReq.has(q.id);
+    const tag = ally ? '<span class="tag ally">🤝 同盟</span>' : asked ? '<span class="tag ask">同盟の申込あり</span>' : mine ? '<span class="tag">申込中</span>' : '';
+    const btn = ally ? `<button data-act="break" data-id="${q.id}">同盟をやめる</button>`
+      : asked ? `<button data-act="accept" data-id="${q.id}">受ける</button>`
+      : `<button data-act="ask" data-id="${q.id}" ${mine || busy ? 'disabled' : ''}>同盟を申し込む</button>`;
+    const think = council.thinking === q.id ? '<span class="tag think">考え中…</span>' : '';
+    return `<div class="cc-row"><span class="sw" style="background:${q.color}"></span><span class="nm">${esc(q.name)}${q.summonedBy >= 0 ? ' ✨' : ''}</span>
+      <small>${q.tiles.toLocaleString()}マス・${esc(q.persona)}</small>${tag}${think}${btn}</div>`;
+  }).join('') + `<div class="cc-row"><button data-act="summon" ${busy || state !== 'play' ? 'disabled' : ''}>✨ 仲間のAIを呼び起こす（💰${SUMMON_COST}）</button><small>あなたの土地の一部を分けて、同盟国のAIを作ります</small></div>`;
+  $('ccMsgs').innerHTML = council.msgs.length ? council.msgs.slice().reverse().slice(0, 50).map((m) => `
+    <div class="cc-msg ${m.from === me ? 'me' : ''}"><span class="sw" style="background:${players[m.from] ? players[m.from].color : '#ccc'}"></span>
+      <div><b>${esc(nameOf(m.from))}</b>${m.to >= 0 ? ` → ${esc(nameOf(m.to))}` : ''}<small>${agoText(m.day)}</small><p>${esc(m.text)}</p></div></div>`).join('')
+    : '<p class="cc-empty">まだ会話はありません。「AI会議を開く」を押すと、AIのリーダーたちが話しはじめます。</p>';
+}
+function onCouncilClick(e) {
+  const b = e.target.closest('button[data-act]');
+  if (!b) return;
+  const id = +b.dataset.id, act = b.dataset.act;
+  if (act === 'break') { breakAlliance(me, id); updateUI(); }
+  else if (act === 'accept') { formAlliance(me, id); updateUI(); }
+  else if (act === 'ask') {
+    players[me].allyReq.add(id);
+    sendPlayerMsg('同盟を組みませんか？', id, '\n（この国はあなたとの同盟を申し込んでいます。受けるなら ally にこの国の名前を入れてください）');
+  } else if (act === 'summon') {
+    const err = summonNation(players[me], `${pick(['新', '第二', 'ネオ', '北', '南'])}${players[me].name.slice(0, 4)}`, pick(PERSONAS), 'gold');
+    if (err) toast(err);
+    updateUI();
+  }
+}
 
 // ===== オンライン対戦 =====
 // 最初に地図をまとめて（圧縮して）受け取り、あとは変わったマスだけをリアルタイムで受け取る。
