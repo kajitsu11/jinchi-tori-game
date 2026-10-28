@@ -29,9 +29,10 @@ const DIFF = {
   hard:   { label: 'むずかしい', power: 1.15, hateMe: 0.25,  nukeStart: 12, nukeRate: 0.16, defend: 0.25 },
 };
 
-const ME_COLOR = '#8a6cf0';
-const PALETTE = ['#f6d55c', '#ef8fd6', '#6cc36a', '#f39a5b', '#4f8fe0', '#e86a6a', '#42c2b0', '#b48a5e',
-  '#c39af0', '#9bd14b', '#ff7fa8', '#8c9db5', '#e0b03a', '#5ca86c'];
+// 色はやわらかいパステル寄り
+const ME_COLOR = '#a47ee8';
+const PALETTE = ['#f4dc72', '#f3a0c4', '#93d37f', '#f6b07e', '#86b8ec', '#ef9191', '#79d1c2', '#cfa784',
+  '#c9aef0', '#bcdc72', '#ffa9c3', '#aebbd0', '#ecc866', '#86c693'];
 const BOT_NAMES = ['ねこ県', 'いぬ市', 'たぬき町', 'きつね村', 'うさぎ王国', 'くま共和国', 'ぺんぎん連邦',
   'かっぱ国', 'からす藩', 'さる県', 'しか市', 'ぶた町', 'かめ公国', 'たこ帝国'];
 
@@ -655,7 +656,7 @@ const stripeTile = document.createElement('canvas');
 stripeTile.width = stripeTile.height = 12;
 {
   const g = stripeTile.getContext('2d');
-  g.strokeStyle = 'rgba(255,255,255,0.3)'; g.lineWidth = 1.6;
+  g.strokeStyle = 'rgba(255,255,255,0.22)'; g.lineWidth = 1.4;
   g.beginPath();
   for (let k = -12; k <= 24; k += 6) { g.moveTo(k, 12); g.lineTo(k + 12, 0); }
   g.stroke();
@@ -678,10 +679,10 @@ function strokeOutline(pid, color, width, v) {
   ctx.stroke();
 }
 // 白フチ文字
-function outlined(text, x, y, size, fill = '#2b2b2b') {
+function outlined(text, x, y, size, fill = '#2b2b2b', stroke = '#fff') {
   ctx.font = `800 ${size}px "M PLUS Rounded 1c", sans-serif`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
-  ctx.lineWidth = Math.max(3, size * 0.3); ctx.strokeStyle = '#fff';
+  ctx.lineWidth = Math.max(3, size * 0.3); ctx.strokeStyle = stroke;
   ctx.strokeText(text, x, y);
   ctx.fillStyle = fill;
   ctx.fillText(text, x, y);
@@ -737,7 +738,7 @@ function render(now) {
     ctx.beginPath();
     for (let x = v.x0; x <= v.x1 + 1; x++) { const X = Math.round(cam.x + x * s) + 0.5; ctx.moveTo(X, cam.y + v.y0 * s); ctx.lineTo(X, cam.y + (v.y1 + 1) * s); }
     for (let y = v.y0; y <= v.y1 + 1; y++) { const Y = Math.round(cam.y + y * s) + 0.5; ctx.moveTo(cam.x + v.x0 * s, Y); ctx.lineTo(cam.x + (v.x1 + 1) * s, Y); }
-    ctx.strokeStyle = 'rgba(30, 30, 60, 0.13)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.strokeStyle = 'rgba(70, 55, 40, 0.12)'; ctx.lineWidth = 1; ctx.stroke();
     // 町の境界線と海の波
     const border = new Path2D(), waves = new Path2D();
     for (let y = v.y0; y <= v.y1; y++) for (let x = v.x0; x <= v.x1; x++) {
@@ -758,8 +759,9 @@ function render(now) {
 
   // 自国の輪郭（光る縁取り）
   if (players[me] && players[me].tiles) {
-    strokeOutline(me, 'rgba(255, 214, 140, 0.9)', Math.max(3, s * 0.35), v);
-    strokeOutline(me, '#fffaf0', Math.max(1.5, s * 0.14), v);
+    strokeOutline(me, 'rgba(255, 236, 200, 0.45)', Math.max(5, s * 0.55), v);
+    strokeOutline(me, 'rgba(255, 210, 150, 0.9)', Math.max(3, s * 0.3), v);
+    strokeOutline(me, '#fffaf0', Math.max(1.5, s * 0.12), v);
   }
 
   if (s >= 5) {
@@ -783,7 +785,7 @@ function render(now) {
         if (o < 0) continue;
         const X = cam.x + (x + 0.5) * s, Y = cam.y + (y + 0.5) * s;
         if (shield[i]) {
-          const w = s * 0.62;
+          const w = s * 0.72;
           shields.moveTo(X - w / 2, Y - w * 0.45);
           shields.quadraticCurveTo(X, Y - w * 0.6, X + w / 2, Y - w * 0.45);
           shields.lineTo(X + w / 2, Y);
@@ -793,20 +795,24 @@ function render(now) {
         } else if (s >= 16) badges.push(X, Y, o);
       }
       if (badges.length) {
-        const w = s * 0.7, h = s * 0.66, path = new Path2D();
+        // 角を落とした盾形（上が平ら、下がとがる）
+        const w = s * 0.8, h = s * 0.74, c = w * 0.2, path = new Path2D();
         for (let k = 0; k < badges.length; k += 3) {
           const X = badges[k], Y = badges[k + 1];
-          path.moveTo(X - w / 2, Y - h * 0.5); path.lineTo(X + w / 2, Y - h * 0.5); path.lineTo(X + w / 2, Y + h * 0.12);
-          path.lineTo(X, Y + h * 0.5); path.lineTo(X - w / 2, Y + h * 0.12); path.closePath();
+          path.moveTo(X - w / 2, Y - h / 2 + c); path.lineTo(X - w / 2 + c, Y - h / 2); path.lineTo(X + w / 2 - c, Y - h / 2);
+          path.lineTo(X + w / 2, Y - h / 2 + c); path.lineTo(X + w / 2, Y + h * 0.14); path.lineTo(X, Y + h / 2);
+          path.lineTo(X - w / 2, Y + h * 0.14); path.closePath();
         }
-        ctx.fillStyle = '#fffdf5'; ctx.fill(path);
-        ctx.strokeStyle = '#2b2b2b'; ctx.lineWidth = Math.max(1, s * 0.05); ctx.lineJoin = 'round'; ctx.stroke(path);
-        ctx.font = `800 ${s * 0.24}px "M PLUS Rounded 1c", sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.lineJoin = 'round';
+        ctx.fillStyle = '#fffdf7'; ctx.fill(path);
+        ctx.strokeStyle = '#2b2b2b'; ctx.lineWidth = Math.max(1.2, s * 0.06); ctx.stroke(path);
+        ctx.font = `800 ${s * 0.27}px "M PLUS Rounded 1c", sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillStyle = '#2b2b2b';
-        for (let k = 0; k < badges.length; k += 3) ctx.fillText(players[badges[k + 2]].abbr, badges[k], badges[k + 1] - h * 0.08);
+        for (let k = 0; k < badges.length; k += 3) ctx.fillText(players[badges[k + 2]].abbr, badges[k], badges[k + 1] - h * 0.04);
       }
-      ctx.fillStyle = '#fffdf5'; ctx.fill(shields);
-      ctx.strokeStyle = '#2b2b2b'; ctx.lineWidth = Math.max(1, s * 0.07); ctx.stroke(shields);
+      ctx.lineJoin = 'round';
+      ctx.fillStyle = '#fffdf7'; ctx.fill(shields);
+      ctx.strokeStyle = '#2b2b2b'; ctx.lineWidth = Math.max(1.2, s * 0.07); ctx.stroke(shields);
     }
     // 汚染マーク
     if (s >= 10) {
@@ -860,9 +866,23 @@ function render(now) {
   if (peak >= 0) {
     const [X, Y] = T(tx(peak) + 0.5, ty(peak) + 0.5), m = Math.min(64, Math.max(12, s * 2.2));
     if (s >= 3) {
+      // 範囲内のマスに赤い斜線
+      const zone = new Path2D(), px = tx(peak), py = ty(peak);
+      for (let y = Math.max(0, py - NO_GUARD_R); y <= Math.min(H - 1, py + NO_GUARD_R); y++)
+        for (let x = Math.max(0, px - NO_GUARD_R); x <= Math.min(W - 1, px + NO_GUARD_R); x++)
+          if (terrain[y * W + x] && Math.hypot(x - px, y - py) <= NO_GUARD_R) zone.rect(cam.x + x * s, cam.y + y * s, s, s);
+      ctx.fillStyle = 'rgba(240, 120, 105, 0.35)'; ctx.fill(zone);
+      if (s >= 9) {
+        if (!stripePattern) stripePattern = ctx.createPattern(stripeTile, 'repeat');
+        ctx.save(); ctx.clip(zone);
+        ctx.strokeStyle = 'rgba(220, 70, 60, 0.45)'; ctx.lineWidth = Math.max(1.5, s * 0.12);
+        ctx.beginPath();
+        const r = (NO_GUARD_R + 1) * s;
+        for (let d = -2 * r; d <= 2 * r; d += s * 0.5) { ctx.moveTo(X + d - r, Y + r); ctx.lineTo(X + d + r, Y - r); }
+        ctx.stroke(); ctx.restore();
+      }
       ctx.beginPath(); ctx.arc(X, Y, (NO_GUARD_R + 0.5) * s, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(230, 80, 70, 0.12)'; ctx.fill();
-      ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 2; ctx.setLineDash([8, 6]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 2.5; ctx.setLineDash([9, 7]); ctx.stroke(); ctx.setLineDash([]);
     }
     ctx.lineJoin = 'round';
     ctx.beginPath(); ctx.moveTo(X - m, Y + m * 0.45); ctx.lineTo(X, Y - m * 0.55); ctx.lineTo(X + m, Y + m * 0.45); ctx.closePath();
@@ -876,8 +896,8 @@ function render(now) {
     ctx.fillStyle = '#fff'; ctx.fill(); ctx.stroke();
     if (showLabels) {
       const fs = Math.max(11, Math.min(20, m * 0.36));
-      outlined('大山', X, Y + m * 0.45 + fs * 0.7, fs);
-      if (s >= 3) outlined('⚠ 守れない', X, Y + m * 0.45 + fs * 1.75, fs * 0.8, '#c0392b');
+      outlined('大山', X, Y + m * 0.45 + fs * 0.7, fs, '#fff', '#2b2b2b');
+      if (s >= 3) outlined('⚠ 守れない', X, Y + m * 0.45 + fs * 1.75, fs * 0.8, '#d0362a', '#fff');
     }
   }
 
@@ -940,7 +960,7 @@ function render(now) {
       const bw = ctx.measureText(pv.name).width / 2 + 4, box = [X - bw, Y - fs, X + bw, Y + fs];
       if (placed.some((q) => box[0] < q[2] && box[2] > q[0] && box[1] < q[3] && box[3] > q[1])) continue;
       placed.push(box);
-      outlined(pv.name, X, Y, fs, '#555');
+      outlined(pv.name, X, Y, fs, '#fff', '#3a3530');
     }
   }
 
@@ -1046,7 +1066,7 @@ function fitCamera() {
 }
 function zoomAt(sx, sy, ns) {
   const minS = Math.min(canvas.clientWidth / W, canvas.clientHeight / H) * 0.5;
-  ns = Math.max(minS, Math.min(90, ns));
+  ns = Math.max(minS, Math.min(48, ns));
   cam.x = sx - (sx - cam.x) * ns / cam.s;
   cam.y = sy - (sy - cam.y) * ns / cam.s;
   cam.s = ns;
@@ -1077,7 +1097,10 @@ function screenToTile(sx, sy) {
 const pointers = new Map();
 let drag = null, pinch = null;
 canvas.addEventListener('pointerdown', (e) => {
-  canvas.setPointerCapture(e.pointerId);
+  // 新しく触り始めた（最初の指）なら、前の指の記録は捨てる。
+  // 指を離したことが届かない環境があり、そのままだと1本指のスライドがピンチと判定されて急に拡大してしまう
+  if (e.isPrimary) { pointers.clear(); pinch = null; drag = null; }
+  try { canvas.setPointerCapture(e.pointerId); } catch { /* 取れない環境もある */ }
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pointers.size === 1) drag = { sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, moved: false };
   else if (pointers.size === 2) {
@@ -1109,6 +1132,7 @@ function endPointer(e) {
 }
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
+canvas.addEventListener('lostpointercapture', (e) => { if (pointers.has(e.pointerId)) endPointer({ ...e, type: 'pointercancel', pointerId: e.pointerId }); });
 canvas.addEventListener('pointerleave', () => { hoverTile = -1; });
 canvas.addEventListener('wheel', (e) => { e.preventDefault(); zoomAt(e.clientX, e.clientY, cam.s * (e.deltaY < 0 ? 1.15 : 1 / 1.15)); }, { passive: false });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -1706,6 +1730,9 @@ requestAnimationFrame(frame);
 
 // テスト・デバッグ用
 window.__jintori = {
+  camS: () => +cam.s.toFixed(2),
+  look(x, y, s) { centerOn(x, y, s); },
+  get peak() { return peak; }, get W() { return W; },
   get players() { return players; }, get state() { return state; }, set state(v) { state = v; }, get day() { return day; },
   get missiles() { return missiles; }, get landCount() { return landCount; }, get online() { return online; },
   flushMissiles() { for (let k = 0; k < 3; k++) updateMissiles(performance.now() + 1e7 * (k + 1)); },

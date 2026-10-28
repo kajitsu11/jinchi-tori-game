@@ -18,8 +18,8 @@ const SILO_RELOAD = 2;
 const SAM_RELOAD = 3;
 const LOG_KEEP = 80;
 const NATIONS = [
-  { name: 'ねこ県', color: '#f6d55c' }, { name: 'いぬ市', color: '#ef8fd6' }, { name: 'たぬき町', color: '#6cc36a' },
-  { name: 'きつね村', color: '#f39a5b' }, { name: 'うさぎ王国', color: '#4f8fe0' }, { name: 'くま共和国', color: '#8a6cf0' },
+  { name: 'ねこ県', color: '#f4dc72' }, { name: 'いぬ市', color: '#f3a0c4' }, { name: 'たぬき町', color: '#93d37f' },
+  { name: 'きつね村', color: '#f6b07e' }, { name: 'うさぎ王国', color: '#86b8ec' }, { name: 'くま共和国', color: '#a47ee8' },
 ];
 const BUILD = {
   city: { name: '都市', base: 50, scale: 1.0 },
