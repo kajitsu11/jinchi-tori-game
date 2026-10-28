@@ -28,8 +28,8 @@
       <div class="ic-line"><b id="cRank">1位</b>・<span id="cTiles">0</span>マス（<span id="cDelta">±0</span>）<span class="ic-sub" id="cSub"></span></div>
       <div class="ic-pills">
         <span class="pill">📅 <b id="cDay">1</b>日目</span>
-        <span class="pill">💰 <b id="cGold">0</b>（1マスで +<span id="cIncome">0</span>）</span>
-        <span class="pill">🛡 守り <b id="cShields">0</b></span>
+        <span class="pill">👥 仲間 <b id="cMembers">0</b>人</span>
+        <span class="pill">🛡 防衛マス <b id="cShields">0</b></span>
         <span class="pill">🏁 シーズン終了まで <b id="cLeft">0</b>日</span>
       </div>
     </div>
@@ -40,10 +40,10 @@
 <div id="sideBtns" class="hidden">
   <button class="round" id="btnZoomIn" title="ズームイン">＋</button>
   <button class="round" id="btnZoomOut" title="ズームアウト">－</button>
-  <button class="round txt" id="btnHome">わが<br>国へ</button>
-  <button class="round txt" id="btnRegion">国で<br>見る</button>
-  <button class="round txt" id="btnLabels">色と<br>国名</button>
-  <button class="round txt" id="btnWeapons">核・<br>建設</button>
+  <button class="round txt" id="btnHome">わが<br>県へ</button>
+  <button class="round txt" id="btnRegion">県で<br>見る</button>
+  <button class="round txt" id="btnLabels">色と<br>県名</button>
+  <button class="round txt hidden" id="btnWeapons">核・<br>建設</button>
   <button class="round" id="btnSettings" title="設定">⚙</button>
 </div>
 
@@ -54,7 +54,7 @@
 <div id="bottom" class="hidden">
   <div id="sheet" class="hidden"></div>
   <div id="weapons" class="hidden">
-    <div class="wp-head">💰 <b id="wGold">0</b> <small>建物と核は金だけで使えます（その日の1マスは減りません）</small></div>
+    <div class="wp-head"><small>建物と核は使えません（試作）</small></div>
     <div id="buttons"></div>
   </div>
   <div id="selPop" class="hidden">
@@ -62,7 +62,7 @@
     <button id="selGo" class="go">取る！</button>
     <button id="selCancel" class="circ" title="やめる">✕</button>
   </div>
-  <div id="caption">1人1日1マスの陣地取り大戦</div>
+  <div id="caption">1人1日1マスの日本陣地取り</div>
   <div id="tabs">
     <button data-tab="rank">順位</button>
     <button data-tab="recent">最近</button>
@@ -75,20 +75,19 @@
 <!-- メニュー -->
 <div id="overlay">
   <div id="menu" class="card">
-    <h1>陣地取り大戦<small>～1日1マスと核の時代～</small></h1>
-    <p class="desc">1日に<b>1マス</b>だけ、となりのマスを<b>取る</b>か、自分のマスを<b>守る</b>ことができます。<br>
-      あなたの国の仲間や敵の国の住民（CPU）も、毎日1人1マスずつ動きます。<br>
-      金を貯めて都市やミサイル基地を建て、<b>核ミサイル</b>で敵の陣地を吹き飛ばそう！<br>
-      <b>100日</b>のシーズン終了時にあなたの国が1位なら勝利。</p>
-    <div class="row"><label>国名</label><input id="optName" maxlength="10" value="あなたの国"></div>
-    <div class="row"><label>敵の国</label>
-      <select id="optBots"><option>3</option><option selected>5</option><option>7</option><option>10</option></select></div>
+    <h1>日本陣地取り<small>～1日1マスの都道府県合戦～</small></h1>
+    <p class="desc">47都道府県から1つを選んでプレイ。最初の領土は実際の都道府県の形です。<br>
+      1日に<b>1マス</b>だけ、となりのマスを<b>取る</b>か、自分のマスに<b>防衛マス</b>を置けます。防衛マスは<b>絶対に取られません</b>。<br>
+      ほかの都道府県と、あなたの県の仲間（CPU）も、人口に合わせた人数で毎日1人1マスずつ動きます。<br>
+      <b>100日</b>後にマスが一番多い都道府県が勝ち。</p>
+    <div class="row"><label>都道府県</label><select id="optPref"></select></div>
     <div class="row"><label>全体の人数</label>
-      <select id="optPop"><option value="1000">1,000人</option><option value="5000">5,000人</option><option value="10000" selected>10,000人</option></select></div>
+      <select id="optPop"><option value="47">各都道府県1人</option><option value="1000">1,000人（人口に比例）</option><option value="10000" selected>10,000人（人口に比例）</option></select></div>
     <div class="row"><label>難易度</label>
       <select id="optDiff"><option value="easy">かんたん</option><option value="normal" selected>ふつう</option><option value="hard">むずかしい</option></select></div>
-    <button id="btnStart" class="big">🏁 CPUと対戦</button>
-    <button id="btnOnline" class="big online">🌐 オンライン対戦</button>
+    <button id="btnStart" class="big">🏁 CPUと対戦（試作）</button>
+    <button id="btnOnline" class="big online hidden">🌐 オンライン対戦</button>
+    <p class="credit">地図：国土地理院「地球地図日本」を加工して作成</p>
     <p id="menuMsg" class="msg"></p>
   </div>
   <div id="joinCard" class="card hidden">
@@ -111,20 +110,14 @@
 <template id="helpTpl">
   <h3>遊び方</h3>
   <ul>
+    <li>47都道府県から1つを選んでプレイ。最初の領土は実際の都道府県の形です（地図：国土地理院「地球地図日本」）。</li>
     <li>1日に<b>1マス</b>だけ行動できます。マスをタップして選び、ボタンで決定。</li>
-    <li><b>取る</b>：自分の陣地のとなりのマス（無人・敵）を自分のものにする</li>
-    <li><b>守る</b>：自分のマスに🛡盾を置く。盾のあるマスを攻められると、盾がこわれるだけで取られない</li>
-    <li>行動すると日が進み、あなたの国の仲間や敵の国の住民（CPU）も、それぞれ1人1マスずつ動きます</li>
-    <li>💰金は1マス動くたびにもらえます。建物と核は金だけで使え、1日の行動は減りません。国の金庫は仲間（CPU）が使います</li>
-    <li>🏙 <b>都市</b>：毎日の金が増える</li>
-    <li>🚀 <b>ミサイル基地</b>：核の発射に必要（撃ったら2日間再装填）</li>
-    <li>🛡 <b>迎撃基地</b>：まわり12マス以内に飛んでくる核を撃ち落とす（MIRVは迎撃不可）</li>
-    <li>☢ <b>原子爆弾</b> / 💥 <b>水素爆弾</b> / 🎆 <b>MIRV</b>（相手の陣地に6発の弾頭）。被爆したマスは無人に戻り、数日間だれも取れません</li>
-    <li>100日のシーズン終了時にあなたの国が1位、または陸地の60%を取るか敵を全滅させれば勝利</li>
-    <li>右の「核・建設」から建物と核を使えます。「国で見る」でマスの記号を消して色だけ、「色と国名」で名前の表示を切り替え</li>
-    <li>「大山」のまわり（赤い点線の中）は<b>守れない</b>場所です。盾を置けません</li>
-    <li>「前日の勢力図」で、きのうの地図とくらべられます</li>
-    <li>キーボード：<b>1〜3</b> 建設、<b>4〜6</b> 核、<b>Enter</b> 決定、<b>N</b> 次の日へ、<b>Esc</b> 解除</li>
+    <li><b>取る</b>：自分の県のとなりのマスを自分のものにする。島どうしは点線の航路でつながっています</li>
+    <li><b>防衛マスを置く</b>：自分のマスに🛡を置く。防衛マスは<b>絶対に取られません</b>（富士山のまわりには置けません）</li>
+    <li>行動すると次の日になり、ほかの都道府県と、あなたの県の仲間（CPU）が、人口に合わせた人数でそれぞれ1マスずつ動きます。「次の日」ボタンで休むこともできます</li>
+    <li>100日後にマスが一番多い都道府県が勝ち。県のマスが0になると滅亡です</li>
+    <li>右のボタン：「県で見る」でマスの記号を消して色だけ、「色と県名」で名前の表示を切り替え</li>
+    <li>⚙ の「前日の勢力図」で、きのうの地図とくらべられます</li>
   </ul>
 </template>
 
@@ -133,6 +126,7 @@
   window.JINTORI_API = '';
 </script>
 <script src="shared/map.js"></script>
+<script src="shared/japan.js"></script>
 <script src="game.js"></script>
 </body>
 </html>
