@@ -1094,45 +1094,58 @@ function screenToTile(sx, sy) {
 }
 
 // ===== 入力 =====
-const pointers = new Map();
-let drag = null, pinch = null;
-canvas.addEventListener('pointerdown', (e) => {
-  // 新しく触り始めた（最初の指）なら、前の指の記録は捨てる。
-  // 指を離したことが届かない環境があり、そのままだと1本指のスライドがピンチと判定されて急に拡大してしまう
-  if (e.isPrimary) { pointers.clear(); pinch = null; drag = null; }
-  try { canvas.setPointerCapture(e.pointerId); } catch { /* 取れない環境もある */ }
-  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (pointers.size === 1) drag = { sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, moved: false };
-  else if (pointers.size === 2) {
-    const [a, b] = [...pointers.values()];
-    pinch = { d: Math.max(40, Math.hypot(a.x - b.x, a.y - b.y)), s: cam.s };
-    if (drag) drag.moved = true;
+// 指（タッチ）は「いま画面に触れている指の一覧」から毎回計算する。
+// 指の本数が変わったら基準を取り直すので、2本目の指が触れたり離れたりしても地図が飛ばない。
+let touchBase = null, touchTap = null;
+const touchList = (e) => [...e.touches].map((t) => ({ x: t.clientX, y: t.clientY }));
+function onTouch(e) {
+  e.preventDefault();
+  const ts = touchList(e);
+  if (e.type === 'touchstart') {
+    if (ts.length === 1 && e.changedTouches.length === 1) touchTap = { x: ts[0].x, y: ts[0].y, moved: false };
+    else if (touchTap) touchTap.moved = true;   // 2本指はタップにしない
+  } else if (e.type === 'touchmove' && touchBase && ts.length === touchBase.length) {
+    if (ts.length === 1) {
+      const dx = ts[0].x - touchBase[0].x, dy = ts[0].y - touchBase[0].y;
+      if (touchTap && !touchTap.moved && Math.hypot(ts[0].x - touchTap.x, ts[0].y - touchTap.y) > 8) touchTap.moved = true;
+      if ((!touchTap || touchTap.moved) && Math.abs(dx) < 200 && Math.abs(dy) < 200) { cam.x += dx; cam.y += dy; clampCam(); }
+    } else if (ts.length >= 2) {
+      const [a0, b0] = touchBase, [a1, b1] = ts;
+      const d0 = Math.hypot(a0.x - b0.x, a0.y - b0.y), d1 = Math.hypot(a1.x - b1.x, a1.y - b1.y);
+      const m0 = { x: (a0.x + b0.x) / 2, y: (a0.y + b0.y) / 2 }, m1 = { x: (a1.x + b1.x) / 2, y: (a1.y + b1.y) / 2 };
+      cam.x += m1.x - m0.x; cam.y += m1.y - m0.y;   // 2本指で動かした分だけずらす
+      if (d0 > 20) zoomAt(m1.x, m1.y, cam.s * Math.min(1.25, Math.max(0.8, d1 / d0)));
+      else clampCam();
+    }
+  } else if ((e.type === 'touchend' || e.type === 'touchcancel') && !ts.length) {
+    if (e.type === 'touchend' && touchTap && !touchTap.moved) handleClick(touchTap.x, touchTap.y, 0);
+    touchTap = null;
   }
+  touchBase = ts;
+}
+for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) canvas.addEventListener(type, onTouch, { passive: false });
+
+// マウスはポインターイベントで扱う（タッチはここでは無視する）
+let mouse = null;
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'touch') return;
+  try { canvas.setPointerCapture(e.pointerId); } catch { /* 取れない環境もある */ }
+  mouse = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, moved: false };
 });
 canvas.addEventListener('pointermove', (e) => {
-  if (e.pointerType === 'mouse') hoverTile = screenToTile(e.clientX, e.clientY);
-  if (!pointers.has(e.pointerId)) return;
-  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (pinch && pointers.size >= 2) {
-    const [a, b] = [...pointers.values()];
-    zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, pinch.s * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d);
-  } else if (drag) {
-    const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
-    if (!drag.moved && Math.hypot(dx, dy) > 8) { drag.moved = true; drag.cx = cam.x - dx; drag.cy = cam.y - dy; }
-    if (drag.moved && !pinch) { cam.x = drag.cx + dx; cam.y = drag.cy + dy; clampCam(); }
-  }
+  if (e.pointerType === 'touch') return;
+  hoverTile = screenToTile(e.clientX, e.clientY);
+  if (!mouse) return;
+  if (!mouse.moved && Math.hypot(e.clientX - mouse.sx, e.clientY - mouse.sy) > 6) mouse.moved = true;
+  if (mouse.moved) { cam.x += e.clientX - mouse.x; cam.y += e.clientY - mouse.y; clampCam(); }
+  mouse.x = e.clientX; mouse.y = e.clientY;
 });
-function endPointer(e) {
-  if (!pointers.has(e.pointerId)) return;
-  pointers.delete(e.pointerId);
-  if (drag && !drag.moved && pointers.size === 0 && e.type === 'pointerup') handleClick(e.clientX, e.clientY, e.button);
-  if (pointers.size < 2) pinch = null;
-  if (pointers.size === 0) drag = null;
-  else if (drag) drag.moved = true;
-}
-canvas.addEventListener('pointerup', endPointer);
-canvas.addEventListener('pointercancel', endPointer);
-canvas.addEventListener('lostpointercapture', (e) => { if (pointers.has(e.pointerId)) endPointer({ ...e, type: 'pointercancel', pointerId: e.pointerId }); });
+canvas.addEventListener('pointerup', (e) => {
+  if (e.pointerType === 'touch' || !mouse) return;
+  if (!mouse.moved) handleClick(e.clientX, e.clientY, e.button);
+  mouse = null;
+});
+canvas.addEventListener('pointercancel', (e) => { if (e.pointerType !== 'touch') mouse = null; });
 canvas.addEventListener('pointerleave', () => { hoverTile = -1; });
 canvas.addEventListener('wheel', (e) => { e.preventDefault(); zoomAt(e.clientX, e.clientY, cam.s * (e.deltaY < 0 ? 1.15 : 1 / 1.15)); }, { passive: false });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -1731,6 +1744,7 @@ requestAnimationFrame(frame);
 // テスト・デバッグ用
 window.__jintori = {
   camS: () => +cam.s.toFixed(2),
+  cam: () => ({ x: Math.round(cam.x), y: Math.round(cam.y), s: +cam.s.toFixed(2) }),
   look(x, y, s) { centerOn(x, y, s); },
   get peak() { return peak; }, get W() { return W; },
   get players() { return players; }, get state() { return state; }, set state(v) { state = v; }, get day() { return day; },
