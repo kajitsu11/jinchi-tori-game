@@ -164,3 +164,19 @@ button { font-family: inherit; color: inherit; cursor: pointer; touch-action: ma
 .cp-weapons button:disabled { background: #39424f; color: #9aa5b2; border-color: transparent; }
 #banner.gas { background: linear-gradient(#9b4dff, #5a1aa8); border: 3px solid #e6cfff; }
 #banner.nuke { background: linear-gradient(#ffb11f, #c24a00); border: 3px solid #fff1a8; }
+
+/* ---------- RTS：下部の部隊バー ---------- */
+#unitbar { display: flex; flex-direction: column; gap: 4px; }
+#u-status { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hpbar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.14); overflow: hidden; }
+.hpbar i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #4ddc7a, #b6f06a); transition: width .2s; }
+.btnrow { display: flex; gap: 8px; }
+.btnrow button { flex: 1 1 0; min-width: 0; border: 0; border-radius: 12px; padding: 11px 4px; font-size: 14px; font-weight: 800; color: #fff;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
+.btnrow button small { font-size: 10px; font-weight: 600; opacity: .85; }
+.b-unit { background: linear-gradient(#3d8bfd, #1f5fc8); box-shadow: 0 3px 0 #123a7c; }
+.b-fort { background: linear-gradient(#a0773a, #6c4a18); box-shadow: 0 3px 0 #3d2908; }
+.b-auto { background: #39424f; box-shadow: 0 3px 0 #1d232b; }
+.b-auto.on { background: linear-gradient(#36b37e, #1f7a53); box-shadow: 0 3px 0 #0f4a31; }
+.btnrow button:disabled { filter: grayscale(.7) brightness(.7); }
+.rank-row .nm small.sub { display: block; font-size: 10px; color: var(--muted); }

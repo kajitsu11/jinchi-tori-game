@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""src/ の HTML・CSS・JS と data/mapdata.json を 1 つの index.html に組み立てる。
+"""src/ の HTML・CSS・JS（core.js / rts_sim.js / app.js）と data/mapdata.json を 1 つの index.html に組み立てる。
 
 使い方: python3 tools/build.py   →  index.html
 """
@@ -17,7 +17,9 @@ def read(*p):
 def main():
     html = read("src", "template.html")
     css = read("src", "style.css")
-    js = read("src", "game.js")
+    # core（土台・描画）→ rts_sim（ルール・AI）→ app（画面・入力）の順に1つのスコープへまとめる
+    parts = [read("src", f) for f in ("core.js", "rts_sim.js", "app.js")]
+    js = "'use strict';\n(() => {\n" + "\n".join(parts) + "\n})();\n"
     data = json.loads(read("data", "mapdata.json"))
     # </script> がデータ中に現れないことを保証
     data_txt = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")

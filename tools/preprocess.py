@@ -578,6 +578,52 @@ def save_previews(pref, terr, colors, named, auto, capitals):
     ti.crop((1150, 1050, 1500, 1350)).resize((700, 600), Image.NEAREST).save(os.path.join(PREVIEW, "terrain_kanto.png"))
 
 
+# ---------------------------------------------------------------- towns (RTS の拠点)
+TOWN_SPACING = 38   # 拠点どうしのおおよその間隔（マス）
+
+
+def place_towns(pref, terr, capitals):
+    """各県の中に、県庁を起点に「最も遠い点」を順に選んで町（拠点）を置く。小さすぎる島には置かない。"""
+    land = pref > 0
+    lab, n = ndimage.label(land, structure=np.ones((3, 3), int))
+    sizes = np.bincount(lab.ravel())
+    big = land & (sizes[lab] >= 60)
+    rank = {CITY: 0, PLAIN: 1, FOREST: 2, MOUNTAIN: 3}
+    dirs = ["東", "北東", "北", "北西", "西", "南西", "南", "南東"]
+    towns = []
+    for pid in range(1, 48):
+        ys, xs = np.nonzero((pref == pid) & big)
+        if not len(xs):
+            continue
+        pts = np.stack([xs, ys], 1).astype(np.float32)
+        cy, cx = divmod(capitals[pid], W)
+        d = np.hypot(pts[:, 0] - cx, pts[:, 1] - cy)
+        used = {}
+        while True:
+            k = int(d.argmax())
+            if d[k] < TOWN_SPACING:
+                break
+            x, y = int(pts[k, 0]), int(pts[k, 1])
+            # 近くの市街地・平地に寄せる
+            best, bs = (x, y), 9
+            for dy in range(-6, 7):
+                for dx in range(-6, 7):
+                    xx, yy = x + dx, y + dy
+                    if 0 <= xx < W and 0 <= yy < H and pref[yy, xx] == pid and big[yy, xx]:
+                        sc = rank.get(int(terr[yy, xx]) & 7, 5) + 0.05 * (abs(dx) + abs(dy))
+                        if sc < bs:
+                            bs, best = sc, (xx, yy)
+            x, y = best
+            ang = math.atan2(-(y - cy), x - cx)
+            dname = dirs[int(round(ang / (math.pi / 4))) % 8]
+            used[dname] = used.get(dname, 0) + 1
+            name = f"{PREFS[pid][1]}{dname}部" + ("" if used[dname] == 1 else str(used[dname]))
+            towns.append({"cell": int(y * W + x), "pref": pid, "name": name})
+            d = np.minimum(d, np.hypot(pts[:, 0] - x, pts[:, 1] - y))
+    print(f"  towns: {len(towns)}")
+    return towns
+
+
 # ---------------------------------------------------------------- main
 def main():
     t0 = time.time()
@@ -613,6 +659,7 @@ def main():
                       "capital": capitals[pid], "color": colors[pid], "area": area,
                       "cells": int((pref == pid).sum())})
 
+    towns = place_towns(pref, terr, capitals)
     pref_b64, pref_runs = rle_b64(pref)
     terr_b64, terr_runs = rle_b64(terr)
     print(f"  RLE runs: pref {pref_runs}, terrain {terr_runs}; base64 {len(pref_b64)//1024}KB + {len(terr_b64)//1024}KB")
@@ -665,6 +712,7 @@ def main():
         "minNeighborDeltaE": round(min_de, 1),
         "insets": insets,
         "shiftRects": shift_rects,
+        "towns": towns,
     }
     with open(os.path.join(DATA, "mapdata.json"), "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, separators=(",", ":"))

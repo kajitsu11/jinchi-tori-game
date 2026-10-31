@@ -25,7 +25,7 @@
   <div id="title" class="screen hidden">
     <header class="title-head">
       <h1>47都道府県対抗<br><b>陣取り合戦</b></h1>
-      <p class="sub">日本全国 約<span id="t-cells">60万</span>マスを県ごとに奪い合え！</p>
+      <p class="sub">約1000の部隊が日本全国 <span id="t-cells">60万</span>マスを奪い合うリアルタイム陣取り！</p>
     </header>
     <div class="title-sheet">
       <div class="sheet-label">あなたの県を選んでください（地図をタップしても選べます）</div>
@@ -37,12 +37,12 @@
       <details class="rules">
         <summary>遊び方</summary>
         <ul>
-          <li>1日1回、<b>攻撃</b>（自県に隣接する他県のマスを1マス奪う）か<b>防御</b>（自県のマスを1マス、その日いっぱい守る）を行えます。</li>
-          <li>赤く点滅しているマスが攻撃できるマスです。マスをタップして「今すぐ攻撃する」。</li>
-          <li>1日は90秒。ほかの参加者（AI）がその間に次々と行動します。「次の日へ」で日付が進みます。</li>
-          <li>1マスの持ち主が変わるのは1日1回まで（その日に変わったマスは斜線）。</li>
-          <li>毎日、県の<b>軍資金</b>が増えます。行動の代わりに<b>核ミサイル</b>（半径14マスを焦土に）や<b>迎撃基地</b>（近くに来る核を撃ち落とす）に使えます。焦土は数日で立ち入れるようになり、周りの県に少しずつ取り込まれます。<b>MIRV</b>は狙った県全域に小型弾頭10発、<b>毒ガス</b>は汚染したマスを3日間「防御できず、そこから攻撃もできない」状態にします（雲は偏西風で東へ流れます）。</li>
-          <li>全国の陸地の50%を支配すれば勝利。自県のマスが0になると敗北。</li>
+          <li>参加者1人につき<b>1部隊</b>。全国で約1000部隊が同時に動きます（今はあなた以外をAIが担当）。</li>
+          <li><b>地図をタップ</b>すると、あなたの部隊がそこへ向かいます。敵の部隊に近づくと自動で戦います。</li>
+          <li>各県の<b>県庁・町・砦</b>の周りがその県の領土です。敵の拠点のそばに居座ると<b>占領ゲージ</b>が進み、占領すると周りの領土がまとめて自県のものになります（守備側の部隊がいる間は進みません）。</li>
+          <li>敵の領土ではHPが少しずつ減り、自県の領土では回復します。倒されても近くの拠点で復活します。</li>
+          <li>県の<b>軍資金</b>で<b>砦</b>を建てると、国境を押し出せます。</li>
+          <li>全国の陸地の50%を支配すれば勝利。自県の拠点が0になると敗北。</li>
         </ul>
       </details>
       <p class="credit">地図出典：地球地図日本（国土地理院）／ 加工：dataofjapan/land を元に作成<br>地形判定：AWS Terrain Tiles（標高データ）</p>
@@ -54,25 +54,23 @@
     <div id="topbar">
       <div class="row1">
         <span id="h-chip" class="chip"></span><b id="h-pref">—</b>
-        <span id="h-day" class="day">DAY 1</span>
+        <span id="h-time" class="day">⏱ 0:00</span>
         <span id="h-rank" class="rank">—位</span>
       </div>
-      <div class="timebar"><i id="h-time"></i><span id="h-timetxt">90秒</span></div>
       <div class="row2">
         <span>領土 <b id="h-cells">0</b>マス <small id="h-delta">(±0)</small></span>
         <span class="gold">💰 <b id="h-gold">0</b>億 <small id="h-income"></small></span>
       </div>
-      <div class="row3" id="h-today">今日 全国0マス制圧／自県 +0 −0</div>
+      <div class="row3" id="h-today">拠点 0・部隊 0/0</div>
     </div>
     <canvas id="minimap"></canvas>
     <div id="sidebtns">
-      <button data-act="rank"><i>🏆</i>順位</button>
-      <button data-act="report"><i>📰</i>日報</button>
+      <button data-act="rank"><i>🏆</i>戦況</button>
       <button data-act="top" id="btn-top"><i>🗺</i>真上</button>
       <button data-act="home"><i>🏯</i>自県へ</button>
       <button data-act="title"><i>⏏</i>タイトル</button>
     </div>
-    <div id="toplabel" class="hidden">真上ビュー（領土確認用・攻撃/防御はできません）</div>
+    <div id="toplabel" class="hidden">真上ビュー（北が上・タップで部隊を動かせます）</div>
     <div id="log"></div>
     <div id="cellpanel" class="hidden">
       <button class="close" id="cp-close" aria-label="閉じる">×</button>
@@ -80,12 +78,17 @@
       <div class="cp-owner"><span class="chip" id="cp-chip"></span><span id="cp-owner">—</span></div>
       <div class="cp-meta" id="cp-meta"></div>
       <div class="cp-note" id="cp-note"></div>
-      <button id="cp-action" class="btn-action">⚔ 今すぐ攻撃する</button>
-      <div id="cp-weapons" class="cp-weapons"></div>
     </div>
     <div id="bottombar">
-      <div id="soldier">🪖 兵士：まだ行動していません</div>
-      <button id="btn-next" class="btn-next">次の日へ ▶</button>
+      <div id="unitbar">
+        <div id="u-status">🪖 あなたの部隊</div>
+        <div class="hpbar"><i id="u-hp"></i></div>
+      </div>
+      <div class="btnrow">
+        <button id="btn-unit" class="b-unit">🎯 部隊へ</button>
+        <button id="btn-fort" class="b-fort">🏰 砦を建てる<small>400億</small></button>
+        <button id="btn-auto" class="b-auto">🤖 おまかせ OFF</button>
+      </div>
     </div>
   </div>
 
