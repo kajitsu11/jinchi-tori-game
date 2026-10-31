@@ -37,9 +37,11 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
       return v;
     }, { cell, dist });
   }
-  /** 自県に隣接していて攻撃できるマスを1つ探す */
+  /** 自県に隣接していて攻撃できるマスを1つ探す。
+   *  リアルタイムのAIが直後にそのマスを奪ったり防御したりしないよう、その日の残りのAI行動は止める */
   const findAttackable = () => ev(() => {
     const g = window.__jinchi.game; const fr = g.frontier[g.me];
+    g.qi = g.queue.length;
     for (let k = 0; k < fr.length; k++) {
       const f = fr[(k * 7919) % fr.length]; let t = -1;
       g.forNeighbors(f, (j) => { if (t < 0 && g.owner[j] !== g.me && !g.canAttack(g.me, j) && !g.map.linkMap.has(j)) t = j; });
@@ -157,7 +159,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
   });
 
   await test('防御: 自県の県境マスを防御 → その日は絶対に取られない', async () => {
-    const f = await ev(() => { const g = window.__jinchi.game; const fr = g.frontier[g.me]; return fr.find((i) => !g.map.linkMap.has(i) && g.defendedDay[i] !== g.day && g.dayChanged[i] !== g.day); });
+    const f = await ev(() => { const g = window.__jinchi.game; g.qi = g.queue.length; const fr = g.frontier[g.me]; return fr.find((i) => !g.map.linkMap.has(i) && g.defendedDay[i] !== g.day && g.dayChanged[i] !== g.day); });
     const v = await cellToScreen(f, 40);
     await page.mouse.click(v[0], v[1]);
     await page.waitForSelector('#cellpanel:not(.hidden)');
@@ -263,6 +265,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
   });
 
   await test(`リアルタイム進行: AIが90秒の中でばらばらに行動する`, async () => {
+    await page.click('#btn-next'); await page.click('#m-btns button');   // 新しい日から観察する
     const r = await ev(() => {
       const g = window.__jinchi.game;
       const before = g.today.captures + g.today.defends;
