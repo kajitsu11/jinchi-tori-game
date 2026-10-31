@@ -41,6 +41,7 @@
           <li>赤く点滅しているマスが攻撃できるマスです。マスをタップして「今すぐ攻撃する」。</li>
           <li>1日は90秒。ほかの参加者（AI）がその間に次々と行動します。「次の日へ」で日付が進みます。</li>
           <li>1マスの持ち主が変わるのは1日1回まで（その日に変わったマスは斜線）。</li>
+          <li>毎日、県の<b>軍資金</b>が増えます。行動の代わりに<b>核ミサイル</b>（半径14マスを焦土に）や<b>迎撃基地</b>（近くに来る核を撃ち落とす）に使えます。焦土は数日で立ち入れるようになり、周りの県に少しずつ取り込まれます。</li>
           <li>全国の陸地の50%を支配すれば勝利。自県のマスが0になると敗北。</li>
         </ul>
       </details>
@@ -59,6 +60,7 @@
       <div class="timebar"><i id="h-time"></i><span id="h-timetxt">90秒</span></div>
       <div class="row2">
         <span>領土 <b id="h-cells">0</b>マス <small id="h-delta">(±0)</small></span>
+        <span class="gold">💰 <b id="h-gold">0</b>億 <small id="h-income"></small></span>
       </div>
       <div class="row3" id="h-today">今日 全国0マス制圧／自県 +0 −0</div>
     </div>
@@ -79,6 +81,7 @@
       <div class="cp-meta" id="cp-meta"></div>
       <div class="cp-note" id="cp-note"></div>
       <button id="cp-action" class="btn-action">⚔ 今すぐ攻撃する</button>
+      <div id="cp-weapons" class="cp-weapons"></div>
     </div>
     <div id="bottombar">
       <div id="soldier">🪖 兵士：まだ行動していません</div>

@@ -284,8 +284,8 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     await ev(() => {
       const g = window.__jinchi.game;
       window.__chk = { violations: 0, seen: new Map(), day: g.day };
-      g.on('cell', (i) => {
-        const c = window.__chk;
+      g.on('capture', (e) => {
+        const c = window.__chk, i = e.cell;
         if (c.day !== g.day) { c.day = g.day; c.seen = new Map(); }
         if (c.seen.has(i)) c.violations++;
         c.seen.set(i, 1);
@@ -316,8 +316,8 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
       if (d % 10 === 9) {
         const inv = await ev(() => {
           const g = window.__jinchi.game, m = g.map;
-          let sum = 0; for (let p = 1; p <= 47; p++) sum += g.counts[p];
-          const cnt = new Int32Array(48); let bad = 0, fcount = 0, flist = 0;
+          let sum = 0; for (let p = 1; p <= 48; p++) sum += g.counts[p];   // 48 = 焦土
+          const cnt = new Int32Array(49); let bad = 0, fcount = 0, flist = 0;
           for (let i = 0; i < m.N; i++) {
             if (!m.initPref[i]) { if (g.owner[i]) bad++; continue; }
             cnt[g.owner[i]]++;
@@ -326,7 +326,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
             if (isF !== (g.frontierPos[i] >= 0)) bad++;
             else if (isF && g.frontier[g.owner[i]][g.frontierPos[i]] !== i) bad++;
           }
-          for (let p = 1; p <= 47; p++) { flist += g.frontier[p].length; if (cnt[p] !== g.counts[p]) bad++; }
+          for (let p = 1; p <= 48; p++) { flist += g.frontier[p].length; if (cnt[p] !== g.counts[p]) bad++; }
           return { sum, land: m.landCells, bad, fcount, flist, day: g.day };
         });
         assert(inv.sum === inv.land, 'counts sum ' + inv.sum + ' vs ' + inv.land);
@@ -343,6 +343,81 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     await shot('09_after_days');
   });
 
+  await test('兵器: 軍資金で核ミサイル → 着弾して焦土 → 立ち入り不可 → 復興', async () => {
+    const t = await ev(() => {
+      const { App } = window.__jinchi; const g = App.game, W = App.map.W;
+      g.qi = g.queue.length; g.player.acted = false;
+      g.gold[g.me] = 50000;
+      // 自県から十分離れた他県の県庁を狙う（北海道庁。自県が北海道なら沖縄県庁）
+      const target = App.map.capitalCell[g.me === 1 ? 47 : 1];
+      App.selectCell(target);
+      return target;
+    });
+    await page.waitForSelector('#cellpanel:not(.hidden)');
+    const label = await page.textContent('#cp-weapons button');
+    assert(label.includes('核ミサイルを撃つ'), label);
+    const gold0 = await ev(() => window.__jinchi.game.gold[window.__jinchi.game.me]);
+    await page.click('#cp-weapons button');
+    assert((await page.textContent('#banner')).includes('核ミサイル発射'), 'launch banner');
+    const fly = await ev(() => { const g = window.__jinchi.game; return { mine: g.missiles.filter((m) => m.byPlayer).length, gold: g.gold[g.me], acted: g.player.acted, fx: window.__jinchi.App.fx.length }; });
+    assert(fly.mine === 1 && fly.acted && fly.fx >= 1, JSON.stringify(fly));
+    assert(gold0 - fly.gold === await ev(() => window.__jinchi.CONFIG.NUKE_PRICE), 'paid');
+    // ゲーム内時間で NUKE_FLIGHT 秒後に着弾（描画が遅い環境では実時間より遅れるので、着弾を待つ）
+    await page.waitForFunction(() => window.__jinchi.game.player.result.hit !== undefined, null, { timeout: 30000 });
+    const hit = await ev((t) => { const g = window.__jinchi.game; return { owner: g.owner[t], fall: g.falloutUntil[t], day: g.day, waste: g.counts[48], res: g.player.result, can: g.canAttack(g.me, t) }; }, t);
+    // 迎撃基地が無ければ必ず着弾する（AIの基地が近くにあった場合は迎撃もありうる）
+    if (hit.res.hit) {
+      assert(hit.owner === 48 && hit.waste > 300 && hit.fall > hit.day, '焦土化 ' + JSON.stringify(hit));
+      assert(hit.can === 'fallout', '立ち入り不可 ' + hit.can);
+    } else {
+      assert(hit.res.hit === false, '迎撃 ' + JSON.stringify(hit.res));
+    }
+    await shot('16_nuke');
+    // 日を進めると、立ち入り不可が解けた焦土はとなりの県に取り込まれていく
+    const rec = await ev(() => {
+      const g = window.__jinchi.game; const w0 = g.counts[48]; let recovered = 0;
+      for (let d = 0; d < 6; d++) { g.finishDay(); g.nextDay(); recovered += g.today.recovered; }
+      return { w0, w1: g.counts[48], recovered };
+    });
+    assert(rec.recovered > 0, '復興 ' + JSON.stringify(rec));
+    await ev(() => window.__jinchi.App.updateHud(true));
+  });
+
+  await test('兵器: 迎撃基地を建設すると、飛んでくる核を撃ち落とせる', async () => {
+    const r = await ev(() => {
+      const J = window.__jinchi, { App } = J; const g = App.game;
+      g.qi = g.queue.length; g.player.acted = false; g.gold[g.me] = 50000;
+      // 味方AIが上限まで建てている場合があるので、自県の既存の基地は片付けておく
+      for (const c of [...g.buildings.keys()]) if (g.owner[c] === g.me) g.buildings.delete(c);
+      // 自県の県境から少し内側のマスに建てる
+      const fr = g.frontier[g.me].filter((i) => !g.buildings.has(i));
+      const site = fr[0];
+      App.selectCell(site);
+      return { site };
+    });
+    await page.waitForSelector('#cellpanel:not(.hidden)');
+    const btns = await page.$$eval('#cp-weapons button', (bs) => bs.map((b) => b.textContent));
+    assert(btns.some((t) => t.includes('迎撃基地を建設')), btns.join());
+    await page.click('#cp-weapons button');
+    const st = await ev((site) => {
+      const J = window.__jinchi, g = J.game;
+      const built = g.buildings.has(site);
+      // 隣の県から、この基地の近くの自県マスへ核を撃たせる（迎撃率100%にして確認）
+      J.CONFIG.SAM_HIT = 1;
+      let enemy = -1; g.forNeighbors(site, (j) => { if (enemy < 0 && g.owner[j] !== g.me && g.owner[j] !== 48) enemy = g.owner[j]; });
+      if (enemy < 0) enemy = g.me === 13 ? 11 : 13;
+      g.gold[enemy] = 50000;
+      const m = g.launchNuke(enemy, site, false);
+      g.resolveMissiles(true);
+      J.CONFIG.SAM_HIT = 0.7;
+      return { built, ok: m.ok, owner: g.owner[site], me: g.me, intercepts: g.today.intercepts };
+    }, r.site);
+    assert(st.built && st.ok && st.owner === st.me && st.intercepts >= 1, JSON.stringify(st));
+    await page.waitForTimeout(300);
+    await shot('17_sam');
+    await page.click('#cp-close');
+  });
+
   await test('勝利: 全国の規定割合を支配すると GAMEOVER（勝利）', async () => {
     await ev(() => {
       const J = window.__jinchi, g = J.game;
@@ -353,11 +428,12 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
         let n = 0;
         for (let i = 0; i < g.map.N && n < give; i++) if (g.owner[i] === big) { g.setOwner(i, g.me); n++; }
       }
-      J.CONFIG.WIN_RATIO = (g.counts[g.me] + 1) / g.map.landCells;
       J.CONFIG.ATTACK_SUCCESS = 1;
       g.player.acted = false;
+      g.missiles = [];   // 飛行中の核が自県に落ちて条件がずれないように
     });
     const t = await findAttackable();
+    await ev(() => { const J = window.__jinchi, g = J.game; J.CONFIG.WIN_RATIO = (g.counts[g.me] + 1) / g.map.landCells; });
     await ev((t) => window.__jinchi.App.selectCell(t), t);
     await page.click('#cp-action');
     await page.waitForFunction(() => window.__jinchi.App.state === 'GAMEOVER', null, { timeout: 5000 });

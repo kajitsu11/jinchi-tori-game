@@ -70,7 +70,10 @@ button { font-family: inherit; color: inherit; cursor: pointer; touch-action: ma
 .timebar { position: relative; height: 12px; margin: 5px 0 4px; background: rgba(255,255,255,.12); border-radius: 6px; overflow: hidden; }
 .timebar i { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; background: linear-gradient(90deg, #ff6b3d, var(--accent)); }
 .timebar span { position: absolute; right: 6px; top: -1px; font-size: 10px; font-weight: 700; text-shadow: 0 0 3px #000; }
+#topbar .row2 { display: flex; justify-content: space-between; gap: 8px; }
 #topbar .row2 b { font-size: 16px; }
+#topbar .gold b { color: var(--accent); }
+#topbar .gold small { color: var(--muted); }
 #h-delta.up { color: var(--green); } #h-delta.down { color: var(--red); }
 #topbar .row3 { color: #c8d6e8; font-size: 12px; margin-top: 1px; }
 
@@ -146,3 +149,14 @@ button { font-family: inherit; color: inherit; cursor: pointer; touch-action: ma
   #cellpanel { left: auto; right: 72px; width: 380px; }
   #log { right: auto; width: 360px; }
 }
+
+/* ---------- 兵器 ---------- */
+.cp-weapons { display: flex; gap: 8px; margin-top: 8px; }
+.cp-weapons:empty { display: none; }
+.cp-weapons button { flex: 1; border: 1px solid rgba(255,255,255,.25); border-radius: 12px; padding: 9px 10px; font-size: 15px; font-weight: 800;
+  display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.cp-weapons button small { font-size: 11px; font-weight: 600; opacity: .85; }
+.cp-weapons .w-nuke { background: linear-gradient(#5b4a1d, #3a2d0c); color: #ffe27a; border-color: #b8932a; }
+.cp-weapons .w-sam { background: linear-gradient(#1d4a5b, #0c2e3a); color: #a8e6ff; border-color: #2a8fb8; }
+.cp-weapons button:disabled { background: #39424f; color: #9aa5b2; border-color: transparent; }
+#banner.nuke { background: linear-gradient(#ffb11f, #c24a00); border: 3px solid #fff1a8; }
