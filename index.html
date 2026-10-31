@@ -275,7 +275,7 @@ const CONFIG = {
   OWNER_MIX: 0.52,            // 地形に対する県色の濃さ
   OWNER_MIX_TOP: 0.88,        // 真上ビューの県色の濃さ
   BLINK_HZ: 1.4,
-  LOG_MAX: 6,
+  LOG_MAX: 4,
   BANNER_MS: 1800,
   MINIMAP_REFRESH: 1.0,       // ミニマップ再描画間隔（秒）
   MAX_DPR: 2,
@@ -1302,7 +1302,7 @@ const App = {
   me: 0, titleSel: 0, topView: false, sel: -1, paused: false,
   lastT: 0, clock: 0, minimapT: 0, minimapDirty: true,
   dpr: 1, w: 1, h: 1,
-  logEntries: [], bannerTimer: 0,
+  bannerTimer: 0,
 
   setState(s, arg) {
     if (this.stateCtrl) this.stateCtrl.abort();
@@ -1421,7 +1421,7 @@ const App = {
   enterPLAYING(signal) {
     const g = this.game, map = this.map;
     $('hud').classList.remove('hidden');
-    $('log').innerHTML = ''; this.logEntries = [];
+    $('log').innerHTML = '';
     this.sel = -1; this.paused = false; this.topView = false;
     this.cam.pitchGoal = CONFIG.CAMERA_PITCH;
     $('btn-top').classList.remove('on'); $('toplabel').classList.add('hidden');
@@ -1621,17 +1621,25 @@ const App = {
     $('cp-note').textContent = notes.join('\n');
   },
   log(text, cls, cell) {
+    const box = $('log');
+    // 同じ内容が続いたら「×n」でまとめる
+    const first = box.firstElementChild;
+    if (first && first.dataset.text === text) {
+      const n = (+first.dataset.n || 1) + 1;
+      first.dataset.n = n;
+      first.dataset.cell = cell;
+      first.textContent = `D${this.game ? this.game.day : 1} ${text} ×${n}`;
+      return;
+    }
     const el = document.createElement('div');
+    el.dataset.text = text;
     el.className = cls || '';
     el.dataset.cell = cell;
     el.textContent = `D${this.game ? this.game.day : 1} ${text}`;
-    const box = $('log');
     box.prepend(el);
-    this.logEntries.push(el);
     // 古いログは片付ける
     while (box.children.length > CONFIG.LOG_MAX) box.lastElementChild.remove();
-    Array.from(box.children).forEach((c, k) => c.classList.toggle('fade', k >= 3));
-    this.logEntries = Array.from(box.children);
+    Array.from(box.children).forEach((c, k) => c.classList.toggle('fade', k >= 2));
   },
   banner(text, cls, sub) {
     const b = $('banner');
