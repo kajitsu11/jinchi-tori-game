@@ -46,7 +46,18 @@ const CONFIG = {
   SAM_RANGE: 45,              // 迎撃基地が守る半径（マス）
   SAM_HIT: 0.7,               // 1基あたりの迎撃成功率（1日1回まで）
   SAM_MAX: 3,                 // 1県あたりの迎撃基地の上限
-  AI_NUKE_CHANCE: 0.25,       // 資金があるとき、攻撃担当AIが核を選ぶ確率（1県1日1発まで）
+  MIRV_PRICE: 20000,          // MIRV：狙った県の中に小型弾頭をばらまく
+  MIRV_WARHEADS: 10,
+  MIRV_RADIUS: 5,
+  MIRV_FLIGHT: 5,
+  GAS_PRICE: 3000,            // 毒ガス：汚染したマスは防御できず、そこからの攻撃もできない
+  GAS_RADIUS: 8,
+  GAS_DAYS: 3,                // 汚染が続く日数（着弾日を含む）
+  GAS_WIND: 3,                // 偏西風：雲が毎朝東へ流れるマス数
+  GAS_FLIGHT: 3,
+  AI_NUKE_CHANCE: 0.25,       // 目標の兵器が買えるとき、攻撃担当AIが使う確率（兵器は1県1日1回まで）
+  AI_MIRV_CHANCE: 0.2,        // 県が次に貯める兵器の割合：MIRV 20%・毒ガス 30%・核 50%
+  AI_GAS_CHANCE: 0.3,
   AI_SAM_CHANCE: 0.35,        // 資金があるとき、防御担当AIが迎撃基地を建てる確率
 };
 const WASTE = 48;             // 焦土（持ち主なし）を表す持ち主ID
@@ -312,7 +323,12 @@ uniform float uCpp;
 uniform vec2 uSel;
 varying vec2 vWorld;
 float ownerAt(vec2 c){ return floor(texture2D(uOwner, (c + 0.5) / uGrid).r * 255.0 + 0.5); }
-float isMe(vec2 c){ return 1.0 - step(0.5, abs(ownerAt(c) - uMe)); }
+// となりの自県マス（毒ガスで汚染されたマスからは攻撃できないので除く）
+float isMe(vec2 c){
+  vec4 t = texture2D(uOwner, (c + 0.5) / uGrid);
+  float gas = step(31.5, mod(floor(t.g * 255.0 + 0.5), 64.0));
+  return (1.0 - step(0.5, abs(floor(t.r * 255.0 + 0.5) - uMe))) * (1.0 - gas);
+}
 void main(){
   vec3 sea = vec3(0.12, 0.24, 0.39);
   vec2 cell = floor(vWorld);
@@ -333,12 +349,14 @@ void main(){
     float l = dot(terr, vec3(0.299, 0.587, 0.114));
     vec3 tint = pc * (0.6 + 0.52 * l);
     col = mix(terr, tint, uMix);
-    // G: 128=今日変わった, 64=放射能で立ち入り不可
+    // G: 128=今日変わった, 64=放射能で立ち入り不可, 32=毒ガス
     float gv = floor(o.g * 255.0 + 0.5);
     float changed = step(127.5, gv);
     float fallout = step(63.5, mod(gv, 128.0));
+    float gas = step(31.5, mod(gv, 64.0));
     if (id > 47.5) col = mix(terr * 0.35, vec3(0.30, 0.25, 0.21), 0.75);   // 焦土
     if (fallout > 0.5) col = mix(col, vec3(0.62, 0.86, 0.12), 0.3);
+    if (gas > 0.5) col = mix(col, vec3(0.62, 0.32, 0.95), 0.42);
     // その日に持ち主が変わったマス：斜線
     if (changed > 0.5) {
       float s = step(0.5, fract((gl_FragCoord.x + gl_FragCoord.y) / 10.0));
@@ -347,7 +365,7 @@ void main(){
     // 防御中のマス
     if (o.b > 0.5) col = mix(col, vec3(0.78, 0.96, 1.0), 0.42);
     // 攻撃できるマス：赤く点滅
-    if (uBlink > 0.0 && abs(id - uMe) > 0.5 && gv < 0.5 && o.b < 0.5) {
+    if (uBlink > 0.0 && abs(id - uMe) > 0.5 && changed + fallout < 0.5 && o.b < 0.5) {
       float adj = step(0.5, o.a);
       adj += isMe(cell + vec2(-1.0, -1.0)) + isMe(cell + vec2(0.0, -1.0)) + isMe(cell + vec2(1.0, -1.0));
       adj += isMe(cell + vec2(-1.0, 0.0)) + isMe(cell + vec2(1.0, 0.0));
@@ -529,12 +547,12 @@ class Renderer {
     const g = this.game, map = this.map;
     const own = g ? g.owner[i] : map.initPref[i];
     out[o] = own;
-    out[o + 1] = g ? (g.dayChanged[i] === g.day ? 128 : 0) + (g.falloutUntil[i] >= g.day ? 64 : 0) : 0;
+    out[o + 1] = g ? (g.dayChanged[i] === g.day ? 128 : 0) + (g.falloutUntil[i] >= g.day ? 64 : 0) + (g.gasCount[i] ? 32 : 0) : 0;
     out[o + 2] = g && g.defendedDay[i] === g.day ? 255 : 0;
     let a = 0;
     if (g && this.me && own && own !== this.me) {
       const ls = map.linkMap.get(i);
-      if (ls) for (const j of ls) if (g.owner[j] === this.me) { a = 255; break; }
+      if (ls) for (const j of ls) if (g.owner[j] === this.me && !g.gasCount[j]) { a = 255; break; }
     }
     out[o + 3] = a;
   }
@@ -789,6 +807,10 @@ class Game {
     this.buildings = new Map();   // マス → 迎撃基地 { usedDay }
     this.missiles = [];           // 飛行中のミサイル
     this.missileSeq = 0;
+    this.gasCount = new Uint8Array(N);   // そのマスを覆っている毒ガス雲の数
+    this.clouds = [];                    // 毒ガス雲 { x, y, r, until }
+    this.landIdx = new Int32Array(map.landCells);
+    for (let i = 0, k = 0; i < N; i++) if (map.initPref[i]) this.landIdx[k++] = i;
     this.buildFrontier();
     this.yesterday = Array.from({ length: 49 }, () => []);
     this.history = [];
@@ -816,11 +838,12 @@ class Game {
     if (ls) for (const j of ls) if (ow[j] !== o) return true;
     return false;
   }
+  /** t が P の（毒ガスで汚染されていない）マスに隣接しているか */
   adjacentTo(t, P) {
-    const ow = this.owner;
-    for (const off of this.offs) if (ow[t + off] === P) return true;
+    const ow = this.owner, gc = this.gasCount;
+    for (const off of this.offs) if (ow[t + off] === P && !gc[t + off]) return true;
     const ls = this.map.linkMap.get(t);
-    if (ls) for (const j of ls) if (ow[j] === P) return true;
+    if (ls) for (const j of ls) if (ow[j] === P && !gc[j]) return true;
     return false;
   }
   // ---- 県境リスト（各県の、他県に接している自マス）
@@ -867,7 +890,7 @@ class Game {
     this.player.result = null;
     this.today = { gains: new Int32Array(49), losses: new Int32Array(49), captures: 0,
       events: Array.from({ length: 49 }, () => []), defends: 0, eliminated: [],
-      launches: 0, intercepts: 0, scorched: 0, builds: 0, recovered: 0, income: new Int32Array(49) };
+      launches: 0, intercepts: 0, scorched: 0, builds: 0, recovered: 0, income: new Int32Array(49), mirvs: 0, gas: 0 };
     this.changedToday = [];
     this.defendedToday = [];
     this.weaponsToday = new Int32Array(49);
@@ -878,6 +901,7 @@ class Game {
       this.today.income[p] = inc;
     }
     this.recoverWaste();
+    this.driftClouds();
     this.queue = [];
     for (const a of this.participants) {
       if (a.player || this.counts[a.pref] === 0) continue;
@@ -940,6 +964,7 @@ class Game {
       cells: this.counts[me], delta: this.counts[me] - this.map.initCounts[me], rank: this.rankOf(me),
       captures: t.captures, defends: t.defends,
       launches: t.launches, intercepts: t.intercepts, scorched: t.scorched, builds: t.builds, recovered: t.recovered,
+      mirvs: t.mirvs, gasAttacks: t.gas,
       income: t.income[me], gold: Math.floor(this.gold[me]), waste: this.counts[WASTE],
       top: top.slice(0, 5).map((p) => ({ p, gains: t.gains[p], losses: t.losses[p] })),
       eliminated: t.eliminated.slice(),
@@ -960,6 +985,7 @@ class Game {
   canDefend(P, t) {
     if (!this.map.initPref[t]) return 'sea';
     if (this.owner[t] !== P) return 'notown';
+    if (this.gasCount[t]) return 'gas';
     if (this.defendedDay[t] === this.day) return 'already';
     return null;
   }
@@ -967,7 +993,8 @@ class Game {
     const why = this.canAttack(P, t);
     if (why) return { ok: false, why };
     // 焦土は誰も守っていないので必ず取れる
-    if (this.owner[t] !== WASTE && this.rng() > CONFIG.ATTACK_SUCCESS) return { ok: false, why: 'repelled' };
+    // 毒ガスで汚染されたマスも守る人がいないので必ず取れる
+    if (this.owner[t] !== WASTE && !this.gasCount[t] && this.rng() > CONFIG.ATTACK_SUCCESS) return { ok: false, why: 'repelled' };
     const old = this.owner[t];
     this.setOwner(t, P);
     this.changedToday.push(t);
@@ -998,13 +1025,14 @@ class Game {
     if (this.player.acted || this.over) return null;
     const me = this.me;
     const pre = type === 'attack' ? this.canAttack(me, t) : type === 'defend' ? this.canDefend(me, t)
-      : type === 'nuke' ? this.canNuke(me, t) : this.canBuildSam(me, t);
+      : type === 'sam' ? this.canBuildSam(me, t) : this.canStrike(type, me, t);
     // 届かないマス・資金不足などは行動を消費しない
     if (pre && pre !== 'defended') return { ok: false, why: pre, consumed: false };
     const from = this.owner[t];
     this.player.result = { type, cell: t, from };
     const r = type === 'attack' ? this.attack(me, t, true) : type === 'defend' ? this.defend(me, t, true)
-      : type === 'nuke' ? this.launchNuke(me, t, true) : this.buildSam(me, t, true);
+      : type === 'sam' ? this.buildSam(me, t, true) : type === 'nuke' ? this.launchNuke(me, t, true)
+      : type === 'mirv' ? this.launchMirv(me, t, true) : this.launchGas(me, t, true);
     this.player.acted = true;
     Object.assign(this.player.result, { ok: r.ok, why: r.why });
     if (r.missile) this.player.result.missile = r.missile.id;
@@ -1031,13 +1059,15 @@ class Game {
     for (const c of this.buildings.keys()) if (this.owner[c] === p) n++;
     return n;
   }
-  canNuke(P, t) {
+  price(kind) { return kind === 'mirv' ? CONFIG.MIRV_PRICE : kind === 'gas' ? CONFIG.GAS_PRICE : CONFIG.NUKE_PRICE; }
+  canStrike(kind, P, t) {
     if (!this.map.initPref[t]) return 'sea';
     if (this.owner[t] === P) return 'own';
     if (this.owner[t] === WASTE) return 'waste';
-    if (this.gold[P] < CONFIG.NUKE_PRICE) return 'gold';
+    if (this.gold[P] < this.price(kind)) return 'gold';
     return null;
   }
+  canNuke(P, t) { return this.canStrike('nuke', P, t); }
   canBuildSam(P, t) {
     if (!this.map.initPref[t]) return 'sea';
     if (this.owner[t] !== P) return 'notown';
@@ -1046,18 +1076,86 @@ class Game {
     if (this.gold[P] < CONFIG.SAM_PRICE) return 'gold';
     return null;
   }
-  launchNuke(P, t, byPlayer) {
-    const why = this.canNuke(P, t);
-    if (why) return { ok: false, why };
-    this.gold[P] -= CONFIG.NUKE_PRICE;
+  launchSite(P, t) {
     const cap = this.map.capitalCell[P];
-    const from = this.owner[cap] === P ? cap : (this.frontier[P].length ? this.frontier[P][0] : t);
-    const m = { id: ++this.missileSeq, kind: 'nuke', by: P, from, target: t, victim: this.owner[t],
-      launch: this.time, arrive: this.time + CONFIG.NUKE_FLIGHT, byPlayer };
+    return this.owner[cap] === P ? cap : (this.frontier[P].length ? this.frontier[P][0] : t);
+  }
+  fire(P, t, kind, flight, extra, byPlayer) {
+    const m = { id: ++this.missileSeq, kind, by: P, from: this.launchSite(P, t), target: t, victim: this.owner[t],
+      launch: this.time, arrive: this.time + flight, byPlayer, radius: CONFIG.NUKE_RADIUS, ...extra };
     this.missiles.push(m);
     this.today.launches++;
     this.emit('launch', m);
-    return { ok: true, missile: m };
+    return m;
+  }
+  launchNuke(P, t, byPlayer) {
+    const why = this.canStrike('nuke', P, t);
+    if (why) return { ok: false, why };
+    this.gold[P] -= CONFIG.NUKE_PRICE;
+    return { ok: true, missile: this.fire(P, t, 'nuke', CONFIG.NUKE_FLIGHT, {}, byPlayer) };
+  }
+  /** MIRV：t の持ち主の県の中に、小型弾頭をばらばらに落とす */
+  launchMirv(P, t, byPlayer) {
+    const why = this.canStrike('mirv', P, t);
+    if (why) return { ok: false, why };
+    const victim = this.owner[t], R = CONFIG.MIRV_RADIUS;
+    const targets = [t];
+    for (let tries = 0; tries < 30000 && targets.length < CONFIG.MIRV_WARHEADS; tries++) {
+      const c = this.landIdx[(this.rng() * this.landIdx.length) | 0];
+      if (this.owner[c] !== victim) continue;
+      if (targets.some((q) => this.dist(q, c) < R * 2.2)) continue;
+      targets.push(c);
+    }
+    this.gold[P] -= CONFIG.MIRV_PRICE;
+    this.today.mirvs++;
+    const group = this.missileSeq + 1;
+    let first = null;
+    targets.forEach((c, k) => {
+      const m = this.fire(P, c, 'mirv', CONFIG.MIRV_FLIGHT + k * 0.12,
+        { radius: R, group, part: k, parts: targets.length, last: k === targets.length - 1, victim }, byPlayer);
+      if (!first) first = m;
+    });
+    this.today.launches -= targets.length - 1;   // 発射は1回として数える
+    return { ok: true, missile: first };
+  }
+  launchGas(P, t, byPlayer) {
+    const why = this.canStrike('gas', P, t);
+    if (why) return { ok: false, why };
+    this.gold[P] -= CONFIG.GAS_PRICE;
+    this.today.gas++;
+    return { ok: true, missile: this.fire(P, t, 'gas', CONFIG.GAS_FLIGHT, { radius: CONFIG.GAS_RADIUS }, byPlayer) };
+  }
+  // ---- 毒ガス雲
+  cloudCells(c, fn) {
+    const W = this.map.W, H = this.map.H, R = c.r, R2 = R * R;
+    const cx = Math.round(c.x), cy = Math.round(c.y);
+    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+      if (dx * dx + dy * dy > R2) continue;
+      const x = cx + dx, y = cy + dy;
+      if (x < 0 || y < 0 || x >= W || y >= H) continue;
+      const i = y * W + x;
+      if (this.map.initPref[i]) fn(i);
+    }
+  }
+  addCloud(c) {
+    this.clouds.push(c);
+    this.cloudCells(c, (i) => { this.gasCount[i]++; this.emit('flag', i); });
+  }
+  removeCloud(c) {
+    this.cloudCells(c, (i) => { this.gasCount[i]--; this.emit('flag', i); });
+  }
+  /** 毎朝：偏西風で毒ガス雲が東へ流れ、期限が来たら消える */
+  driftClouds() {
+    const keep = [];
+    for (const c of this.clouds) {
+      this.removeCloud(c);
+      if (c.until < this.day) continue;
+      c.x += CONFIG.GAS_WIND;
+      c.y += Math.round((this.rng() - 0.5) * 2);
+      keep.push(c);
+    }
+    this.clouds = [];
+    for (const c of keep) this.addCloud(c);
   }
   buildSam(P, t, byPlayer) {
     const why = this.canBuildSam(P, t);
@@ -1076,7 +1174,14 @@ class Game {
     }
   }
   detonate(m) {
-    const t = m.target, W = this.map.W, H = this.map.H, R = CONFIG.NUKE_RADIUS;
+    const t = m.target, W = this.map.W, H = this.map.H, R = m.radius;
+    if (m.kind === 'gas') {
+      // 毒ガスは迎撃されない（低空の砲弾）
+      this.addCloud({ x: t % W, y: (t / W) | 0, r: R, until: this.day + CONFIG.GAS_DAYS - 1 });
+      if (m.byPlayer && this.player.result) Object.assign(this.player.result, { hit: true, cells: 0 });
+      this.emit('nuke', { ...m, intercepted: false, cells: 0, hit: new Map() });
+      return;
+    }
     // 迎撃：狙われた土地の持ち主の迎撃基地が、近い順に1基1日1回ずつ試みる
     const victim = this.owner[t];
     const cands = [];
@@ -1092,7 +1197,7 @@ class Game {
       if (this.rng() < CONFIG.SAM_HIT) {
         this.today.intercepts++;
         const e = { ...m, intercepted: true, sam: c, samOwner: this.owner[c], cells: 0, hit: new Map() };
-        if (m.byPlayer && this.player.result) Object.assign(this.player.result, { hit: false, cells: 0 });
+        if (m.byPlayer && this.player.result) this.playerStrikeResult(m, false, 0);
         this.emit('nuke', e);
         return;
       }
@@ -1125,10 +1230,18 @@ class Game {
       }
     }
     this.today.scorched += n;
-    if (m.byPlayer && this.player.result) Object.assign(this.player.result, { hit: true, cells: n });
+    if (m.byPlayer && this.player.result) this.playerStrikeResult(m, true, n);
     this.emit('nuke', { ...m, intercepted: false, cells: n, hit });
     for (const p of hit.keys()) this.checkEliminated(p);
     this.checkEnd();
+  }
+  playerStrikeResult(m, hit, n) {
+    const r = this.player.result;
+    if (m.kind !== 'mirv') { Object.assign(r, { hit, cells: n }); return; }
+    r.cells = (r.cells || 0) + n;
+    r.landed = (r.landed || 0) + (hit ? 1 : 0);
+    r.parts = m.parts;
+    if (m.last) r.hit = r.landed > 0;   // 全弾が落ちてから結果を確定
   }
   /** 毎朝：立ち入れるようになった焦土は、となりの県に少しずつ取り込まれる（復興） */
   recoverWaste() {
@@ -1155,10 +1268,10 @@ class Game {
     return n;
   }
   /** AI：自県の県境の向こう側、半径ぶん奥の敵地を狙う（ときどき敵の県庁） */
-  pickNukeTarget(P) {
+  pickNukeTarget(P, R = CONFIG.NUKE_RADIUS, maxOwn = 30, offset = R + 3) {
     const fr = this.frontier[P];
     if (!fr.length) return -1;
-    const W = this.map.W, R = CONFIG.NUKE_RADIUS, cap = this.map.capitalCell[P];
+    const W = this.map.W, cap = this.map.capitalCell[P];
     for (let k = 0; k < 10; k++) {
       const f = fr[(this.rng() * fr.length) | 0];
       let e = -1;
@@ -1166,26 +1279,39 @@ class Game {
       if (e < 0) continue;
       const enemy = this.owner[e], ec = this.map.capitalCell[enemy];
       let t;
-      if (this.owner[ec] === enemy && this.rng() < 0.25) t = ec;
+      if (this.owner[ec] === enemy && R >= CONFIG.NUKE_RADIUS && this.rng() < 0.25) t = ec;
       else {
         let vx = (e % W) - (cap % W), vy = ((e / W) | 0) - ((cap / W) | 0);
         const L = Math.hypot(vx, vy) || 1;
         vx /= L; vy /= L;
-        t = Math.round(((e / W) | 0) + vy * (R + 3)) * W + Math.round((e % W) + vx * (R + 3));
+        t = Math.round(((e / W) | 0) + vy * offset) * W + Math.round((e % W) + vx * offset);
       }
       if (t < 0 || t >= this.map.N || this.canNuke(P, t)) continue;
-      if (this.ownCellsInRadius(P, t, R) > 30) continue;   // 自県を巻き込みすぎない
+      if (this.ownCellsInRadius(P, t, R) > maxOwn) continue;   // 自県を巻き込みすぎない
       return t;
     }
     return -1;
   }
   aiTryNuke(P) {
-    const reserve = P === this.me ? CONFIG.NUKE_PRICE : 0;   // プレイヤーの県では、プレイヤーが使う分を残す
-    if (this.weaponsToday[P] >= 1 || this.gold[P] - reserve < CONFIG.NUKE_PRICE || this.rng() >= CONFIG.AI_NUKE_CHANCE) return false;
-    const t = this.pickNukeTarget(P);
-    if (t < 0) return false;
+    if (this.weaponsToday[P] >= 1) return false;
+    const afford = (kind) => this.gold[P] - (P === this.me ? this.price(kind) : 0) >= this.price(kind);   // プレイヤーの県では、プレイヤーが使う分を残す
+    // 県ごとに「次に何のために貯めるか」を決めておき、買えるようになったら使う
+    if (!this.aiGoal) this.aiGoal = [];
+    if (!this.aiGoal[P]) {
+      const r = this.rng();
+      this.aiGoal[P] = r < CONFIG.AI_MIRV_CHANCE ? 'mirv' : r < CONFIG.AI_MIRV_CHANCE + CONFIG.AI_GAS_CHANCE ? 'gas' : 'nuke';
+    }
+    const kind = this.aiGoal[P];
+    if (!afford(kind) || this.rng() >= CONFIG.AI_NUKE_CHANCE) return false;
+    let t;
+    // 毒ガスは、雲の端が県境に接するくらいの敵地を狙う（自県を汚染すると攻撃できなくなる）
+    if (kind === 'gas') t = this.pickNukeTarget(P, CONFIG.GAS_RADIUS, 3, CONFIG.GAS_RADIUS);
+    else t = this.pickNukeTarget(P);
+    if (t < 0 || this.canStrike(kind, P, t)) return false;
     this.weaponsToday[P]++;
-    return this.launchNuke(P, t, false).ok;
+    const r = kind === 'mirv' ? this.launchMirv(P, t, false) : kind === 'gas' ? this.launchGas(P, t, false) : this.launchNuke(P, t, false);
+    if (r.ok) this.aiGoal[P] = null;
+    return r.ok;
   }
   aiTryBuild(P) {
     const reserve = P === this.me ? CONFIG.SAM_PRICE : 0;
@@ -1326,6 +1452,7 @@ class Game {
 // =====================================================================
 // アプリ本体（ステートマシン）
 // =====================================================================
+const KIND_NAME = { nuke: '核ミサイル', mirv: 'MIRV', gas: '毒ガス' };
 const STATE = { LOADING: 'LOADING', TITLE: 'TITLE', PLAYING: 'PLAYING', GAMEOVER: 'GAMEOVER' };
 
 const App = {
@@ -1522,24 +1649,36 @@ const App = {
     const map = this.map, W = map.W, me = this.me;
     const c = (i) => [(i % W) + 0.5, ((i / W) | 0) + 0.5];
     const [ax, az] = c(m.from), [bx, bz] = c(m.target);
-    this.fx.push({ type: 'missile', id: m.id, ax, az, bx, bz, t0: this.clock, dur: Math.max(0.3, m.arrive - m.launch) });
-    if (m.victim === me && m.by !== me) this.log(`☢ ${map.ownerName(m.by)}が自県に核ミサイルを発射！`, 'bad', m.target);
-    else if (m.by === me && !m.byPlayer) this.log(`☢ 味方が${map.ownerName(m.victim)}へ核ミサイルを発射`, 'good', m.target);
+    this.fx.push({ type: 'missile', id: m.id, kind: m.kind, ax, az, bx, bz, t0: this.clock, dur: Math.max(0.3, m.arrive - m.launch) });
+    if (m.kind === 'mirv' && m.part > 0) return;   // MIRV のログは1回だけ
+    const name = KIND_NAME[m.kind];
+    if (m.victim === me && m.by !== me) this.log(`☢ ${map.ownerName(m.by)}が自県に${name}を発射！`, 'bad', m.target);
+    else if (m.by === me && !m.byPlayer) this.log(`☢ 味方が${map.ownerName(m.victim)}へ${name}を発射`, 'good', m.target);
   },
   onNuke(e) {
     const map = this.map, W = map.W, me = this.me;
     this.fx = this.fx.filter((f) => !(f.type === 'missile' && f.id === e.id));
     const x = (e.target % W) + 0.5, z = ((e.target / W) | 0) + 0.5;
     this.minimapDirty = true;
-    if (e.intercepted) {
+    if (e.kind === 'gas') {
+      this.fx.push({ type: 'gas', x, z, r: e.radius, t0: this.clock, dur: 2.2 });
+      const mine = this.game.ownCellsInRadius(me, e.target, e.radius);
+      if (mine && e.by !== me) this.log(`☠ 毒ガス：自県の${fmt(mine)}マスが汚染されました`, 'bad', e.target);
+      if (e.byPlayer) this.banner('毒ガス散布！', 'gas', `${CONFIG.GAS_DAYS}日間、防御も反撃もできなくなります`);
+    } else if (e.intercepted) {
       this.fx.push({ type: 'intercept', x, z, t0: this.clock, dur: 1.4 });
       if (e.samOwner === me) this.log(`📡 迎撃成功：${map.ownerName(e.by)}の核ミサイルを撃ち落としました`, 'good', e.sam);
-      if (e.byPlayer) this.banner('迎撃された…', 'ng', `${map.ownerName(e.samOwner)}の迎撃基地に撃ち落とされました`);
+      if (e.byPlayer && e.kind === 'nuke') this.banner('迎撃された…', 'ng', `${map.ownerName(e.samOwner)}の迎撃基地に撃ち落とされました`);
     } else {
-      this.fx.push({ type: 'boom', x, z, t0: this.clock, dur: 2.6 });
+      this.fx.push({ type: 'boom', x, z, r: e.radius, t0: this.clock, dur: e.kind === 'mirv' ? 1.8 : 2.6 });
       const mine = e.hit.get(me) || 0;
-      if (mine && e.by !== me) this.log(`☢ 核が着弾：自県の${fmt(mine)}マスが焦土になりました`, 'bad', e.target);
-      if (e.byPlayer) this.banner('着弾！', 'nuke', `${fmt(e.cells)}マスが焦土になりました`);
+      if (mine && e.by !== me) this.log(`☢ ${KIND_NAME[e.kind]}が着弾：自県の${fmt(mine)}マスが焦土になりました`, 'bad', e.target);
+      if (e.byPlayer && e.kind === 'nuke') this.banner('着弾！', 'nuke', `${fmt(e.cells)}マスが焦土になりました`);
+    }
+    if (e.byPlayer && e.kind === 'mirv' && e.last) {
+      const r = this.game.player.result;
+      if (r.landed) this.banner(`MIRV ${r.landed}/${r.parts}発 着弾！`, 'nuke', `${fmt(r.cells)}マスが焦土になりました`);
+      else this.banner('MIRV 全弾迎撃された…', 'ng', '');
     }
     if (e.byPlayer) this.updateSoldier();
     if (this.sel >= 0) this.updatePanel();
@@ -1552,9 +1691,10 @@ const App = {
     const r = g.playerAct(type, t);
     if (!r) return;
     if (!r.consumed) { this.updatePanel(); return; }
-    if (type === 'nuke') {
-      this.banner('核ミサイル発射！', 'nuke', `${map.ownerName(r.missile.victim)}へ。${CONFIG.NUKE_FLIGHT}秒後に着弾`);
-      this.log(`☢ 核ミサイルを発射：${map.ownerName(r.missile.victim)}へ`, 'good', t);
+    if (type === 'nuke' || type === 'mirv' || type === 'gas') {
+      const flight = { nuke: CONFIG.NUKE_FLIGHT, mirv: CONFIG.MIRV_FLIGHT, gas: CONFIG.GAS_FLIGHT }[type];
+      this.banner(`${KIND_NAME[type]}発射！`, type === 'gas' ? 'gas' : 'nuke', `${map.ownerName(r.missile.victim)}へ。${flight}秒後に着弾`);
+      this.log(`☢ ${KIND_NAME[type]}を発射：${map.ownerName(r.missile.victim)}へ`, 'good', t);
     } else {
       this.banner('迎撃基地を建設！', 'def', `半径${CONFIG.SAM_RANGE}マスに飛んでくる核を迎撃します`);
       this.log('📡 迎撃基地を建設しました', 'good', t);
@@ -1661,10 +1801,12 @@ const App = {
     if (r.type === 'attack') {
       if (r.ok) { el.className = 'done'; el.textContent = `✅ 完了：攻撃 → 制圧成功（${map.ownerName(r.from)}のマス）`; }
       else { el.className = 'fail'; el.textContent = `✅ 完了：攻撃 → 失敗（${r.why === 'defended' ? '防御されていた' : '撃退された'}）`; }
-    } else if (r.type === 'nuke') {
-      if (r.hit == null) { el.className = 'done'; el.textContent = `☢ 完了：核ミサイル → ${map.ownerName(r.from)}へ飛行中…`; }
-      else if (r.hit) { el.className = 'done'; el.textContent = `☢ 完了：核ミサイル → 着弾（${fmt(r.cells)}マスを焦土に）`; }
-      else { el.className = 'fail'; el.textContent = '☢ 完了：核ミサイル → 迎撃された'; }
+    } else if (r.type === 'nuke' || r.type === 'mirv' || r.type === 'gas') {
+      const nm = KIND_NAME[r.type];
+      if (r.hit == null) { el.className = 'done'; el.textContent = `☢ 完了：${nm} → ${map.ownerName(r.from)}へ飛行中…`; }
+      else if (r.type === 'gas') { el.className = 'done'; el.textContent = '☠ 完了：毒ガス → 散布成功'; }
+      else if (r.hit) { el.className = 'done'; el.textContent = `☢ 完了：${nm} → 着弾${r.type === 'mirv' ? ` ${r.landed}/${r.parts}発` : ''}（${fmt(r.cells)}マスを焦土に）`; }
+      else { el.className = 'fail'; el.textContent = `☢ 完了：${nm} → 迎撃された`; }
     } else if (r.type === 'sam') { el.className = 'done'; el.textContent = '📡 完了：迎撃基地を建設'; }
     else { el.className = 'done'; el.textContent = '✅ 完了：防御 → 自県のマスを守備中'; }
   },
@@ -1703,6 +1845,7 @@ const App = {
     if (g.falloutUntil[i] >= g.day) notes.push(`☢ 放射能汚染：DAY ${g.falloutUntil[i] + 1} から立ち入れます`);
     else if (own === WASTE) notes.push('☢ 焦土：となりのマスから攻撃すれば必ず取れます');
     if (g.buildings.has(i)) notes.push(`📡 迎撃基地（${map.ownerName(own)}）：半径${CONFIG.SAM_RANGE}マスに来る核を迎撃`);
+    if (g.gasCount[i]) notes.push('☠ 毒ガス汚染：防御できず、ここを足場に攻撃もできません（攻撃されると必ず取られます）');
     const btn = $('cp-action');
     const isMine = own === this.me;
     btn.className = 'btn-action ' + (isMine ? 'def' : 'atk');
@@ -1712,6 +1855,7 @@ const App = {
     else if (isMine) {
       const why = g.canDefend(this.me, i);
       if (why === 'already') disabled = 'このマスは防御済みです';
+      else if (why === 'gas') disabled = '毒ガス汚染で防御できません';
     } else {
       const why = g.canAttack(this.me, i);
       if (why === 'far') disabled = '自県のマスに隣接していません';
@@ -1729,11 +1873,16 @@ const App = {
       const reason = common || { built: '建設済み', max: `上限${CONFIG.SAM_MAX}基に達しています`, gold: '軍資金が足りません' }[why] || '';
       wHtml = `<button data-w="sam" class="w-sam"${reason ? ' disabled' : ''}>📡 迎撃基地を建設<small>${fmt(CONFIG.SAM_PRICE)}億${reason ? '・' + reason : ''}</small></button>`;
     } else {
-      const why = g.canNuke(this.me, i);
-      const reason = common || { waste: 'すでに焦土です', gold: '軍資金が足りません' }[why] || '';
-      const self = reason ? 0 : g.ownCellsInRadius(this.me, i, CONFIG.NUKE_RADIUS);
-      const warn = self ? `・⚠自県${fmt(self)}マスも巻き込みます` : '';
-      wHtml = `<button data-w="nuke" class="w-nuke"${reason ? ' disabled' : ''}>☢ 核ミサイルを撃つ<small>${fmt(CONFIG.NUKE_PRICE)}億・半径${CONFIG.NUKE_RADIUS}マス${reason ? '・' + reason : warn}</small></button>`;
+      const btn = (kind, cls, title, desc, radius) => {
+        const why = g.canStrike(kind, this.me, i);
+        const reason = common || { waste: 'すでに焦土', gold: '資金不足' }[why] || '';
+        const self = reason || !radius ? 0 : g.ownCellsInRadius(this.me, i, radius);
+        const warn = self ? `<em>⚠自県${fmt(self)}マス巻き込み</em>` : '';
+        return `<button data-w="${kind}" class="${cls}"${reason ? ' disabled' : ''}>${title}<small>${fmt(g.price(kind))}億・${reason || desc}</small>${warn}</button>`;
+      };
+      wHtml = btn('nuke', 'w-nuke', '☢ 核', `半径${CONFIG.NUKE_RADIUS}`, CONFIG.NUKE_RADIUS)
+        + btn('mirv', 'w-mirv', '🎆 MIRV', `${map.ownerName(own).replace('（持ち主なし）', '')}に${CONFIG.MIRV_WARHEADS}発`, 0)
+        + btn('gas', 'w-gas', '☠ 毒ガス', `半径${CONFIG.GAS_RADIUS}・${CONFIG.GAS_DAYS}日`, CONFIG.GAS_RADIUS);
     }
     $('cp-weapons').innerHTML = wHtml;
     $('cp-note').textContent = notes.join('\n');
@@ -1816,6 +1965,8 @@ const App = {
     if (!a) act = '行動しませんでした';
     else if (a.type === 'attack') act = a.ok ? `⚔ 攻撃：<b class="plus">制圧成功</b>（${map.ownerName(a.from)}のマス）` : `⚔ 攻撃：<b class="minus">失敗</b>（${a.why === 'defended' ? '防御されていた' : '撃退された'}）`;
     else if (a.type === 'nuke') act = a.hit ? `☢ 核ミサイル：<b class="plus">着弾</b>（${map.ownerName(a.from)}、${fmt(a.cells)}マスを焦土に）` : '☢ 核ミサイル：<b class="minus">迎撃された</b>';
+    else if (a.type === 'mirv') act = a.hit ? `🎆 MIRV：<b class="plus">${a.landed}/${a.parts}発 着弾</b>（${map.ownerName(a.from)}、${fmt(a.cells)}マスを焦土に）` : '🎆 MIRV：<b class="minus">全弾迎撃された</b>';
+    else if (a.type === 'gas') act = `☠ 毒ガス：<b class="plus">散布</b>（${map.ownerName(a.from)}）`;
     else if (a.type === 'sam') act = '📡 迎撃基地を建設しました';
     else act = '🛡 防御：自県のマスを守りました';
     const net = r.gains - r.losses;
@@ -1828,7 +1979,8 @@ const App = {
         開始時から ${r.delta >= 0 ? '+' : '−'}${fmt(Math.abs(r.delta))}マス・全国${r.rank}位</div>
       <div class="rep-sec"><h4>軍資金</h4>今日の収入 <b class="plus">+${fmt(r.income)}億</b>・残高 <b>${fmt(r.gold)}億</b></div>
       <div class="rep-sec"><h4>全国</h4>今日の制圧 <b>${fmt(r.captures)}</b>マス・防御 ${fmt(r.defends)}回<br>
-        ☢ 核ミサイル ${r.launches}発（迎撃 ${r.intercepts}）・焦土化 ${fmt(r.scorched)}マス・復興 ${fmt(r.recovered)}マス<br>
+        ☢ 発射 ${r.launches}回（うちMIRV ${r.mirvs}・毒ガス ${r.gasAttacks}）・迎撃 ${r.intercepts}<br>
+        焦土化 ${fmt(r.scorched)}マス・復興 ${fmt(r.recovered)}マス<br>
         📡 迎撃基地の建設 ${r.builds}基・全国の焦土 ${fmt(r.waste)}マス</div>
       <div class="rep-sec"><h4>今日活躍した県</h4>${top}</div>${elim}`;
     const btns = advance
@@ -1987,7 +2139,7 @@ const App = {
           const u = Math.max(0, s - 0.3) + (Math.min(s, 0.3) * q) / 14;
           const p = pt(u);
           if (p && prev) {
-            ctx.strokeStyle = `rgba(255,${150 + q * 7},80,${0.15 + 0.06 * q})`;
+            ctx.strokeStyle = f.kind === 'gas' ? `rgba(200,140,255,${0.15 + 0.06 * q})` : `rgba(255,${150 + q * 7},80,${0.15 + 0.06 * q})`;
             ctx.lineWidth = 1 + q * 0.18;
             ctx.beginPath(); ctx.moveTo(prev[0], prev[1]); ctx.lineTo(p[0], p[1]); ctx.stroke();
           }
@@ -2007,7 +2159,7 @@ const App = {
       if (k >= 1) continue;
       keep.push(f);
       if (f.type === 'boom') {
-        if (!cam.project(f.x, 0, f.z, v) || !cam.project(f.x + CONFIG.NUKE_RADIUS, 0, f.z, w)) continue;
+        if (!cam.project(f.x, 0, f.z, v) || !cam.project(f.x + (f.r || CONFIG.NUKE_RADIUS), 0, f.z, w)) continue;
         const r = Math.max(6, Math.hypot(w[0] - v[0], w[1] - v[1]));
         if (k < 0.12) {
           ctx.fillStyle = `rgba(255,255,240,${1 - k / 0.12 * 0.6})`;
@@ -2021,6 +2173,14 @@ const App = {
         ctx.beginPath(); ctx.arc(v[0], v[1], r * (0.7 + 0.5 * k), 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = `rgba(255,220,180,${0.8 * (1 - k)})`; ctx.lineWidth = 3 * (1 - k) + 1;
         ctx.beginPath(); ctx.arc(v[0], v[1], r * (1 + 1.6 * k), 0, Math.PI * 2); ctx.stroke();
+      } else if (f.type === 'gas') {
+        if (!cam.project(f.x, 0, f.z, v) || !cam.project(f.x + f.r, 0, f.z, w)) continue;
+        const r = Math.max(6, Math.hypot(w[0] - v[0], w[1] - v[1]));
+        for (let q = 0; q < 7; q++) {
+          const a = q / 7 * Math.PI * 2 + k, d = r * 0.45 * Math.min(1, k * 3);
+          ctx.fillStyle = `rgba(170,90,240,${0.35 * (1 - k)})`;
+          ctx.beginPath(); ctx.arc(v[0] + Math.cos(a) * d, v[1] + Math.sin(a) * d * 0.7, r * (0.35 + 0.4 * k), 0, Math.PI * 2); ctx.fill();
+        }
       } else if (f.type === 'intercept') {
         if (!cam.project(f.x, Math.max(15, cam.dist * 0.05), f.z, v)) continue;
         ctx.fillStyle = `rgba(160,230,255,${1 - k})`;

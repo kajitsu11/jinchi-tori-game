@@ -153,10 +153,14 @@ button { font-family: inherit; color: inherit; cursor: pointer; touch-action: ma
 /* ---------- 兵器 ---------- */
 .cp-weapons { display: flex; gap: 8px; margin-top: 8px; }
 .cp-weapons:empty { display: none; }
-.cp-weapons button { flex: 1; border: 1px solid rgba(255,255,255,.25); border-radius: 12px; padding: 9px 10px; font-size: 15px; font-weight: 800;
+.cp-weapons button { flex: 1 1 0; min-width: 0; border: 1px solid rgba(255,255,255,.25); border-radius: 12px; padding: 8px 6px; font-size: 15px; font-weight: 800;
   display: flex; flex-direction: column; align-items: center; gap: 1px; }
-.cp-weapons button small { font-size: 11px; font-weight: 600; opacity: .85; }
+.cp-weapons button small { font-size: 10.5px; font-weight: 600; opacity: .85; text-align: center; line-height: 1.3; }
+.cp-weapons button em { font-style: normal; font-size: 10px; color: #ffb0a8; }
+.cp-weapons .w-mirv { background: linear-gradient(#5b1d3a, #3a0c22); color: #ffb3d6; border-color: #b82a6b; }
+.cp-weapons .w-gas { background: linear-gradient(#3e1d5b, #250c3a); color: #dcb3ff; border-color: #7b2ab8; }
 .cp-weapons .w-nuke { background: linear-gradient(#5b4a1d, #3a2d0c); color: #ffe27a; border-color: #b8932a; }
 .cp-weapons .w-sam { background: linear-gradient(#1d4a5b, #0c2e3a); color: #a8e6ff; border-color: #2a8fb8; }
 .cp-weapons button:disabled { background: #39424f; color: #9aa5b2; border-color: transparent; }
+#banner.gas { background: linear-gradient(#9b4dff, #5a1aa8); border: 3px solid #e6cfff; }
 #banner.nuke { background: linear-gradient(#ffb11f, #c24a00); border: 3px solid #fff1a8; }

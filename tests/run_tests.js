@@ -354,10 +354,10 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
       return target;
     });
     await page.waitForSelector('#cellpanel:not(.hidden)');
-    const label = await page.textContent('#cp-weapons button');
-    assert(label.includes('核ミサイルを撃つ'), label);
+    const label = await page.textContent('#cp-weapons button[data-w=nuke]');
+    assert(label.includes('核') && label.includes('8,000億'), label);
     const gold0 = await ev(() => window.__jinchi.game.gold[window.__jinchi.game.me]);
-    await page.click('#cp-weapons button');
+    await page.click('#cp-weapons button[data-w=nuke]');
     assert((await page.textContent('#banner')).includes('核ミサイル発射'), 'launch banner');
     const fly = await ev(() => { const g = window.__jinchi.game; return { mine: g.missiles.filter((m) => m.byPlayer).length, gold: g.gold[g.me], acted: g.player.acted, fx: window.__jinchi.App.fx.length }; });
     assert(fly.mine === 1 && fly.acted && fly.fx >= 1, JSON.stringify(fly));
@@ -418,6 +418,71 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     await page.click('#cp-close');
   });
 
+  await test('兵器: MIRV は狙った県の中に複数の弾頭を落とす', async () => {
+    const r = await ev(() => {
+      const J = window.__jinchi, g = J.game;
+      g.qi = g.queue.length; g.player.acted = false; g.gold[g.me] = 50000; g.missiles = [];
+      // 自県以外で一番大きい県の、焦土でないマスを狙う
+      const victim = g.ranking().find((p) => p !== g.me);
+      let t = J.App.map.capitalCell[victim];
+      if (g.owner[t] !== victim) t = g.landIdx.find((i) => g.owner[i] === victim);
+      // 迎撃基地は外して全弾着弾させる
+      for (const c of [...g.buildings.keys()]) if (g.owner[c] === victim) g.buildings.delete(c);
+      const w0 = g.counts[48], v0 = g.counts[victim];
+      J.App.selectCell(t);
+      return { t, victim, w0, v0, owner: g.owner[t] };
+    });
+    await page.click('#cp-weapons button[data-w=mirv]');
+    await page.waitForFunction(() => window.__jinchi.game.player.result.hit !== undefined, null, { timeout: 30000 });
+    const s = await ev((r) => { const g = window.__jinchi.game; return { res: g.player.result, waste: g.counts[48], v: g.counts[r.victim] }; }, r);
+    assert(s.res.parts >= 5 && s.res.landed === s.res.parts, 'warheads ' + JSON.stringify(s.res));
+    assert(s.v < r.v0 - 300 && s.waste > r.w0, 'damage ' + JSON.stringify(s));
+    await page.waitForTimeout(300);
+    await shot('18_mirv');
+    await page.click('#cp-close');
+  });
+
+  await test('兵器: 毒ガスで汚染したマスは防御できず、そこからは攻撃できず、雲は東へ流れる', async () => {
+    const r = await ev(() => {
+      const J = window.__jinchi, g = J.game, W = J.App.map.W;
+      g.qi = g.queue.length; g.player.acted = false; g.gold[g.me] = 50000; g.missiles = [];
+      let t = g.pickNukeTarget(g.me, J.CONFIG.GAS_RADIUS, 3, J.CONFIG.GAS_RADIUS);
+      if (t < 0) {   // 見つからなければ県境のすぐ向こうの他県マス
+        for (const f of g.frontier[g.me]) { g.forNeighbors(f, (j) => { if (t < 0 && g.owner[j] !== g.me && g.owner[j] !== 48) t = j; }); if (t >= 0) break; }
+      }
+      J.App.selectCell(t);
+      return { t, x: t % W };
+    });
+    await page.click('#cp-weapons button[data-w=gas]');
+    await page.waitForFunction(() => window.__jinchi.game.player.result.hit !== undefined, null, { timeout: 30000 });
+    const s = await ev((r) => {
+      const J = window.__jinchi, g = J.game, W = J.App.map.W;
+      const victim = g.owner[r.t];
+      const gassed = g.gasCount[r.t] > 0;
+      const def = g.canDefend(victim, r.t);
+      // 汚染された被害県のマスからは、となりの他県マスを攻撃できない
+      let blocked = true;
+      g.cloudCells(g.clouds[g.clouds.length - 1], (i) => {
+        if (g.owner[i] !== victim) return;
+        g.forNeighbors(i, (j) => {
+          if (g.owner[j] !== victim && g.owner[j] !== 48 && !g.gasCount[j]) {
+            // j を victim が攻撃するとき、汚染マス i は足場にならない
+            const others = []; g.forNeighbors(j, (q) => { if (g.owner[q] === victim && !g.gasCount[q]) others.push(q); });
+            if (!others.length && !g.canAttack(victim, j)) blocked = false;
+          }
+        });
+      });
+      const c = g.clouds[g.clouds.length - 1], x0 = c.x;
+      g.finishDay(); g.nextDay();
+      const c2 = g.clouds.find((q) => q === c);
+      return { gassed, def, blocked, moved: c2 ? c2.x - x0 : null, clouds: g.clouds.length };
+    }, r);
+    assert(s.gassed && s.def === 'gas' && s.blocked, JSON.stringify(s));
+    assert(s.moved === await ev(() => window.__jinchi.CONFIG.GAS_WIND), 'wind ' + JSON.stringify(s));
+    await ev(() => window.__jinchi.App.updateHud(true));
+    await shot('19_gas');
+  });
+
   await test('勝利: 全国の規定割合を支配すると GAMEOVER（勝利）', async () => {
     await ev(() => {
       const J = window.__jinchi, g = J.game;
@@ -433,7 +498,8 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
       g.missiles = [];   // 飛行中の核が自県に落ちて条件がずれないように
     });
     const t = await findAttackable();
-    await ev(() => { const J = window.__jinchi, g = J.game; J.CONFIG.WIN_RATIO = (g.counts[g.me] + 1) / g.map.landCells; });
+    // (n+0.5)/land にして、割り算の丸め誤差で「あと1マス」がずれないようにする
+    await ev(() => { const J = window.__jinchi, g = J.game; J.CONFIG.WIN_RATIO = (g.counts[g.me] + 0.5) / g.map.landCells; });
     await ev((t) => window.__jinchi.App.selectCell(t), t);
     await page.click('#cp-action');
     await page.waitForFunction(() => window.__jinchi.App.state === 'GAMEOVER', null, { timeout: 5000 });
