@@ -40,14 +40,16 @@ PREVIEW = os.path.join(DATA, "preview")
 DLON = 0.009
 DLAT = 0.0072
 W = 2400
-H = 2160
+H = 2510
 LON0 = 128.25            # 左端の経度
 LAT_TOP = 45.65          # 上端の緯度（行0が北）
 
 # ---- インセット（位置をずらして表示する島々） ----
 # region: 0=本土, 1=南西諸島（沖縄・奄美・トカラ）, 2=小笠原・硫黄島, 3=南鳥島
-SHIFTS = {0: (0.0, 0.0), 1: (6.0, 14.0), 2: (3.5, 8.0), 3: (-7.4, 8.3)}
-INSET_NAMES = {1: "沖縄・奄美（位置を移動して表示）", 2: "小笠原（位置を移動して表示）"}
+# region: 1=沖縄本島〜奄美・トカラ, 4=先島諸島（尖閣含む）, 5=大東諸島 … 3つまとめて九州の南西（地図の左下）に置く。
+#         先島と大東は枠をコンパクトにするため、沖縄本島の西・東へ寄せている。
+SHIFTS = {0: (0.0, 0.0), 1: (5.52, 1.8), 4: (5.52, 3.8), 5: (4.52, 3.4), 2: (3.5, 8.0), 3: (-7.4, 8.3)}
+NANSEI = (1, 4, 5)
 
 # 地形コード
 SEA, PLAIN, FOREST, MOUNTAIN, CITY = 0, 1, 2, 3, 4
@@ -61,7 +63,13 @@ def region_of(lon, lat):
     if lon > 150:
         return 3
     if lat < 30.1:
-        return 1 if lon < 135 else 2
+        if lon >= 135:
+            return 2
+        if lon < 126.0:
+            return 4
+        if lon > 130.5 and lat < 27.0:
+            return 5
+        return 1
     return 0
 
 
@@ -374,15 +382,18 @@ class UF:
         return False
 
 
-def build_links(pref):
+def build_links(pref, region):
     land = pref > 0
     lab, n = ndimage.label(land, structure=np.ones((3, 3), int))
     print(f"  land components: {n}")
+    rcls = np.array([0, 1, 2, 2, 1, 1], np.int8)
     named = []
     for name, kind, pts in LINKS:
         cells = [nearest_cell_of(pref, p, lo, la) for p, lo, la in pts]
         for a, b in zip(cells, cells[1:]):
-            named.append({"name": name, "kind": kind, "a": a, "b": b})
+            # 本土とインセットをまたぐ航路は、画面では両端の短い矢印だけ描く
+            stub = bool(rcls[region.flat[a]] != rcls[region.flat[b]])
+            named.append({"name": name, "kind": kind, "a": a, "b": b, "stub": stub})
     uf = UF(n + 1)
     for l in named:
         uf.union(lab.flat[l["a"]], lab.flat[l["b"]])
@@ -391,6 +402,8 @@ def build_links(pref):
     cidx = np.flatnonzero(coastm)
     cy, cx = np.divmod(cidx, W)
     clab = lab.flat[cidx]
+    # 自動連絡線はインセット（沖縄・奄美／小笠原）の枠をまたがない
+    ccls = rcls[region.flat[cidx]]
     tree = cKDTree(np.stack([cx, cy], 1))
     auto = []
     while True:
@@ -408,7 +421,7 @@ def build_links(pref):
             d, j = tree.query(np.stack([cx[sel], cy[sel]], 1), k=min(k, len(cidx)))
             d = np.atleast_2d(d)
             j = np.atleast_2d(j)
-            other = croot[j] != r
+            other = (croot[j] != r) & (ccls[j] == ccls[sel][:, None])
             if other.any():
                 dd = np.where(other, d, np.inf)
                 a = np.unravel_index(dd.argmin(), dd.shape)
@@ -584,7 +597,7 @@ def main():
     print("lines ...")
     coast, border = build_lines(topo, arcs)
     print("links ...")
-    named, auto = build_links(pref)
+    named, auto = build_links(pref, region)
     adj = pref_adjacency(pref, named + auto)
     print(f"  pref adjacency edges: {len(adj)}")
     print("colors ...")
@@ -604,18 +617,34 @@ def main():
     terr_b64, terr_runs = rle_b64(terr)
     print(f"  RLE runs: pref {pref_runs}, terrain {terr_runs}; base64 {len(pref_b64)//1024}KB + {len(terr_b64)//1024}KB")
 
-    insets = []
-    for r, label in INSET_NAMES.items():
-        ys, xs = np.nonzero(region == r)
-        if r == 2:
-            ys3, xs3 = np.nonzero(region == 3)
-            ys, xs = np.concatenate([ys, ys3]), np.concatenate([xs, xs3])
-        pad = 25
-        insets.append({"label": label, "x0": int(xs.min()) - pad, "y0": int(ys.min()) - pad,
-                       "x1": int(xs.max()) + pad, "y1": int(ys.max()) + pad})
+    def bbox(regs, pad):
+        m = np.isin(region, regs)
+        ys, xs = np.nonzero(m)
+        return [int(xs.min()) - pad, int(ys.min()) - pad, int(xs.max()) + pad, int(ys.max()) + pad]
+
+    pad = 22
+    # 沖縄・奄美：先島（左・低い）と本島〜奄美（右・高い）を囲む階段状の枠
+    ax0, ay0, ax1, ay1 = bbox([4], pad)
+    bx0, by0, bx1, by1 = bbox([1, 5], pad)
+    bottom = max(ay1, by1)
+    xs_ = (ax1 + bx0) // 2
+    nansei_poly = [ax0, bottom, ax0, ay0, xs_, ay0, xs_, by0, bx1, by0, bx1, bottom, ax0, bottom]
+    ox0, oy0, ox1, oy1 = bbox([2, 3], pad)
+    insets = [
+        {"label": "沖縄・奄美（位置を移動して表示）", "poly": nansei_poly},
+        {"label": "小笠原（位置を移動して表示）", "poly": [ox0, oy0, ox1, oy0, ox1, oy1, ox0, oy1, ox0, oy0]},
+    ]
+    # 大陸側の陸地が枠に入っていないか確認
+    frame = np.zeros((H, W), bool)
+    frame[ay0:bottom + 1, ax0:xs_ + 1] = True
+    frame[by0:bottom + 1, xs_:bx1 + 1] = True
+    frame[oy0:oy1 + 1, ox0:ox1 + 1] = True
+    bad = frame & (region == 0) & land
+    if bad.any():
+        raise RuntimeError(f"inset frame overlaps mainland cells: {int(bad.sum())}")
 
     shift_rects = []
-    for r in (1, 2, 3):
+    for r in (5, 4, 1, 3, 2):
         ys, xs = np.nonzero(region == r)
         if len(xs):
             shift_rects.append({"x0": int(xs.min()) - 10, "y0": int(ys.min()) - 10, "x1": int(xs.max()) + 10,

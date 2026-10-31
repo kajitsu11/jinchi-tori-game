@@ -71,7 +71,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
       return { W: m.W, H: m.H, land: m.landCells, prefs: m.prefs.filter(Boolean).length, de: m.raw.minNeighborDeltaE,
         links: m.raw.links.length, src: document.querySelector('.credit').textContent };
     });
-    assert(info.W === 2400 && info.H === 2160, 'grid size');
+    assert(info.W === 2400 && info.H === 2510, 'grid size');
     assert(info.land > 550000 && info.land < 680000, 'land cells ' + info.land);
     assert(info.prefs === 47, 'prefs');
     assert(info.de >= 70, 'min neighbor deltaE ' + info.de);
@@ -210,7 +210,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     assert(d1 < c1[2], 'wheel zoom in');
     for (let k = 0; k < 20; k++) await page.mouse.wheel(0, 2000);
     const d2 = await ev(() => window.__jinchi.App.cam.dist);
-    assert(d2 === 6500, 'zoom out to max ' + d2);
+    assert(d2 === await ev(() => window.__jinchi.CONFIG.ZOOM_MAX), 'zoom out to max ' + d2);
     for (let k = 0; k < 30; k++) await page.mouse.wheel(0, -2000);
     const d3 = await ev(() => window.__jinchi.App.cam.dist);
     assert(d3 === 5, 'zoom in to min ' + d3);
@@ -394,6 +394,89 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     await page.click('#m-btns button');
     await page.waitForTimeout(1200);
     await shot('12_okinawa');
+  });
+
+  await test('沖縄: 左下のインセットに配置され、航路で鹿児島とつながる', async () => {
+    const r = await ev(() => {
+      const { App } = window.__jinchi; const m = App.map, g = App.game, W = m.W;
+      const cap = m.capitalCell[47], kago = m.capitalCell[46], hok = m.capitalCell[1];
+      const xy = (i) => [i % W, (i / W) | 0];
+      // 沖縄の陸地マスがどの県と隣接（8方向＋連絡マス）しているか
+      const nb = new Set();
+      for (let i = 0; i < m.N; i++) if (m.initPref[i] === 47) g.forNeighbors(i, (j) => { if (m.initPref[j] !== 47) nb.add(m.initPref[j]); });
+      const ll = m.lonLat(...xy(cap));
+      return { cap: xy(cap), kago: xy(kago), hok: xy(hok), nb: [...nb], ll, inset: m.raw.insets[0].label };
+    });
+    assert(r.cap[0] < r.kago[0] + 400 && r.cap[1] > r.kago[1], '沖縄は九州の南（左下） ' + JSON.stringify(r));
+    assert(r.cap[0] < r.hok[0] - 800, '北海道より十分西');
+    assert(r.nb.length === 1 && r.nb[0] === 46, '沖縄の隣接は鹿児島のみ ' + r.nb);
+    assert(Math.abs(r.ll[0] - 127.68) < 0.05 && Math.abs(r.ll[1] - 26.21) < 0.05, '本来の経緯度に戻せる ' + r.ll);
+    assert(r.inset.includes('沖縄'), 'inset label');
+    await ev(() => { const { App } = window.__jinchi; App.cam.goal = null; App.cam.tx = 600; App.cam.tz = 2150; App.cam.dist = 1500; });
+    await page.waitForTimeout(300);
+    await shot('13_okinawa_inset');
+  });
+
+  await test('脱落: 全マスを失った県は脱落し、以後AIは行動しない', async () => {
+    const r = await ev(() => {
+      const J = window.__jinchi, g = J.game, m = g.map;
+      const victim = 31, by = 32;   // 鳥取 → 島根
+      const cells = [];
+      for (let i = 0; i < m.N; i++) if (g.owner[i] === victim) cells.push(i);
+      // 島根に隣接する1マスだけ残して、ほかは島根のものにする
+      const last = cells.find((i) => g.adjacentTo(i, by) && !g.canAttack(by, i));
+      for (const i of cells) if (i !== last) g.setOwner(i, by);
+      g.changedToday.length = 0;
+      for (const i of cells) g.dayChanged[i] = 0;
+      J.CONFIG.ATTACK_SUCCESS = 1;
+      const res = g.attack(by, last, false);
+      J.CONFIG.ATTACK_SUCCESS = 0.85;
+      const elim = g.eliminated.has(victim) && g.counts[victim] === 0 && g.frontier[victim].length === 0;
+      g.finishDay(); g.nextDay();
+      const queued = g.queue.filter((a) => a.pref === victim).length;
+      const log = [...document.querySelectorAll('#log div')].some((d) => d.textContent.includes('鳥取県が全てのマスを失い'));
+      const report = g.lastReport.eliminated.includes(victim);
+      return { ok: res.ok, elim, queued, log, report };
+    });
+    assert(r.ok && r.elim && r.queued === 0 && r.log && r.report, JSON.stringify(r));
+    await ev(() => window.__jinchi.App.updateHud(true));
+  });
+
+  await test('Escで日報を閉じても翌日へ進む', async () => {
+    const d0 = await ev(() => window.__jinchi.game.day);
+    await page.click('#btn-next');
+    await page.waitForSelector('#modal:not(.hidden)');
+    await page.keyboard.press('Escape');
+    const st = await ev(() => ({ day: window.__jinchi.game.day, paused: window.__jinchi.App.paused, hidden: document.getElementById('modal').classList.contains('hidden') }));
+    assert(st.day === d0 + 1 && !st.paused && st.hidden, JSON.stringify(st));
+  });
+
+  await test('WebGLコンテキストを失っても復帰して描画を続ける', async () => {
+    const r = await ev(async () => {
+      const { App } = window.__jinchi;
+      const ext = App.renderer.gl.getExtension('WEBGL_lose_context');
+      if (!ext) return { skip: true };
+      ext.loseContext();
+      await new Promise((r) => setTimeout(r, 300));
+      const lost = App.glLost;
+      ext.restoreContext();
+      await new Promise((r) => setTimeout(r, 1500));
+      return { lost, after: App.glLost, err: window.__jinchiError || null };
+    });
+    if (r.skip) { console.log('      (WEBGL_lose_context なし: スキップ)'); return; }
+    assert(r.lost === true && r.after === false && !r.err, JSON.stringify(r));
+    await shot('14_after_context_restore');
+  });
+
+  await test('画面サイズ変更（横向き・PC幅）でも崩れない', async () => {
+    for (const vp of [{ width: 844, height: 390 }, { width: 1280, height: 800 }, { width: 360, height: 640 }]) {
+      await page.setViewportSize(vp);
+      await page.waitForTimeout(300);
+      const r = await ev(() => ({ cw: document.getElementById('gl').width, w: innerWidth, sx: document.documentElement.scrollWidth }));
+      assert(r.cw > 0 && r.sx <= r.w, JSON.stringify(r));
+    }
+    await shot('15_small_screen');
+    await page.setViewportSize({ width: 390, height: 844 });
   });
 
   await test('コンソールエラーなし', async () => {

@@ -21,10 +21,10 @@ const CONFIG = {
   AI_NEAR_RADIUS: 12,         // 前日の場所の近くを探す半径（マス）
   CAMERA_PITCH: 55,           // 斜め見下ろしの角度（度）
   TOP_PITCH: 90,              // 真上ビュー
-  TITLE_PITCH: 72,            // タイトル画面の背景
+  TITLE_PITCH: 80,            // タイトル画面の背景
   FOV: 45,
   ZOOM_MIN: 5,                // カメラ距離（マス単位）
-  ZOOM_MAX: 6500,
+  ZOOM_MAX: 9000,
   OWNER_MIX: 0.52,            // 地形に対する県色の濃さ
   OWNER_MIX_TOP: 0.88,        // 真上ビューの県色の濃さ
   BLINK_HZ: 1.4,
@@ -188,9 +188,11 @@ class Camera {
   }
   clampTarget() {
     const [x0, z0, x1, z1] = this.bounds;
-    this.tx = clamp(this.tx, x0 - 100, x1 + 100);
-    this.tz = clamp(this.tz, z0 - 100, z1 + 100);
     this.dist = clamp(this.dist, CONFIG.ZOOM_MIN, CONFIG.ZOOM_MAX);
+    // 引いているときほど注視点を地図の外まで動かせる（画面の端に地図を寄せられるように）
+    const m = 100 + this.dist * 0.5;
+    this.tx = clamp(this.tx, x0 - m, x1 + m);
+    this.tz = clamp(this.tz, z0 - m, z1 + m);
   }
   basis() {
     const p = this.pitch * Math.PI / 180, s = Math.sin(p), c = Math.cos(p);
@@ -299,7 +301,7 @@ void main(){
 #else
   float cpp = uCpp;
 #endif
-  if (cell.x < 0.0 || cell.y < 0.0 || cell.x >= uGrid.x || cell.y >= uGrid.y) { gl_FragColor = vec4(sea * 0.92, 1.0); return; }
+  if (cell.x < 0.0 || cell.y < 0.0 || cell.x >= uGrid.x || cell.y >= uGrid.y) { gl_FragColor = vec4(0.124, 0.241, 0.390, 1.0); return; }
   vec2 uv = (cell + 0.5) / uGrid;
   vec4 o = texture2D(uOwner, uv);
   float id = floor(o.r * 255.0 + 0.5);
@@ -422,7 +424,10 @@ class Renderer {
     const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
     if (maxTex < Math.max(map.W, map.H)) throw new Error(`この端末はテクスチャサイズ ${maxTex} までしか扱えません`);
     const deriv = gl.getExtension('OES_standard_derivatives');
-    this.ground = compile(gl, GROUND_VS, GROUND_FS, deriv ? '#define HAS_DERIV\n' : '');
+    const hp = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
+    let fs = GROUND_FS;
+    if (!hp || hp.precision === 0) fs = fs.replace('precision highp float;', 'precision mediump float;');
+    this.ground = compile(gl, GROUND_VS, fs, deriv ? '#define HAS_DERIV\n' : '');
     this.line = compile(gl, LINE_VS, LINE_FS);
     this.box = compile(gl, BOX_VS, BOX_FS);
     this.dirty = new Set();
@@ -562,7 +567,7 @@ class Renderer {
       for (const l of map.raw.links) {
         const [ax, ay] = c(l.a), [bx, by] = c(l.b);
         const L = Math.hypot(bx - ax, by - ay);
-        if (L > 160) {
+        if (l.stub) {
           // インセットへの長い航路は両端に短い矢印線だけ描く
           const ux = (bx - ax) / L, uy = (by - ay) / L, s = 45;
           pushSeg(ax, ay, ax + ux * s, ay + uy * s, 0, s);
@@ -582,9 +587,7 @@ class Renderer {
       }
     });
     group('inset', () => {
-      for (const r of map.raw.insets) {
-        polyline([r.x0, r.y0, r.x1, r.y0, r.x1, r.y1, r.x0, r.y1, r.x0, r.y0]);
-      }
+      for (const r of map.raw.insets) polyline(r.poly);
     });
     this.lineBuf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.lineBuf);
@@ -615,7 +618,7 @@ class Renderer {
     const gl = this.gl, map = this.map;
     this.flush();
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-    gl.clearColor(0.11, 0.22, 0.36, 1);
+    gl.clearColor(0.124, 0.241, 0.390, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     const vp = cam.compute();
     const cpp = 1 / cam.cellPx();
@@ -1157,8 +1160,10 @@ const App = {
     const th = Math.tan(this.cam.fovY / 2);
     // タイトルでは下のシートに隠れないよう、画面上側に日本全体を出す
     const title = this.state === STATE.TITLE || this.state === STATE.LOADING || !this.state;
-    const dist = clamp(Math.max(W * 0.85 / (2 * th * aspect), H * (title ? 1.0 : 0.62) / (2 * th)), 500, CONFIG.ZOOM_MAX);
-    this.cam.flyTo(W * 0.56, H * 0.5, dist, title ? 0.3 : 0.5);
+    // タイトル：見出しと下のシートの間（画面の約12%〜48%）に沖縄まで含めた日本全体を収める
+    const band = title ? 0.36 : 0.62;
+    const dist = clamp(Math.max(W * (title ? 1.0 : 0.85) / (2 * th * aspect), H / (band * 2 * th)), 500, CONFIG.ZOOM_MAX);
+    this.cam.flyTo(W * 0.5, H * 0.5, dist, title ? 0.29 : 0.5);
     if (instant) { const g = this.cam.goal; this.cam.tx = g.x; this.cam.tz = g.z; this.cam.dist = g.dist; this.cam.goal = null; }
   },
 
@@ -1409,8 +1414,9 @@ const App = {
   },
 
   // ------------------------------------------------ モーダル
-  openModal(title, body, buttons) {
+  openModal(title, body, buttons, escFn) {
     this.paused = true;
+    this.modalEsc = escFn || buttons[0].fn;
     $('m-title').textContent = title;
     $('m-body').innerHTML = body;
     const box = $('m-btns');
@@ -1426,6 +1432,7 @@ const App = {
   },
   closeModal() {
     $('modal').classList.add('hidden');
+    this.modalEsc = null;
     $('m-btns').innerHTML = '';   // ボタンのハンドラも破棄
     $('m-body').innerHTML = '';
     this.paused = false;
@@ -1554,7 +1561,7 @@ const App = {
       for (const l of map.raw.links) {
         if (seen.has(l.name)) continue;
         const ax = (l.a % map.W), ay = (l.a / map.W) | 0, bx = (l.b % map.W), by = (l.b / map.W) | 0;
-        if (Math.hypot(ax - bx, ay - by) > 160) continue;
+        if (l.stub) continue;
         seen.add(l.name);
         if (!cam.project((ax + bx) / 2 + 0.5, 0, (ay + by) / 2 + 0.5, v)) continue;
         ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.strokeText(l.name, v[0], v[1] - 4);
@@ -1570,7 +1577,7 @@ const App = {
     // インセットの説明
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     for (const r of map.raw.insets) {
-      if (!cam.project(r.x0 + 4, 0, r.y0 + 4, v)) continue;
+      if (!cam.project(r.poly[2] + 4, 0, r.poly[3] + 4, v)) continue;
       ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.strokeText(r.label, v[0], v[1]);
       ctx.fillStyle = '#fff'; ctx.fillText(r.label, v[0], v[1]);
     }
@@ -1631,6 +1638,12 @@ const App = {
     document.addEventListener('gesturestart', (e) => e.preventDefault());
     this.keys = new Set();
     window.addEventListener('keyup', (e) => this.keys.delete(e.key));
+    // フォーカスが外れると keyup が来ないので、押しっぱなし扱いを解除
+    window.addEventListener('blur', () => this.keys.clear());
+    document.addEventListener('visibilitychange', () => { if (document.hidden) this.keys.clear(); });
+    // スマホでアプリ切り替え時などに WebGL コンテキストが失われたら作り直す
+    cv.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.glLost = true; });
+    cv.addEventListener('webglcontextrestored', () => this.restoreGL());
   },
   onKey(e) {
     if (e.target && e.target.tagName === 'INPUT') return;
@@ -1638,7 +1651,11 @@ const App = {
     const k = e.key;
     if (k === '+' || k === '=' || k === ';') this.cam.zoomAt(this.w / 2, this.h / 2, 0.8);
     else if (k === '-' || k === '_') this.cam.zoomAt(this.w / 2, this.h / 2, 1.25);
-    else if (k === 'Escape') { if (!$('modal').classList.contains('hidden') && this.state === STATE.PLAYING) this.closeModal(); else this.hidePanel(); }
+    else if (k === 'Escape') {
+      // モーダルは「既定のボタン」と同じ動きにする（日報なら翌日へ進む）
+      if (!$('modal').classList.contains('hidden')) { if (this.state === STATE.PLAYING && this.modalEsc) this.modalEsc(); }
+      else this.hidePanel();
+    }
     if (this.state !== STATE.PLAYING || this.paused) return;
     if (k === 't' || k === 'T') this.toggleTop();
     else if (k === 'h' || k === 'H') this.goHome();
@@ -1675,6 +1692,19 @@ const App = {
       this.selectCell(i);
     }
   },
+  restoreGL() {
+    try {
+      this.renderer = new Renderer($('gl'), this.map);
+      this.renderer.setPalette(this.map.prefs.map((p) => (p ? p.color : null)));
+      this.renderer.uploadTerrain();
+      this.renderer.attachGame(this.game, this.game ? this.me : 0);
+      this.resize();
+      this.glLost = false;
+    } catch (e) {
+      console.error(e);
+      window.__jinchiError = e.message;
+    }
+  },
   resize() {
     this.w = window.innerWidth; this.h = window.innerHeight;
     this.dpr = Math.min(window.devicePixelRatio || 1, CONFIG.MAX_DPR);
@@ -1687,7 +1717,7 @@ const App = {
     const dt = Math.min(0.1, Math.max(0, (now - this.lastT) / 1000));
     this.lastT = now;
     this.clock += dt;
-    if (this.renderer) {
+    if (this.renderer && !this.glLost) {
       this.keyPan(dt);
       this.cam.update(dt);
       if (this.state === STATE.PLAYING && this.game && !this.paused) {
