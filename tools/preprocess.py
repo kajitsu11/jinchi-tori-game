@@ -614,6 +614,13 @@ def main():
         insets.append({"label": label, "x0": int(xs.min()) - pad, "y0": int(ys.min()) - pad,
                        "x1": int(xs.max()) + pad, "y1": int(ys.max()) + pad})
 
+    shift_rects = []
+    for r in (1, 2, 3):
+        ys, xs = np.nonzero(region == r)
+        if len(xs):
+            shift_rects.append({"x0": int(xs.min()) - 10, "y0": int(ys.min()) - 10, "x1": int(xs.max()) + 10,
+                                "y1": int(ys.max()) + 10, "dlon": SHIFTS[r][0], "dlat": SHIFTS[r][1]})
+
     out = {
         "source": "地球地図日本（国土地理院）／ dataofjapan/land",
         "W": W, "H": H, "lon0": LON0, "latTop": LAT_TOP, "dlon": DLON, "dlat": DLAT,
@@ -628,6 +635,7 @@ def main():
         "adjacency": adj,
         "minNeighborDeltaE": round(min_de, 1),
         "insets": insets,
+        "shiftRects": shift_rects,
     }
     with open(os.path.join(DATA, "mapdata.json"), "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, separators=(",", ":"))

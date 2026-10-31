@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0d1b2e">
+<title>47都道府県対抗 陣取り合戦</title>
+<style>/*__STYLE__*/</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="gl"></canvas>
+  <canvas id="overlay"></canvas>
+
+  <!-- LOADING -->
+  <div id="loading" class="screen">
+    <div class="load-box">
+      <div class="logo">陣取り<span>47</span></div>
+      <div class="pbar"><i id="loadbar"></i></div>
+      <p id="loadmsg">地図データを読み込み中…</p>
+    </div>
+  </div>
+
+  <!-- TITLE -->
+  <div id="title" class="screen hidden">
+    <header class="title-head">
+      <h1>47都道府県対抗<br><b>陣取り合戦</b></h1>
+      <p class="sub">日本全国 約<span id="t-cells">60万</span>マスを県ごとに奪い合え！</p>
+    </header>
+    <div class="title-sheet">
+      <div class="sheet-label">あなたの県を選んでください（地図をタップしても選べます）</div>
+      <div id="pref-list"></div>
+      <div id="pref-detail">
+        <div class="pd-info"><span id="pd-chip" class="chip"></span><b id="pd-name">—</b><small id="pd-sub"></small></div>
+        <button id="btn-start" class="btn-primary" disabled>この県で出陣</button>
+      </div>
+      <details class="rules">
+        <summary>遊び方</summary>
+        <ul>
+          <li>1日1回、<b>攻撃</b>（自県に隣接する他県のマスを1マス奪う）か<b>防御</b>（自県のマスを1マス、その日いっぱい守る）を行えます。</li>
+          <li>赤く点滅しているマスが攻撃できるマスです。マスをタップして「今すぐ攻撃する」。</li>
+          <li>1日は90秒。ほかの参加者（AI）がその間に次々と行動します。「次の日へ」で日付が進みます。</li>
+          <li>1マスの持ち主が変わるのは1日1回まで（その日に変わったマスは斜線）。</li>
+          <li>全国の陸地の50%を支配すれば勝利。自県のマスが0になると敗北。</li>
+        </ul>
+      </details>
+      <p class="credit">地図出典：地球地図日本（国土地理院）／ 加工：dataofjapan/land を元に作成<br>地形判定：AWS Terrain Tiles（標高データ）</p>
+    </div>
+  </div>
+
+  <!-- PLAYING HUD -->
+  <div id="hud" class="hidden">
+    <div id="topbar">
+      <div class="row1">
+        <span id="h-chip" class="chip"></span><b id="h-pref">—</b>
+        <span id="h-day" class="day">DAY 1</span>
+        <span id="h-rank" class="rank">—位</span>
+      </div>
+      <div class="timebar"><i id="h-time"></i><span id="h-timetxt">90秒</span></div>
+      <div class="row2">
+        <span>領土 <b id="h-cells">0</b>マス <small id="h-delta">(±0)</small></span>
+      </div>
+      <div class="row3" id="h-today">今日 全国0マス制圧／自県 +0 −0</div>
+    </div>
+    <canvas id="minimap"></canvas>
+    <div id="sidebtns">
+      <button data-act="rank"><i>🏆</i>順位</button>
+      <button data-act="report"><i>📰</i>日報</button>
+      <button data-act="top" id="btn-top"><i>🗺</i>真上</button>
+      <button data-act="home"><i>🏯</i>自県へ</button>
+      <button data-act="title"><i>⏏</i>タイトル</button>
+    </div>
+    <div id="toplabel" class="hidden">真上ビュー（領土確認用・攻撃/防御はできません）</div>
+    <div id="log"></div>
+    <div id="cellpanel" class="hidden">
+      <button class="close" id="cp-close" aria-label="閉じる">×</button>
+      <div class="cp-name" id="cp-name">—</div>
+      <div class="cp-owner"><span class="chip" id="cp-chip"></span><span id="cp-owner">—</span></div>
+      <div class="cp-meta" id="cp-meta"></div>
+      <div class="cp-note" id="cp-note"></div>
+      <button id="cp-action" class="btn-action">⚔ 今すぐ攻撃する</button>
+    </div>
+    <div id="bottombar">
+      <div id="soldier">🪖 兵士：まだ行動していません</div>
+      <button id="btn-next" class="btn-next">次の日へ ▶</button>
+    </div>
+  </div>
+
+  <div id="banner"></div>
+
+  <div id="modal" class="hidden">
+    <div class="card">
+      <h2 id="m-title"></h2>
+      <div id="m-body"></div>
+      <div class="m-btns" id="m-btns"></div>
+    </div>
+  </div>
+</div>
+<script id="mapdata" type="application/json">/*__MAPDATA__*/</script>
+<script>/*__GAME__*/</script>
+</body>
+</html>
