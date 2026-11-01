@@ -4292,7 +4292,18 @@ const App = {
   updatePanel() {
     const g = this.game, map = this.map, s = this.sel;
     if (!g || !s) return;
-    if (s.n) {
+    if (s.f) {
+      const f = (g.flags || []).find((q) => q.id === s.f.id);
+      if (!f) { this.hidePanel(); return; }
+      s.f = f;
+      const mineF = f.pref === this.me;
+      $('cp-name').textContent = `🚩 ${map.prefs[f.pref].name}の旗${f.hw === 0 ? '（あなたの指示）' : ''}`;
+      $('cp-chip').style.background = map.prefs[f.pref].color;
+      $('cp-owner').textContent = `守った時間 ${this.fmtDur(f.prog)} / ${this.fmtDur(CONFIG.FLAG_HOLD)}（${Math.floor(f.prog / CONFIG.FLAG_HOLD * 100)}%）・旗の体力 ${Math.max(0, Math.round(f.hp))}%`;
+      $('cp-meta').textContent = f.enemy !== undefined ? `正方形の中：${map.prefs[f.pref].short}の兵 ${f.own}人・ほかの兵 ${f.enemy}人` : `正方形の中の兵 ${f.own ? 'あり' : 'なし'}`;
+      $('cp-note').textContent = mineF ? (f.own ? '守りきると正方形の領土（と中の拠点）が手に入ります' : '⚠ 兵がいないので旗の体力が減っています。🚩 で兵を送ろう')
+        : '自県の中なら 🚩 旗を立てる → この旗の近くをタップで迎撃。正方形の中の兵を倒せば消えます';
+    } else if (s.n) {
       const n = s.n;
       $('cp-name').textContent = n.name;
       $('cp-chip').style.background = map.prefs[n.owner].color;
@@ -5207,7 +5218,7 @@ const App = {
     }
     // 選択中のもの
     if (this.sel) {
-      const o = this.sel.n || this.sel.b;
+      const o = this.sel.n || this.sel.b || this.sel.f;
       if (o && cam.project(o.x, 0, o.y, v)) {
         ctx.strokeStyle = '#ffe14d'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.ellipse(v[0], v[1], 18, 9, 0, 0, Math.PI * 2); ctx.stroke();
@@ -5243,6 +5254,7 @@ const App = {
     // 近くの拠点・建物
     let best = null, bd = reach;
     for (const n of g.nodes) { const d = Math.hypot(n.x - p.x, n.y - p.z); if (d < bd) { bd = d; best = { n }; } }
+    for (const f of g.flags || []) { const d = Math.hypot(f.x - p.x, f.y - p.z); if (d < bd) { bd = d; best = { f }; } }
     g.buildingsNear(p.x, p.z, reach, (b, d) => { if (d < bd) { bd = d; best = { b }; } });
     if (this.mode && this.mode.kind === 'abil') {
       const r = g.useAbility(0, this.mode.ab, p.x, p.z);
