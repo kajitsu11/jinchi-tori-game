@@ -201,6 +201,7 @@ const App = {
     g.on('eliminated', (p) => { if (p !== this.me) this.log(`${map.prefs[p].name}が全ての拠点を失い、脱落しました`, 'bad', -1); });
     g.on('flag', (e) => {
       const f = e.flag, cell = map.id(f.x, f.y);
+      if (e.kind === 'done' && f.pref === this.me) Sfx.fanfare();
       if (e.kind === 'done' && f.pref === this.me && f.hw === 0) this.banner('旗を守りきった！', 'ok', `領土拡大 +${fmt(e.cells || 0)}マス`);
       if (e.kind === 'done' && f.pref === this.me) this.log(`🚩 旗を守りきり、周りの領土を獲得しました（+${fmt(e.cells || 0)}マス）`, 'good', cell);
       else if (e.kind === 'done' && this.game.owner && cell >= 0 && this.game.owner[cell] === f.pref && map.initPref[cell] === this.me) this.log(`⚠ ${map.prefs[f.pref].name}の旗で領土を奪われました`, 'bad', cell);
@@ -208,7 +209,7 @@ const App = {
       else if (e.kind === 'lost' && f.pref === this.me && f.hw === 0) this.log('あなたの兵の旗が消えました（正方形の中に兵がいなくなった）', 'bad', cell);
     });
     g.on('war', (e) => {
-      if (e.to === this.me) { this.banner(`${map.prefs[e.by].name}が宣戦布告！`, 'ng', 'あなたの県に攻めてきます。旗のボタンで迎撃しよう'); this.log(`⚔ ${map.prefs[e.by].name}があなたの県に宣戦布告しました`, 'bad', map.capitalCell[e.by]); }
+      if (e.to === this.me) { Sfx.alert(); this.banner(`${map.prefs[e.by].name}が宣戦布告！`, 'ng', 'あなたの県に攻めてきます。旗のボタンで迎撃しよう'); this.log(`⚔ ${map.prefs[e.by].name}があなたの県に宣戦布告しました`, 'bad', map.capitalCell[e.by]); }
       else if (e.by === this.me) this.log(`⚔ ${map.prefs[this.me].name}は${map.prefs[e.to].name}に宣戦布告しました（県の作戦）`, 'good', map.capitalCell[e.to]);
     });
     g.on('final', () => { this.banner('決戦の時！', 'ok', `残り${this.fmtLeft(g.time).replace('残り', '')}・旗が${CONFIG.FINAL_RATE}倍の速さで取れる`); this.log(`⚔ 決戦が始まった：シーズン終了まで、旗が${CONFIG.FINAL_RATE}倍の速さで取れる`, 'good', -1); });
@@ -250,6 +251,8 @@ const App = {
       if (act === 'rank') this.showRanking();
       else if (act === 'top') this.toggleTop();
       else if (act === 'home') this.goHome();
+      else if (act === 'squad') this.goSquad();
+      else if (act === 'sound') { const on = Sfx.toggle(); b.innerHTML = `<i>${on ? '🔊' : '🔇'}</i>音`; }
       else if (act === 'title') this.confirmTitle();
     }, { signal });
     $('log').addEventListener('click', (e) => {
@@ -314,6 +317,17 @@ const App = {
     const g = this.game, cap = g.nodes[g.capNode ? g.capNode[this.me] : this.me - 1] || g.nodes[0];
     const n = cap.owner === this.me ? cap : g.nodes.find((q) => q.owner === this.me);
     if (n) this.cam.flyTo(n.x, n.y, dist || 300, 0.42);
+  },
+  /** あなたの部隊（あなたの兵と旗の指示で加勢中の仲間）のいる所へ */
+  goSquad() {
+    const g = this.game;
+    let sx = 0, sy = 0, n = 0;
+    for (const u of g.units) if (u.bit === 1 && ((u.fromPlayer && (ONLINE || u.hw === 0)) || u.follow === 0)) { sx += u.x; sy += u.y; n++; }
+    if (!n) { this.banner('部隊がいません', 'ng', '兵舎を建てるか、🛡 援軍を使おう'); return; }
+    // 真ん中にいちばん近い兵の所へ（ばらけていても、だれかが映るように）
+    let best = null, bd = 1e18;
+    for (const u of g.units) if (u.bit === 1 && ((u.fromPlayer && (ONLINE || u.hw === 0)) || u.follow === 0)) { const d = (u.x - sx / n) ** 2 + (u.y - sy / n) ** 2; if (d < bd) { bd = d; best = u; } }
+    this.cam.flyTo(best.x, best.y, Math.min(this.cam.dist, 120 * (this.map.scale || 1) / 3), 0.5);
   },
   toggleTop() {
     this.topView = !this.topView;
@@ -1054,10 +1068,13 @@ const App = {
     const sp = [26, 18, 40, 24, 14, 0, 45][k];
     const dur = k === 5 ? 1.0 : clamp(d / sp, k === 0 || k === 6 ? 0.14 : 0.3, 3.5);
     if (k === 0 || k === 1 || k === 3) this.blast(7, x0, h0, z0, k === 0 ? 0.25 : 0.6);   // 撃った所に白い硝煙
+    const near = clamp(1.4 - this.cam.dist / (300 * (this.map.scale || 1)), 0.15, 1);   // 引いているほど小さく
+    if (k === 0 || k === 6) Sfx.shot(near); else if (k === 1 || k === 3) Sfx.shot(near * 1.6);
     this.fx.push({ k, x0, h0, z0, x1, h1, z1, t0: this.clock, dur, arc: k === 1 || k === 4 ? d * 0.3 : k === 3 ? d * 0.12 : 0, hit });
   },
   /** 着弾：k 0=砲弾の爆発 1=爆弾 2=地雷 3=ロケット 8=高射砲の炸裂（空中） 9=銃弾の土ぼこり */
   blast(k, x, h, z, r) {
+    if (k <= 3) Sfx.boom(clamp(1.4 - this.cam.dist / (300 * (this.map.scale || 1)), 0.15, 1) * (k === 2 ? 0.6 : 1));
     if (!this.blasts) this.blasts = [];
     if (this.blasts.length < 400) this.blasts.push({ k, x, h, z, r, t0: this.clock });
   },
@@ -1242,6 +1259,20 @@ const App = {
         ctx.strokeStyle = '#b8f0a0'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.ellipse(v[0], v[1], pulse * 1.6, pulse * 0.8, 0, 0, 7); ctx.stroke();
         ctx.font = '700 12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
         ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(20,40,10,.9)'; ctx.strokeText('🚩 ここに旗', v[0], v[1] - 12); ctx.fillStyle = '#e8ffd8'; ctx.fillText('🚩 ここに旗', v[0], v[1] - 12);
+      }
+    }
+    // あなたの兵（と加勢中の仲間）の足元に白い輪
+    if (g && cpx > 1.0) {
+      const a = clamp(g.acc / CONFIG.TICK, 0, 1);
+      let k = 0;
+      ctx.lineWidth = 1.5;
+      for (const u of g.units) {
+        if (u.bit !== 1 || !(u.fromPlayer && (u.hw === 0 || ONLINE) || u.follow === 0) || k > 300) continue;
+        if (!cam.project(u.px + (u.x - u.px) * a, 0.05, u.py + (u.y - u.py) * a, v) || !onScreen()) continue;
+        const r = clamp(cpx * 0.45, 4, 12);
+        ctx.strokeStyle = u.follow === 0 ? 'rgba(200,255,180,.8)' : 'rgba(255,255,255,.95)';
+        ctx.beginPath(); ctx.ellipse(v[0], v[1], r, r * 0.5, 0, 0, 7); ctx.stroke();
+        k++;
       }
     }
     // 兵の残り体力（満タンでない兵だけ。攻撃されると出る）
@@ -1695,6 +1726,8 @@ const App = {
   },
   start() {
     this.lockPageZoom();
+    Sfx.init();
+    if (!Sfx.on) $('btn-sound').innerHTML = '<i>🔇</i>音';
     this.resize();
     this.setState(STATE.LOADING);
     requestAnimationFrame((t) => { this.lastT = t; this.frame(t); });

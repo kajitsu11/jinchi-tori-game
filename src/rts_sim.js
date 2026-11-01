@@ -897,7 +897,8 @@ class Sim {
       if (!h || h.owner !== u.pref || (this.time - (u.homeAt || 0) > 3600)) { u.home = this.homeNode(u); u.homeAt = this.time; }
       node = pl.defend >= 0 ? pl.defend : u.home;
     }
-    else node = pl.targets && pl.targets.length ? pl.targets[u.id % pl.targets.length] : (pl.target >= 0 ? pl.target : (pl.defend >= 0 ? pl.defend : -1));
+    // あなたの兵はまとまって主な攻め先へ（AIの兵は何か所かに分かれる）
+    else node = pl.targets && pl.targets.length ? pl.targets[u.fromPlayer ? 0 : u.id % pl.targets.length] : (pl.target >= 0 ? pl.target : (pl.defend >= 0 ? pl.defend : -1));
     if (node < 0) return;
     if (u.goalNode === node && (u.path || u.dest)) return;
     const n = this.nodes[node];
