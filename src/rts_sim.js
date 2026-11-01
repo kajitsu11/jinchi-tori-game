@@ -682,6 +682,12 @@ class Sim {
 
   // ---------------------------------------------------------- AI（県ごとの作戦・建築）
   planAll() {
+    // 旗の指示：15秒ごとに加勢の兵を補充する
+    if (this.time >= (this.recruitAt || 0)) {
+      this.recruitAt = this.time + 15;
+      if (this.flagOrder) this.recruit(0, this.flagOrder);
+      for (const h of this.humans.values()) if (h.w && h.flagOrder) this.recruit(h.w, h.flagOrder);
+    }
     for (let p = 1; p <= 47; p++) {
       const pl = this.plans[p];
       if (this.time < pl.next || this.nodeCount[p] === 0) continue;
@@ -829,15 +835,37 @@ class Sim {
   think(u) {
     const def = UNITS[u.type], S = this.S;
     // 通常の兵士（足軽）は、敵の領土に入ったら旗を立てる
-    if (CONFIG.FLAG_MODE && u.type === 'ashigaru' && u.engaged < 0 && (u.role === 'atk' || u.fromPlayer) && this.rng() < 0.5) {
+    if (CONFIG.FLAG_MODE && u.type === 'ashigaru' && u.engaged < 0 && (u.role === 'atk' || u.fromPlayer) && u.goalNode !== -2 && u.follow === undefined && this.rng() < 0.5) {
       const gn = this.nodes[u.goalNode];   // 攻め先の拠点の近くで立てる（途中で立てても守れないので）
       if (!gn || Math.hypot(gn.x - u.x, gn.y - u.y) < this.flagHalf() * 1.5) this.plantFlag(u);
     }
     if (def.mask) {
-      const e = this.nearestEnemy(u.x, u.y, u.pref, CONFIG.AGGRO_RANGE * S * (def.dom === 'air' ? 3 : 1), def.mask, true);
+      // 旗を守っている兵は、正方形から出るほど遠くの敵は追わない
+      const onOrder = u.bit === 1 && (u.fromPlayer ? this.flagOrder && u.hw === 0 || (this.humans.get(u.hw) || {}).flagOrder : u.follow !== undefined);
+      const ar = CONFIG.AGGRO_RANGE * S * (def.dom === 'air' ? 3 : 1);
+      const e = this.nearestEnemy(u.x, u.y, u.pref, onOrder ? Math.min(ar, this.flagHalf() * 0.6) : ar, def.mask, true);
       if (e && u.type !== 'bomber') { u.chase = e.id; return; }
     }
     u.chase = -1;
+    // プレイヤーの「ここに旗を立てろ」：あなたの兵（と呼び寄せた仲間）はその場所へ行き、旗を立てて守る
+    const fo = u.bit === 1 ? (u.fromPlayer ? this.flagOrderOf(u.hw) : u.follow !== undefined ? this.flagOrderOf(u.follow) : null) : null;
+    if (fo) {
+      const half = this.flagHalf(), tx = fo.x + u.offX * 0.6, ty = fo.y + u.offY * 0.6;
+      if (Math.hypot(fo.x - u.x, fo.y - u.y) < half * 0.8) {
+        if (!fo.flag || !this.flags.includes(fo.flag)) {
+          // すでに自県の旗が近くにあれば、それを守る
+          fo.flag = this.plantFlagAt(u.pref, fo.x, fo.y, u.fromPlayer ? u.hw : u.follow)
+            || this.flags.find((q) => q.pref === u.pref && Math.abs(q.x - fo.x) < half * 1.6 && Math.abs(q.y - fo.y) < half * 1.6) || null;
+          if (fo.flag) { fo.x = fo.flag.x; fo.y = fo.flag.y; }
+        }
+        u.path = null; u.dest = null; u.goalNode = -2;
+        return;
+      }
+      if (u.goalNode !== -2 || !u.dest) { if (!this.setDest(u, tx, ty)) { u.thinkAt = this.time + 0.3; return; } u.goalNode = -2; }
+      return;
+    }
+    if (u.goalNode === -2) { u.goalNode = -1; u.dest = null; u.path = null; }
+    if (u.follow !== undefined) delete u.follow;
     const pl = this.plans[u.pref];
     let node = -1;
     const rally = u.fromPlayer ? this.rallyOf(u.hw) : -1;
@@ -1085,18 +1113,19 @@ class Sim {
   // ---------------------------------------------------------- 旗
   flagHalf() { return CONFIG.FLAG_SIZE * this.S / 2; }
   /** 兵士が今いる場所（敵の領土）に旗を立てる。立てられたら旗を返す */
-  plantFlag(u) {
+  plantFlag(u) { return this.plantFlagAt(u.pref, u.x, u.y, u.hw); }
+  plantFlagAt(P, x, y, hw) {
     if (!this.flags) this.flags = [];
-    const P = u.pref, half = this.flagHalf();
-    const own = this.owner[this.cellAt(u.x, u.y)];
+    const half = this.flagHalf(), human = hw !== undefined && hw >= 0;
+    const own = this.owner[this.cellAt(x, y)];
     if (!own || own === P) return null;
     let mine = 0;
     for (const f of this.flags) {
       if (f.pref === P) mine++;
-      if (Math.abs(f.x - u.x) < half * 1.6 && Math.abs(f.y - u.y) < half * 1.6) return null;   // ほかの旗と正方形が重ならないように
+      if (Math.abs(f.x - x) < half * 1.6 && Math.abs(f.y - y) < half * 1.6) return null;   // ほかの旗と正方形が重ならないように
     }
-    if (mine >= Math.ceil(this.parts[P] * CONFIG.FLAG_PER_PART) + 2) return null;
-    const f = { id: (this.fseq = (this.fseq || 0) + 1), x: u.x, y: u.y, pref: P, hp: 100, prog: 0, own: 1, enemy: 0, at: this.time, hw: u.hw };
+    if (!human && mine >= Math.ceil(this.parts[P] * CONFIG.FLAG_PER_PART) + 2) return null;   // プレイヤーの指示の旗は数に数えない
+    const f = { id: (this.fseq = (this.fseq || 0) + 1), x, y, pref: P, hp: 100, prog: 0, own: 1, enemy: 0, at: this.time, hw: human ? hw : -1 };
     this.flags.push(f);
     this.emit('flag', { flag: f, kind: 'plant' });
     return f;
@@ -1210,6 +1239,40 @@ class Sim {
   // ---------------------------------------------------------- プレイヤーの命令
   playerBuild(type, c) { return this.build(type, this.me, c, 0); }
   humanBuild(w, type, c) { const h = this.humans.get(w); return h ? this.build(type, h.pref, c, w) : { ok: false, why: 'nohuman' }; }
+  /** 「ここに旗を立てろ」の指示（財布ごと）。旗を守りきるか、その場所が自分の領土になったら終わる */
+  flagOrderOf(w) {
+    const o = w === 0 ? this.flagOrder : (this.humans.get(w) || {}).flagOrder;
+    if (!o) return null;
+    const c = this.cellAt(o.x, o.y);
+    if (c < 0 || this.owner[c] === o.pref || this.eliminated.has(o.pref)) { this.setFlagOrder(null, w); return null; }
+    return o;
+  }
+  /** 旗の指示を出す（null で取り消し）。近くにいる自県のAIの足軽も最大12人が加勢する */
+  setFlagOrder(pt, w = 0) {
+    const P = this.prefOfWallet(w), h = w === 0 ? this : this.humans.get(w);
+    if (!h) return false;
+    if (!pt) { h.flagOrder = null; return true; }
+    const c = this.cellAt(pt.x, pt.y);
+    if (c < 0 || !this.map.initPref[c] || this.owner[c] === P) return false;
+    h.flagOrder = { x: pt.x, y: pt.y, pref: P, flag: null, at: this.time, w };
+    this.recruit(w, h.flagOrder);
+    for (const u of this.units) if (u.fromPlayer && u.hw === w) { u.thinkAt = this.time; u.goalNode = -1; }
+    return true;
+  }
+  /** 旗の指示に加勢する仲間（自県のAIの陸の兵）を集める：攻撃担当の1/4（12〜40人）。やられたら補充する */
+  recruit(w, o) {
+    const P = o.pref, cand = [];
+    let atk = 0, have = 0;
+    for (const u of this.units) {
+      if (u.pref !== P || u.fromPlayer || u.bit !== 1) continue;
+      if (u.follow === w) { have++; continue; }
+      if (u.role === 'atk') { atk++; if (u.follow === undefined && u.engaged < 0) cand.push(u); }
+    }
+    const want = clamp(Math.round(atk * 0.25), 12, 40) - have;
+    if (want <= 0) return;
+    cand.sort((a, b) => Math.hypot(a.x - o.x, a.y - o.y) - Math.hypot(b.x - o.x, b.y - o.y));
+    for (const u of cand.slice(0, want)) { u.follow = w; u.thinkAt = this.time; u.goalNode = -1; }
+  }
   rallyOf(w) { if (w === 0) return this.rally; const h = this.humans.get(w); return h ? h.rally : -1; }
   setRally(nodeId, w = 0) {
     if (w === 0) this.rally = nodeId;

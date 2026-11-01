@@ -120,6 +120,7 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
 .actrow button { border: 1px solid var(--gold-dk); border-radius: 6px; padding: 7px 10px; font-size: 13px; font-weight: 700; background: rgba(0,0,0,.3); color: var(--parch);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .b-rally { flex: 1; min-width: 0; text-align: left; }
+.b-flag.on { background: linear-gradient(#2f6a2a, #1b3f17); border-color: #b8f0a0; color: #e8ffd8; }
 .b-rally.on { background: linear-gradient(#8c2f1c, #5a1a0d); border-color: #ffb08a; color: #ffe0cf; }
 .b-cancel { flex: none; background: #5a2a1a !important; }
 #bcats { display: flex; gap: 4px; margin-bottom: 5px; overflow-x: auto; scrollbar-width: none; }

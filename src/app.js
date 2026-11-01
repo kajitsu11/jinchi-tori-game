@@ -218,6 +218,10 @@ const App = {
       if (b) this.startPlace(b.dataset.b);
     }, { signal });
     $('btn-rally').addEventListener('click', () => this.toggleRallyMode(), { signal });
+    $('btn-flag').addEventListener('click', () => {
+      if (this.game.flagOrder && !(this.mode && this.mode.kind === 'flag')) { this.game.setFlagOrder(null); this.banner('旗の指示を取り消しました', 'def', '兵士は県の作戦に戻ります'); this.updateHud(true); return; }
+      this.setMode(this.mode && this.mode.kind === 'flag' ? null : { kind: 'flag' });
+    }, { signal });
     $('btn-cancel').addEventListener('click', () => this.setMode(null), { signal });
     $('cp-close').addEventListener('click', () => this.hidePanel(), { signal });
     $('sidebtns').addEventListener('click', (e) => {
@@ -262,6 +266,7 @@ const App = {
     this.mode = m;
     for (const b of document.querySelectorAll('.bcard')) b.classList.toggle('on', !!(m && m.kind === 'place' && b.dataset.b === m.type));
     $('btn-rally').classList.toggle('on', !!(m && m.kind === 'rally'));
+    $('btn-flag').classList.toggle('on', !!(m && m.kind === 'flag'));
     $('btn-cancel').classList.toggle('hidden', !m);
     const hint = $('hint');
     if (!m) { hint.classList.add('hidden'); return; }
@@ -306,6 +311,7 @@ const App = {
     const s = Math.floor(t), d = Math.floor(s / 86400) + 1, h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
     return `DAY${d} ${h}:${String(m).padStart(2, '0')}`;
   },
+  fmtDur(s) { const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? `${h}時間${m ? m + '分' : ''}` : m ? `${m}分` : `${Math.round(s)}秒`; },
   fmtLeft(t) {
     const left = Math.max(0, CONFIG.SEASON_DAYS * 86400 - t), d = Math.floor(left / 86400), h = Math.floor((left % 86400) / 3600);
     return d ? `残り${d}日${h}時間` : `残り${h}時間${Math.floor((left % 3600) / 60)}分`;
@@ -378,6 +384,12 @@ const App = {
     for (const b of document.querySelectorAll('.bcard')) b.classList.toggle('poor', !g.canAfford(0, BUILDINGS[b.dataset.b].cost));
     const rn = g.rally >= 0 ? g.nodes[g.rally] : null;
     $('btn-rally').innerHTML = rn ? `⚔ 目標：${escapeHtml(rn.name)}` : '⚔ 攻撃目標';
+    const fo = g.flagOrder;
+    if (this.mode && this.mode.kind === 'flag') $('btn-flag').textContent = '🚩 敵の領土をタップ';
+    else if (fo) {
+      const f = fo.flag && (g.flags || []).find((q) => q.id === fo.flag.id || q === fo.flag);
+      $('btn-flag').textContent = f ? `🚩 守っています ${Math.floor(f.prog / CONFIG.FLAG_HOLD * 100)}%（${f.own}人）` : '🚩 旗の場所へ向かっています';
+    } else $('btn-flag').textContent = '🚩 旗を立てる';
     if (this.sel) this.updatePanel();
   },
   hidePanel() { this.sel = null; $('cellpanel').classList.add('hidden'); },
@@ -1180,6 +1192,16 @@ const App = {
         }
       }
     }
+    // あなたの旗の指示の場所（まだ旗が立っていないとき）
+    if (g && g.flagOrder && !(g.flagOrder.flag && (g.flags || []).some((q) => q.id === g.flagOrder.flag.id))) {
+      const fo = g.flagOrder;
+      if (cam.project(fo.x, 0, fo.y, v) && onScreen()) {
+        const pulse = 8 + 4 * Math.sin(this.clock * 5);
+        ctx.strokeStyle = '#b8f0a0'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.ellipse(v[0], v[1], pulse * 1.6, pulse * 0.8, 0, 0, 7); ctx.stroke();
+        ctx.font = '700 12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(20,40,10,.9)'; ctx.strokeText('🚩 ここに旗', v[0], v[1] - 12); ctx.fillStyle = '#e8ffd8'; ctx.fillText('🚩 ここに旗', v[0], v[1] - 12);
+      }
+    }
     // 兵の残り体力（満タンでない兵だけ。攻撃されると出る）
     if (g && cpx > 0.8) {
       const H = clamp(cam.dist * 0.004, 0.96, 18), a = clamp(g.acc / CONFIG.TICK, 0, 1);
@@ -1310,6 +1332,15 @@ const App = {
     let best = null, bd = reach;
     for (const n of g.nodes) { const d = Math.hypot(n.x - p.x, n.y - p.z); if (d < bd) { bd = d; best = { n }; } }
     g.buildingsNear(p.x, p.z, reach, (b, d) => { if (d < bd) { bd = d; best = { b }; } });
+    if (this.mode && this.mode.kind === 'flag') {
+      if (g.setFlagOrder({ x: p.x, y: p.z })) {
+        this.banner('ここに旗を立てろ！', 'ok', `あなたの兵士と近くの仲間が向かい、旗を立てて${this.fmtDur(CONFIG.FLAG_HOLD)}守ります`);
+        this.marker = { x: p.x, z: p.z, t: this.clock, ok: true };
+        this.setMode(null);
+      } else this.banner('そこには立てられません', 'ng', '自県以外の領土（敵の領土）をタップしてください');
+      this.updateHud(true);
+      return;
+    }
     if (this.mode && this.mode.kind === 'rally') {
       if (best && best.n) {
         if (best.n.owner === this.me) { g.setRally(-1); this.banner('攻撃目標を解除', 'def', '兵士は県の作戦に従います'); }

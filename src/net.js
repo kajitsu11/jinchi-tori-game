@@ -101,6 +101,7 @@ class NetGame {
         for (const r of RES_KEYS) this.res[r][0] = m.res[r];
         if (m.income) this.income = m.income;
         this.myB = m.myB; this.myU = m.myU; this.rally = m.rally; this.online = m.online;
+        this.flagOrder = m.fo ? { x: m.fo[0], y: m.fo[1], flag: m.fo[2] ? { id: m.fo[2] } : null } : null;
         if (m.over && !this.over) this.setOver(m.over);
         break;
       }
@@ -292,6 +293,12 @@ class NetGame {
   rankOf(p) { return this.ranking().indexOf(p) + 1; }
   buildingsNear(x, y, r, fn) { for (const b of this.buildings) { const d = Math.hypot(b.x - x, b.y - y); if (d <= r) fn(b, d); } }
   setRally(id) { this.rally = id; this.send({ t: 'rally', node: id }); }
+  setFlagOrder(pt) {
+    if (pt) { const c = this.map.id(pt.x, pt.y); if (c < 0 || !this.map.initPref[c] || this.owner[c] === this.me) return false; }
+    this.flagOrder = pt ? { x: pt.x, y: pt.y, flag: null } : null;
+    this.send({ t: 'flagorder', x: pt ? pt.x : null, y: pt ? pt.y : null });
+    return true;
+  }
   /** 建設はサーバーが判断する（だめなときは 'buildfail' が届く） */
   playerBuild(type, i, x, y) {
     if (!this.canAfford(0, BUILDINGS[type].cost)) return { ok: false, why: 'cost' };

@@ -216,6 +216,9 @@ function onMessage(cl, msg) {
       g.setRally(id >= 0 && id < g.nodes.length ? id : -1, w);
       break;
     }
+    case 'flagorder':
+      g.setFlagOrder(msg.x === null || msg.x === undefined ? null : { x: +msg.x, y: +msg.y }, w);
+      break;
     case 'ping': send(cl.ws, { t: 'pong', at: msg.at }); break;
   }
 }
@@ -226,6 +229,7 @@ function sendStats(cl, gs) {
     t: 'stats', ...gs,
     res: { food: g.res.food[w], wood: g.res.wood[w], gold: g.res.gold[w] }, income: h ? h.income : null,
     myB: g.myBuildings(w), myU: g.myUnits(w), rally: h ? h.rally : -1,
+    fo: h && h.flagOrder ? [Math.round(h.flagOrder.x), Math.round(h.flagOrder.y), h.flagOrder.flag ? h.flagOrder.flag.id : 0] : null,
   });
 }
 
