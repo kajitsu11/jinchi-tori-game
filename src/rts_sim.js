@@ -559,6 +559,17 @@ class Sim {
     }
   }
   plan(P, pl) {
+    // 役割の割合を保つ：攻撃担当は倒れやすいので、放っておくと守備担当ばかりになり攻めなくなる
+    let nd = 0, na = 0;
+    for (const u of this.units) if (u.pref === P && !u.fromPlayer) { if (u.role === 'def') nd++; else na++; }
+    const want = Math.round((nd + na) * CONFIG.AI_DEFENDER_RATIO);
+    if (nd !== want) {
+      for (const u of this.units) {
+        if (u.pref !== P || u.fromPlayer || nd === want) continue;
+        if (nd > want && u.role === 'def') { u.role = 'atk'; u.goalNode = -1; u.home = -1; nd--; }
+        else if (nd < want && u.role === 'atk' && u.engaged < 0) { u.role = 'def'; u.goalNode = -1; nd++; }
+      }
+    }
     let defend = -1, ds = 0;
     for (const n of this.nodes) {
       if (n.owner !== P || !n.attackers) continue;
@@ -654,7 +665,12 @@ class Sim {
     const pl = this.plans[u.pref];
     let node = -1;
     if (u.fromPlayer && this.rally >= 0 && this.nodes[this.rally].owner !== u.pref) node = this.rally;
-    else if (u.role === 'def') node = pl.defend >= 0 ? pl.defend : this.homeNode(u);
+    else if (u.role === 'def') {
+      // 持ち場は一度決めたら固定（自県の拠点でなくなったとき・前線でなくなったときだけ選び直す）
+      const h = this.nodes[u.home];
+      if (!h || h.owner !== u.pref || (this.time - (u.homeAt || 0) > 3600)) { u.home = this.homeNode(u); u.homeAt = this.time; }
+      node = pl.defend >= 0 ? pl.defend : u.home;
+    }
     else node = pl.target >= 0 ? pl.target : (pl.defend >= 0 ? pl.defend : -1);
     if (node < 0) return;
     if (u.goalNode === node && (u.path || u.dest)) return;
