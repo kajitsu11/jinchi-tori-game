@@ -88,6 +88,7 @@ class Season {
     g.on('built', (e) => { if (e.byPlayer) { const o = e.building || e.node; this.events.push({ k: 'built', w: e.wallet, type: e.type, x: o.x, y: o.y }); } });
     g.on('destroyed', (b) => { if (b.byPlayer) this.events.push({ k: 'destroyed', w: b.wallet, type: b.type, x: b.x, y: b.y }); });
     g.on('over', (o) => this.events.push({ k: 'over', o }));
+    g.on('flag', (e) => this.events.push({ k: 'flag', kind: e.kind, f: { id: e.flag.id, x: e.flag.x, y: e.flag.y, pref: e.flag.pref, hw: e.flag.hw }, cells: e.cells || 0 }));
   }
   /** 拠点ごとの領土のマス数（全部のマスを数えるので、30秒に1回だけ） */
   countNodeCells() {
@@ -254,6 +255,7 @@ function sendSnapshot(cl) {
     out.d = D;
     out.g = (g.gas || []).filter((c) => inside(c.x, c.y)).slice(0, 200).map((c) => [Math.round(c.x * 10), Math.round(c.y * 10), c.r, Math.round(c.until - g.time)]);
     out.x = (g.booms || []).filter((b) => inside(b[0], b[1])).slice(0, 200).map((b) => [Math.round(b[0] * 10), Math.round(b[1] * 10), b[2], b[4], Math.round(b[5] * 10), Math.round(b[6] * 10), Math.round(b[3] * 10)]);
+    out.f = (g.flags || []).filter((f) => inside(f.x, f.y)).slice(0, 300).map((f) => [f.id, Math.round(f.x * 10), Math.round(f.y * 10), f.pref, Math.round(f.prog), Math.round(f.hp), f.own ? 1 : 0, f.hw]);
     out.s = g.shots.filter((s) => inside(s[0], s[1]) || inside(s[2], s[3])).slice(0, 200).map((s) => s.map((q) => Math.round(q * 10)));
   }
   if (v.b) {

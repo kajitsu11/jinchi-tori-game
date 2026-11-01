@@ -13,7 +13,7 @@ function snapshot(season) {
     time: g.time, incomeT: g.incomeT, counts: Array.from(g.counts), pop: Array.from(g.pop), nodeCount: Array.from(g.nodeCount),
     parts: Array.from(g.parts), humansIn: Array.from(g.humansIn), res: g.res, aiBuildAt: Array.from(g.aiBuildAt), rally: g.rally,
     plans: g.plans, eliminated: [...g.eliminated], recent: g.recent, stats: g.stats, bseq: g.bseq, useq: g.useq, tickNo: g.tickNo, over: g.over,
-    humans: [...g.humans.values()], accounts: [...season.accounts.values()], seasonNo: season.seasonNo,
+    humans: [...g.humans.values()], flags: g.flags, fseq: g.fseq, accounts: [...season.accounts.values()], seasonNo: season.seasonNo,
     nodeList: g.nodes,
     buildings: g.buildings.map((b) => ({ ...b })),
     units: g.units.filter((u) => u.alive).map((u) => { const o = {}; for (const k in u) if (!SKIP_UNIT.has(k)) o[k] = u[k]; return o; }),
@@ -56,6 +56,7 @@ function load(season, file) {
   g.res = st.res; g.rally = st.rally; g.plans = st.plans; g.eliminated = new Set(st.eliminated); g.recent = st.recent;
   g.stats = st.stats; g.bseq = st.bseq; g.useq = st.useq; g.tickNo = st.tickNo; g.over = st.over;
   g.humans = new Map(st.humans.map((h) => [h.w, h]));
+  g.flags = st.flags || []; g.fseq = st.fseq || 0;
   season.accounts = new Map(st.accounts.map((a) => [a.token, a]));
   season.seasonNo = st.seasonNo;
   g.nodes = st.nodeList;

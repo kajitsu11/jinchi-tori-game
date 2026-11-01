@@ -145,6 +145,7 @@ class NetGame {
       const b = { owner: this.me, type: e.type, cell: this.map.id(e.x, e.y) };
       this.emit('destroyed', b);
     } else if (e.k === 'over') this.setOver(e.o);
+    else if (e.k === 'flag') this.emit('flag', { kind: e.kind, flag: { ...e.f, hw: e.f.hw === this.w ? 0 : -1 }, cells: e.cells });
   }
   onSnap(m) {
     this.snapAt = this.clock;
@@ -163,6 +164,7 @@ class NetGame {
       const D = m.d || [];
       for (let k = 0; k < D.length; k += 4) this.emit('death', { x: D[k] / 10, y: D[k + 1] / 10, pref: D[k + 2], id: D[k + 3] });
       this.shots = (m.s || []).map((s) => s.map((q) => q / 10));
+      this.flags = (m.f || []).map(([id, x, y, pref, prog, hp, own, hw]) => ({ id, x: x / 10, y: y / 10, pref, prog, hp, own, hw: hw === this.w ? 0 : -1 }));
       this.gas = (m.g || []).map(([x, y, r, left]) => ({ x: x / 10, y: y / 10, r, until: this.time + left }));
       this.booms = (m.x || []).map(([x, y, r, k, ox, oy, t]) => [x / 10, y / 10, r, t / 10, k, ox / 10, oy / 10]);
     } else if (this.units.length) { this.units = []; this.unitIndex = new Map(); this.shots = []; }

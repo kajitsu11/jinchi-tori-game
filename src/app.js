@@ -15,6 +15,7 @@ function applyFastMode() {
     FREE_HUMANS: true, SEASON_DAYS: 1 / 24, TRAIN_MULT: 1 / 15, AI_PLAN_INTERVAL: 10, AI_TARGET_TIMEOUT: 300, RECENT_HATCH: 120,
     AI_BUILD_INTERVAL: CONFIG.AI_BUILD_INTERVAL / 10, UNIT_SPEED: CONFIG.UNIT_SPEED * 1.5, START_UNITS_RATIO: 1,
     CAPTURE_NEED: { capital: 3000, town: 1200, fort: 1600, castle: 2400 },
+    FLAG_HOLD: 180, FLAG_DECAY: 100 / 60,   // 旗：6時間 → 3分（1シーズン7日 → 1時間と同じ縮め方）・誰もいなければ1分で消える
   });
   for (const r of RES_KEYS) { CONFIG.BASE_INCOME[r] *= 10; CONFIG.CAPITAL_MAKE[r] *= 10; }
 }
@@ -197,6 +198,13 @@ const App = {
     g.on('destroyed', (b) => { if (b.owner === this.me && (b.wallet === 0 || b.wallet === undefined)) this.log(`🔥 ${BUILDINGS[b.type].name}が壊されました`, 'bad', b.cell); if (this.sel && this.sel.b === b) this.hidePanel(); });
     g.on('flipped', (e) => { if (e.from === this.me) this.log(`⚠ ${BUILDINGS[e.building.type].name}を${map.prefs[e.to].name}に奪われました`, 'bad', e.building.cell); });
     g.on('eliminated', (p) => { if (p !== this.me) this.log(`${map.prefs[p].name}が全ての拠点を失い、脱落しました`, 'bad', -1); });
+    g.on('flag', (e) => {
+      const f = e.flag, cell = map.id(f.x, f.y);
+      if (e.kind === 'done' && f.pref === this.me) this.log(`🚩 旗を守りきり、周りの領土を獲得しました（+${fmt(e.cells || 0)}マス）`, 'good', cell);
+      else if (e.kind === 'done' && this.game.owner && cell >= 0 && this.game.owner[cell] === f.pref && map.initPref[cell] === this.me) this.log(`⚠ ${map.prefs[f.pref].name}の旗で領土を奪われました`, 'bad', cell);
+      else if (e.kind === 'plant' && f.pref !== this.me && cell >= 0 && this.game.owner[cell] === this.me) this.log(`⚠ ${map.prefs[f.pref].name}が自県の中に旗を立てました`, 'bad', cell);
+      else if (e.kind === 'lost' && f.pref === this.me && f.hw === 0) this.log('あなたの兵の旗が消えました（正方形の中に兵がいなくなった）', 'bad', cell);
+    });
     g.on('buildfail', (m) => { this.marker = { x: m.x, z: m.y, t: this.clock, ok: false }; this.showBuildFail(m.why); });
     g.on('net', (s) => { if (s === 'down') this.banner('接続が切れました', 'ng', 'つなぎ直しています…'); else this.banner('再接続しました', 'ok', ''); });
     g.on('over', () => setTimeout(() => { if (this.state === STATE.PLAYING) this.setState(STATE.GAMEOVER); }, 900));
@@ -775,11 +783,20 @@ const App = {
             pad(0, 0, 2.0, 2.0); shadow(1.4, 1.4); minka(0, 0, 1.2, 0.9, 0.6, C.kawara, 0); flag(0.9, 0.7, 1.5, c);
         }
       }
+      // ---- 旗（県の色の旗がはためく）
+      for (const f of g.flags || []) {
+        if (!visible(f.x, f.y)) continue;
+        at(f.x, f.y, 0, big * 0.9, col[f.pref]);
+        pad(0, 0, 0.9, 0.9, C.dirt);
+        P('cylW', 0, 0, 0, 0.07, 3.4, 0.07, C.woodDk);
+        P('box', 0.5, 2.55, 0, 0.95, 0.7, 0.03, col[f.pref], Math.sin(this.clock * 3 + f.id) * 0.12);
+        P('sphere', 0, 3.4, 0, 0.13, 0.13, 0.13, [0.85, 0.7, 0.25]);
+      }
       // ---- 兵士（足軽：鉄砲隊と槍隊）
       if (this.sprites) this.sprites.clear();
       if (cpx > 0.25) this.drawSoldiers(I, g, cpx, visible, col, C);
     }
-    if (cpx > 1.4) this.addTrees(I, cpx);
+    if (cpx > 1.4 && cam.pitch < 70) this.addTrees(I, cpx);   // 真上から見ているときは木を描かない（領土と建物が見やすいように）
     return I;
   },
   /**
@@ -844,11 +861,35 @@ const App = {
           const eh = e.type === 'fighter' || e.type === 'bomber' ? 4.5 * H : 0.4 * H;
           this.fire(6, x, alt * H, z, e.x, eh, e.y, eh > H ? null : () => this.blast(9, e.x, 0, e.y, 0.4));
         }
+        // 機体：細長い胴体・低い主翼（黄色い帯と県の色の丸い印）・水平尾翼と垂直尾翼・風防・回るプロペラ
         veh(x, 0, z, s.yaw);
-        I.shadow.push(x + 0.8 * H, 0.02, z - 0.9 * H, 1.6 * H * big2, 0.01, 1.4 * H * big2, [0, 0, 0], vr);
-        V('boxW', 0, alt, 0, 0.28 * big2, 0.28 * big2, 1.6 * big2, [0.55, 0.57, 0.52]);
-        V('box', 0, alt + 0.08, 0.1, 2.0 * big2, 0.06, 0.45 * big2, c0); V('box', 0, alt + 0.12, -0.7 * big2, 0.8 * big2, 0.05, 0.25, c0);
-        V('box', 0, alt + 0.15, -0.72 * big2, 0.04, 0.35, 0.25, [0.55, 0.57, 0.52]);
+        const k2 = big2 * 1.1, A = alt, body = [0.42, 0.48, 0.53], belly = [0.6, 0.64, 0.66], stripe = [0.92, 0.8, 0.3], dark = [0.14, 0.14, 0.15];
+        I.shadow.push(x + 0.8 * H, 0.02, z - 0.9 * H, 2.4 * H * k2, 0.01, 1.7 * H * k2, [0, 0, 0], vr);
+        V('cylW', 0, A, -0.9 * k2, 0.24 * k2, 1.75 * k2, 0.24 * k2, body, 0, Math.PI / 2);            // 胴体（後ろ→前）
+        V('sphere', 0, A, 0.3 * k2, 0.36 * k2, 0.36 * k2, 1.3 * k2, body);                          // 胴体の前半のふくらみ
+        V('sphere', 0, A - 0.05 * k2, -0.45 * k2, 0.26 * k2, 0.28 * k2, 0.9 * k2, body);            // 後ろへ細くなる胴体
+        for (const sx of [-1, 1]) V('sphere', sx * 1.35 * k2, A - 0.1 * k2, 0.15 * k2, 0.08 * k2, 0.05, 0.25 * k2, body);   // 丸い翼端
+        V('cylW', 0, A - 0.02, -1.0 * k2, 0.1 * k2, 0.25 * k2, 0.1 * k2, body, 0, Math.PI / 2);      // しっぽの先
+        V('sphere', 0, A, 0.85 * k2, 0.3 * k2, 0.3 * k2, 0.2 * k2, body);                           // エンジンの覆い
+        V('cylW', 0, A, 0.8 * k2, 0.31 * k2, 0.1 * k2, 0.31 * k2, c0, 0, Math.PI / 2);              // 機首の県の色の帯
+        V('sphere', 0, A, 1.0 * k2, 0.07 * k2, 0.07 * k2, 0.1 * k2, [0.95, 0.95, 0.95]);            // スピナー
+        if (Math.floor(t * 24 + u.id) & 1) V('box', 0, A, 1.05 * k2, 0.06, 0.95 * k2, 0.02, dark);   // プロペラ（2枚の向きを交互に描いて回して見せる）
+        else V('box', 0, A, 1.05 * k2, 0.95 * k2, 0.06, 0.02, dark);
+        V('box', 0, A - 0.1 * k2, 0.15 * k2, 2.7 * k2, 0.05, 0.5 * k2, body);                       // 主翼
+        V('box', 0, A - 0.13 * k2, 0.15 * k2, 2.6 * k2, 0.02, 0.46 * k2, belly);                     // 主翼の下面
+        for (const sx of [-1, 1]) {
+          V('box', sx * 0.62 * k2, A - 0.07 * k2, 0.15 * k2, 0.13 * k2, 0.02, 0.52 * k2, stripe);    // 黄色い帯
+          V('box', sx * 0.48 * k2, A - 0.07 * k2, 0.15 * k2, 0.06 * k2, 0.02, 0.52 * k2, dark);
+          V('cylW', sx * 1.05 * k2, A - 0.075 * k2, 0.15 * k2, 0.2 * k2, 0.02, 0.2 * k2, [0.95, 0.95, 0.95]);   // 丸い印（白地に県の色）
+          V('cylW', sx * 1.05 * k2, A - 0.07 * k2, 0.15 * k2, 0.13 * k2, 0.02, 0.13 * k2, c0);
+          if (type === 'bomber') V('cylW', sx * 0.6 * k2, A - 0.08 * k2, -0.15 * k2, 0.12 * k2, 0.75 * k2, 0.12 * k2, body, 0, Math.PI / 2);   // 爆撃機はエンジンが2つ
+          V('cylW', sx * 0.35 * k2, A - 0.2 * k2, 0.25 * k2, 0.03, 0.12 * k2, 0.03, dark);           // 脚
+        }
+        V('box', 0, A + 0.02, -0.82 * k2, 1.0 * k2, 0.04, 0.3 * k2, body);                          // 水平尾翼
+        V('box', 0, A + 0.04, -0.82 * k2, 0.1 * k2, 0.02, 0.31 * k2, stripe);
+        V('box', 0, A + 0.2 * k2, -0.86 * k2, 0.04, 0.42 * k2, 0.3 * k2, body);                      // 垂直尾翼
+        V('sphere', 0, A + 0.2 * k2, 0.1 * k2, 0.16 * k2, 0.16 * k2, 0.36 * k2, [0.22, 0.3, 0.36]); // 風防
+        V('box', 0, A + 0.27 * k2, 0.08 * k2, 0.02, 0.1 * k2, 0.42 * k2, dark);                     // 風防の枠
         continue;
       }
       if (type === 'cavalry') {   // 騎馬隊：馬の上に兵
@@ -918,7 +959,7 @@ const App = {
         if (k !== 2 && k !== 1) continue;
         const hk = ((x * 73856093) ^ (y * 19349663)) >>> 0;   // 場所から決まる乱数（細かい地図でも木がそろわないよう座標から）
         const h = ((hk * 2654435761) >>> 0) / 4294967296;
-        if (k === 1 ? h > 0.01 : h > 0.5) continue;
+        if (k === 1 ? h > 0.004 : h > 0.18) continue;   // 木は控えめに（兵や建物が隠れないように）
         const h2 = ((hk * 40503 + 7) % 997) / 997, h3 = ((hk * 69069 + 3) % 991) / 991;
         const px = x + h2, pz = y + h3;
         if (!cam.project(px, 0, pz, v) || v[0] < -20 || v[0] > this.w + 20 || v[1] < -40 || v[1] > this.h + 20) continue;
@@ -1112,6 +1153,48 @@ const App = {
       const H = clamp(cam.dist * 0.004, 0.96, 18);
       if (g && cpx > 0.35) this.spawnSimFx(g, cam, H, clamp(cam.dist * 0.0016, 0.9, 7) * 2);
       this.drawFx(ctx, cam, cpx);
+    }
+    // 旗：取ろうとしている正方形（点線）と、守った時間・旗の体力
+    if (g && g.flags && g.flags.length && cpx > 0.12) {
+      const half = CONFIG.FLAG_SIZE * (map.scale || 1) / 2, bh2 = clamp(cam.dist * 0.0016, 0.9, 7) * 3.2;
+      for (const f of g.flags) {
+        const pts = [];
+        for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { const o = [0, 0]; if (cam.project(f.x + a * half, 0, f.y + b * half, o)) pts.push(o); }
+        if (pts.length < 4 || pts.every((p) => p[0] < 0) || pts.every((p) => p[0] > this.w) || pts.every((p) => p[1] < 0) || pts.every((p) => p[1] > this.h)) continue;
+        const pc = map.prefs[f.pref].color;
+        ctx.beginPath(); pts.forEach((p, k) => (k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.closePath();
+        ctx.globalAlpha = 0.12; ctx.fillStyle = pc; ctx.fill();
+        ctx.globalAlpha = 0.95; ctx.setLineDash([7, 5]); ctx.lineWidth = 2; ctx.strokeStyle = pc; ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+        if (!cam.project(f.x, bh2, f.y, v) || !onScreen()) continue;
+        const pr = clamp(f.prog / CONFIG.FLAG_HOLD, 0, 1), r = 10;
+        ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.beginPath(); ctx.arc(v[0], v[1] - 14, r, 0, 7); ctx.stroke();
+        ctx.lineWidth = 3; ctx.strokeStyle = pc; ctx.beginPath(); ctx.arc(v[0], v[1] - 14, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * pr); ctx.stroke();
+        ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(v[0] - 15, v[1] + 1, 30, 5);   // 旗の体力
+        ctx.fillStyle = f.hp > 60 ? '#5fd35a' : f.hp > 30 ? '#ffcf3f' : '#ff4a3d'; ctx.fillRect(v[0] - 14, v[1] + 2, 28 * Math.max(0, f.hp) / 100, 3);
+        if (cpx > 0.6) {
+          const left = Math.max(0, CONFIG.FLAG_HOLD - f.prog), hh = Math.floor(left / 3600), mm = Math.floor((left % 3600) / 60), ss = Math.floor(left % 60);
+          const txt = (f.own ? '' : '⚠ 兵がいない ') + (hh ? `あと${hh}時間${mm}分` : mm ? `あと${mm}分${ss}秒` : `あと${ss}秒`);
+          ctx.font = '600 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+          ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(30,18,6,.85)'; ctx.strokeText(txt, v[0], v[1] - 27);
+          ctx.fillStyle = f.own ? '#fff5dc' : '#ffb3a8'; ctx.fillText(txt, v[0], v[1] - 27);
+        }
+      }
+    }
+    // 兵の残り体力（満タンでない兵だけ。攻撃されると出る）
+    if (g && cpx > 0.8) {
+      const H = clamp(cam.dist * 0.004, 0.96, 18), a = clamp(g.acc / CONFIG.TICK, 0, 1);
+      let shown = 0;
+      for (const u of g.units) {
+        const mh = (UNITS[u.type] || UNITS.ashigaru).hp;
+        if (u.hp >= mh - 0.5 || shown > 700) continue;
+        const air = u.type === 'fighter' || u.type === 'bomber';
+        const hh = air ? (4.9 + (u.id % 5) * 0.4) * H : u.type === 'ship' ? 2.0 * H : 1.12 * H;
+        if (!cam.project(u.px + (u.x - u.px) * a, hh, u.py + (u.y - u.py) * a, v) || !onScreen()) continue;
+        const bw = clamp(cpx * 0.8, 12, 26), f = Math.max(0, u.hp) / mh;
+        ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(v[0] - bw / 2 - 1, v[1] - 1, bw + 2, 5);
+        ctx.fillStyle = f > 0.6 ? '#5fd35a' : f > 0.3 ? '#ffcf3f' : '#ff4a3d'; ctx.fillRect(v[0] - bw / 2, v[1], bw * f, 3);
+        shown++;
+      }
     }
     // 攻撃を受けている建物の耐久ゲージ（拡大時、攻撃を受けてから3秒）
     if (g && cpx > 1.5) {

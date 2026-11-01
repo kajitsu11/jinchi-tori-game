@@ -248,7 +248,8 @@ class Sim {
     for (let p = 1; p <= 47; p++) if (!this.present(p)) this.eliminated.add(p);
     this.over = null;
     this.recent = [];
-    this.stats = { captures: 0, kills: 0, built: 0, destroyed: 0, trained: 0, trainedMine: 0, paths: 0 };
+    this.stats = { captures: 0, kills: 0, built: 0, destroyed: 0, trained: 0, trainedMine: 0, paths: 0, flags: 0 };
+    this.flags = []; this.fseq = 0;   // 旗
     this.pathBudget = 0;
     this.income = { food: 0, wood: 0, gold: 0 };   // プレイヤーの直近の収入/秒
     this.shots = [];                                // 塔・砦の射撃（描画用）
@@ -388,6 +389,7 @@ class Sim {
     this.combat(dt);
     this.moveAll(dt);
     this.updateNodes(dt);
+    if (CONFIG.FLAG_MODE) this.updateFlags(dt);
     this.updateRecent();
     if (this.time >= CONFIG.SEASON_DAYS * 86400) this.checkEnd();
     // 倒れた兵士は片付ける（兵舎から補充される）。空間ハッシュの番号がずれないよう、刻みの最後に行う
@@ -709,7 +711,8 @@ class Sim {
     // 参加者が多い県は、何か所かに分かれて攻める（人間が大勢いると、みんなが同じ所を攻めるわけではないので）
     const groups = clamp(Math.round(this.aiCount(P) / 15), 1, 6);
     const done = !pl.targets || pl.targets.length !== groups || pl.targets.some((t) => !this.nodes[t] || this.nodes[t].owner === P);
-    if (done || this.time - pl.since > CONFIG.AI_TARGET_TIMEOUT) {
+    const holding = this.flags && pl.targets && this.flags.some((fl) => fl.pref === P && pl.targets.some((t) => this.nodes[t] && Math.hypot(this.nodes[t].x - fl.x, this.nodes[t].y - fl.y) < this.flagHalf() * 2));
+    if (done || (this.time - pl.since > CONFIG.AI_TARGET_TIMEOUT && !holding)) {
       let sx = 0, sy = 0, k = 0;
       for (const u of this.units) if (u.pref === P) { sx += u.x; sy += u.y; k++; }
       const cap = this.nodes[this.capNode[P]] || this.nodes.find((n) => n.owner === P);
@@ -825,6 +828,11 @@ class Sim {
   }
   think(u) {
     const def = UNITS[u.type], S = this.S;
+    // 通常の兵士（足軽）は、敵の領土に入ったら旗を立てる
+    if (CONFIG.FLAG_MODE && u.type === 'ashigaru' && u.engaged < 0 && (u.role === 'atk' || u.fromPlayer) && this.rng() < 0.5) {
+      const gn = this.nodes[u.goalNode];   // 攻め先の拠点の近くで立てる（途中で立てても守れないので）
+      if (!gn || Math.hypot(gn.x - u.x, gn.y - u.y) < this.flagHalf() * 1.5) this.plantFlag(u);
+    }
     if (def.mask) {
       const e = this.nearestEnemy(u.x, u.y, u.pref, CONFIG.AGGRO_RANGE * S * (def.dom === 'air' ? 3 : 1), def.mask, true);
       if (e && u.type !== 'bomber') { u.chase = e.id; return; }
@@ -1066,12 +1074,81 @@ class Sim {
       for (const p of touched) if (p !== n.owner && cnt[p] > ac) { ac = cnt[p]; A = p; }
       for (const p of touched) cnt[p] = 0;
       n.defenders = def; n.attackers = ac;
+      if (CONFIG.FLAG_MODE) { n.progress = 0; n.capBy = 0; continue; }   // 旗で取る方式では、拠点は旗の正方形に入ったときに手に入る
       // 攻撃側が守備側より多いとき、その差の人数ぶん占領が進む（数で押せば守備がいても落とせる）
       if (!A || ac <= def) { n.progress = Math.max(0, n.progress - CONFIG.CAPTURE_DECAY * dt * (def ? 4 : 1)); if (!n.progress) n.capBy = 0; continue; }
       if (n.capBy !== A) { n.capBy = A; n.progress = 0; }
       n.progress += dt * Math.min(ac - def, CONFIG.CAPTURE_MAX_RATE);
       if (n.progress >= this.needFor(n)) this.capture(n, A);
     }
+  }
+  // ---------------------------------------------------------- 旗
+  flagHalf() { return CONFIG.FLAG_SIZE * this.S / 2; }
+  /** 兵士が今いる場所（敵の領土）に旗を立てる。立てられたら旗を返す */
+  plantFlag(u) {
+    if (!this.flags) this.flags = [];
+    const P = u.pref, half = this.flagHalf();
+    const own = this.owner[this.cellAt(u.x, u.y)];
+    if (!own || own === P) return null;
+    let mine = 0;
+    for (const f of this.flags) {
+      if (f.pref === P) mine++;
+      if (Math.abs(f.x - u.x) < half * 1.6 && Math.abs(f.y - u.y) < half * 1.6) return null;   // ほかの旗と正方形が重ならないように
+    }
+    if (mine >= Math.ceil(this.parts[P] * CONFIG.FLAG_PER_PART) + 2) return null;
+    const f = { id: (this.fseq = (this.fseq || 0) + 1), x: u.x, y: u.y, pref: P, hp: 100, prog: 0, own: 1, enemy: 0, at: this.time, hw: u.hw };
+    this.flags.push(f);
+    this.emit('flag', { flag: f, kind: 'plant' });
+    return f;
+  }
+  updateFlags(dt) {
+    if (!this.flags || !this.flags.length) return;
+    const half = this.flagHalf(), keep = [];
+    for (const f of this.flags) {
+      let own = 0, en = 0;
+      this.forUnitsNear(f.x, f.y, half * 1.42, (v) => {
+        if (v.bit !== 1 || Math.abs(v.x - f.x) > half || Math.abs(v.y - f.y) > half) return;
+        if (v.pref === f.pref) own++; else en++;
+      });
+      f.own = own; f.enemy = en;
+      if (!own) {   // 正方形の中に自分の兵がいない：体力が減っていき、0で消える
+        f.hp -= CONFIG.FLAG_DECAY * dt;
+        if (f.hp <= 0) { this.emit('flag', { flag: f, kind: 'lost' }); continue; }
+        keep.push(f); continue;
+      }
+      f.hp = Math.min(100, f.hp + CONFIG.FLAG_DECAY * 0.5 * dt);
+      if (own >= en) f.prog += dt;   // 敵の兵のほうが多いあいだは進まない
+      if (f.prog >= CONFIG.FLAG_HOLD) { this.completeFlag(f); continue; }
+      keep.push(f);
+    }
+    this.flags = keep;
+  }
+  /** 旗を守りきった：正方形の中の領土（と、中にある敵の拠点）を手に入れる */
+  completeFlag(f) {
+    const P = f.pref, half = this.flagHalf(), map = this.map, changed = [];
+    for (const n of this.nodes) if (n.owner !== P && Math.abs(n.x - f.x) <= half && Math.abs(n.y - f.y) <= half) this.capture(n, P);
+    for (let y = Math.floor(f.y - half); y <= f.y + half; y++) for (let x = Math.floor(f.x - half); x <= f.x + half; x++) {
+      const i = map.id(x, y);
+      if (i < 0 || !map.initPref[i]) continue;
+      const o = this.owner[i];
+      if (o !== P) { this.moveCell(i, o, P); changed.push(i); }
+    }
+    // 取った土地は、いちばん近い自分の拠点の領土にする（その拠点が奪われたら一緒に移る）
+    let home = null, hd = 1e18;
+    for (const n of this.nodes) if (n.owner === P) { const d = (n.x - f.x) ** 2 + (n.y - f.y) ** 2; if (d < hd) { hd = d; home = n; } }
+    if (home && changed.length) {
+      const dist = this.nodeDist, cap = Math.min(255, Math.round(Math.sqrt(hd)));
+      for (const i of changed) { this.nodeOf[i] = home.id; dist[i] = cap; }
+      const old = this.nodeCells[home.id], add = new Int32Array(old.length + changed.length);
+      add.set(old); add.set(changed, old.length);
+      this.nodeCells[home.id] = add;
+    }
+    this.flipBuildings(changed, P);
+    this.stats.flags = (this.stats.flags || 0) + 1;
+    this.emit('cells', changed);
+    this.emit('flag', { flag: f, kind: 'done', cells: changed.length });
+    for (let p = 1; p <= 47; p++) if (this.counts[p] === 0 && this.nodeCount[p] === 0) this.eliminate(p);
+    this.checkEnd();
   }
   capture(n, A) {
     const old = n.owner;

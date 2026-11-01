@@ -48,7 +48,13 @@ const CONFIG = {
   CAPTURE_NEED: { capital: 45000, town: 18000, fort: 24000 },  // （攻撃側−守備側）の人数×1秒で1ポイント（町：差15人で約20分）
   CAPTURE_MAX_RATE: 20,
   CAPTURE_DECAY: 0.5,
-  RECENT_HATCH: 1800,            // 占領されてから30分は斜線
+  RECENT_HATCH: 1800,
+  // ---- 旗（領土の取り方）：兵士が敵の領土に旗を立て、旗の周りの正方形に自分の兵がいる状態を続けると、その正方形が自分の領土に
+  FLAG_MODE: true,
+  FLAG_HOLD: 6 * 3600,           // 6時間守り続けると獲得
+  FLAG_SIZE: 20,                 // 正方形の一辺（マス。細かい地図では3倍）
+  FLAG_DECAY: 100 / 600,         // 正方形の中に自分の兵がいないと、体力が毎秒この%ずつ減る（10分で消える）
+  FLAG_PER_PART: 0.12,           // 県が同時に立てられる旗の数：参加者1人あたり（＋2）            // 占領されてから30分は斜線
   NODE_RADIUS: 36,
   NODE_MIN_DIST: 24,
   // ---- 建物
@@ -63,7 +69,7 @@ const CONFIG = {
   CAMERA_PITCH: 42, TOP_PITCH: 90, TITLE_PITCH: 75, FOV: 34,
   ZOOM_MIN: 6, ZOOM_MAX: 13500,
   FILL: 0.035, FILL_TOP: 0.7,     // 領土の塗りの濃さ（斜め／真上）。斜めは国境線が主役
-  TREE_MAX: 9000,
+  TREE_MAX: 3500,
   LOG_MAX: 4, BANNER_MS: 1800, MINIMAP_REFRESH: 1.0, MAX_DPR: 2, HUD_REFRESH: 0.25,
 };
 const RES_KEYS = ['food', 'wood', 'gold'];
