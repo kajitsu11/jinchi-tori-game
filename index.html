@@ -2863,10 +2863,11 @@ class Sim {
 
   // ---------------------------------------------------------- 戦闘・移動
   /** 爆発（砲撃・爆弾・地雷）：半径 r の中の敵の兵（陸・海）と建物に被害 */
-  boom(x, y, r, dmg, P, hitB, kind) {
+  /** kind：0=砲弾 1=爆弾 2=地雷 3=ロケット。ox,oy：撃った位置（描画で砲弾の軌道を描く） */
+  boom(x, y, r, dmg, P, hitB, kind, ox, oy) {
     this.forUnitsNear(x, y, r, (v) => { if (v.pref !== P && v.bit !== 4) this.hitUnit(v, dmg); });
     if (hitB) this.buildingsNear(x, y, r, (b) => { if (b.owner !== P) { b.hp -= hitB; b.hitAt = this.time; } });
-    if (this.booms.length < 200) this.booms.push([x, y, r, this.time, kind || 0]);
+    if (this.booms.length < 200) this.booms.push([x, y, r, this.time, kind || 0, ox === undefined ? x : ox, oy === undefined ? y : oy]);
   }
   hitUnit(v, a) { this.dmg[v.k] += a * (v.buff ? v.buff.armor : 1); }
   combat(dt) {
@@ -2891,7 +2892,7 @@ class Sim {
         const n = this.nodes[u.goalNode];
         if (n && n.owner !== u.pref && Math.hypot(n.x - u.x, n.y - u.y) < 4 * S && u.cd <= 0) {
           u.cd = def.bomb.every; u.bombs++;
-          this.boom(u.x + (this.rng() - 0.5) * 3, u.y + (this.rng() - 0.5) * 3, def.bomb.r, def.bomb.dmg, u.pref, def.bomb.dmg * 1.5, 1);
+          this.boom(u.x + (this.rng() - 0.5) * 3, u.y + (this.rng() - 0.5) * 3, def.bomb.r, def.bomb.dmg, u.pref, def.bomb.dmg * 1.5, 1, u.x, u.y);
           if (u.bombs >= 6) u.fuel = 0;
         }
         continue;
@@ -2910,7 +2911,7 @@ class Sim {
           if (u.cd <= 0) { u.cd = def.gas.every; if (this.gas.length < 400) this.gas.push({ x: e.x, y: e.y, r: def.gas.r, dps: def.gas.dps, until: this.time + def.gas.life, P: u.pref }); }
           this.hitUnit(e, def.dps * udt * mult);
         } else if (def.splash) {
-          if (u.cd <= 0) { u.cd = 2; this.boom(e.x, e.y, def.splash, def.dps * 2 * mult, u.pref, def.dps * 2 * def.vsB * CONFIG.BUILDING_DPS_MULT, 0); }
+          if (u.cd <= 0) { u.cd = 2; this.boom(e.x, e.y, def.splash, def.dps * 2 * mult, u.pref, def.dps * 2 * def.vsB * CONFIG.BUILDING_DPS_MULT, 0, u.x, u.y); }
         } else this.hitUnit(e, def.dps * udt * mult * (e.bit === 1 && u.bit === 4 ? 0.5 : 1));
         continue;
       }
@@ -2925,7 +2926,7 @@ class Sim {
       }
       u.lastB = tb;
       if (tb) {
-        if (def.splash) { if (u.cd <= 0) { u.cd = 2; this.boom(tb.x, tb.y, def.splash, def.dps * 2 * mult, u.pref, def.dps * 2 * def.vsB * CONFIG.BUILDING_DPS_MULT, 0); } }
+        if (def.splash) { if (u.cd <= 0) { u.cd = 2; this.boom(tb.x, tb.y, def.splash, def.dps * 2 * mult, u.pref, def.dps * 2 * def.vsB * CONFIG.BUILDING_DPS_MULT, 0, u.x, u.y); } }
         else { tb.hp -= def.dps * def.vsB * CONFIG.BUILDING_DPS_MULT * udt * mult; tb.hitAt = this.time; }
         u.hitB = tb;
       }
@@ -2947,9 +2948,10 @@ class Sim {
       if (mask === 4) this.buildingsNear(x, y, 25, (r) => { const a = BUILDINGS[r.type].aura; if (a && a.aa && r.owner === P) mul = a.aa; });
       const e = this.nearestEnemy(x, y, P, range, mask, false);
       if (!e) return;
-      if (def.splash) this.boom(e.x, e.y, def.splash, dps * rate * mul, P, dps * rate * 0.5, 0);
-      else this.hitUnit(e, dps * rate * mul);
-      if (this.shots.length < 300) this.shots.push([x, y, e.x, e.y]);
+      if (def.splash) { this.boom(e.x, e.y, def.splash, dps * rate * mul, P, dps * rate * 0.5, def.range > 20 ? 3 : 0, x, y); return; }
+      this.hitUnit(e, dps * rate * mul);
+      // 撃った弾（描画用）：撃った位置・当たった位置・時刻・種類（0=鉄砲 2=高射砲）
+      if (this.shots.length < 300) this.shots.push([x, y, e.x, e.y, this.time, mask === 4 ? 2 : 0]);
     };
     for (const b of this.buildings) {
       const def = BUILDINGS[b.type];
@@ -3278,7 +3280,7 @@ class NetGame {
       for (let k = 0; k < D.length; k += 4) this.emit('death', { x: D[k] / 10, y: D[k + 1] / 10, pref: D[k + 2], id: D[k + 3] });
       this.shots = (m.s || []).map((s) => s.map((q) => q / 10));
       this.gas = (m.g || []).map(([x, y, r, left]) => ({ x: x / 10, y: y / 10, r, until: this.time + left }));
-      this.booms = (m.x || []).map(([x, y, r, k]) => [x / 10, y / 10, r, this.time, k]);
+      this.booms = (m.x || []).map(([x, y, r, k, ox, oy, t]) => [x / 10, y / 10, r, t / 10, k, ox / 10, oy / 10]);
     } else if (this.units.length) { this.units = []; this.unitIndex = new Map(); this.shots = []; }
     let changed = false;
     for (const r of m.ba || []) {
@@ -3771,7 +3773,7 @@ const App = {
     $('h-left').textContent = this.fmtLeft(g.time) + (this.speed > 1 ? `（×${this.speed}）` : '');
     $('h-rank').textContent = g.rankOf(me) + '位';
     for (const r of RES_KEYS) {
-      if (CONFIG.FREE_HUMANS) { $('r-' + r).textContent = '∞'; $('ri-' + r).textContent = '試作版：無制限'; continue; }
+      if (CONFIG.FREE_HUMANS) { $('r-' + r).textContent = '∞'; $('ri-' + r).textContent = '無制限'; continue; }
       $('r-' + r).textContent = fmt(Math.floor(g.res[r][0]));
       $('ri-' + r).textContent = `+${Math.round(g.income[r] * 3600)}/時`;   // 1時間あたりの収入
     }
@@ -4235,8 +4237,14 @@ const App = {
         V('cylW', 0, 0.45, 0.85, 0.08, 0.6, 0.08, C.gun, 0, 1.4);
         continue;
       }
+      if (type === 'ship' && e && t >= (s.fireAt || 0)) { s.fireAt = t + 0.6; this.fire(0, x, 0.7 * H, z, e.x, 0.4 * H, e.y, () => this.blast(9, e.x, 0, e.y, 0.4)); }
       if (type === 'fighter' || type === 'bomber') {   // 飛行機：空の上（影は地面に）
         const big2 = type === 'bomber' ? 1.5 : 1, alt = 4 + (u.id % 5) * 0.4;
+        if (e && t >= (s.fireAt || 0)) {   // 機銃：短い連射
+          s.fireAt = t + 0.25 + ((s.burst = ((s.burst || 0) + 1) % 5) === 0 ? 1.2 : 0);
+          const eh = e.type === 'fighter' || e.type === 'bomber' ? 4.5 * H : 0.4 * H;
+          this.fire(6, x, alt * H, z, e.x, eh, e.y, eh > H ? null : () => this.blast(9, e.x, 0, e.y, 0.4));
+        }
         veh(x, 0, z, s.yaw);
         I.shadow.push(x + 0.8 * H, 0.02, z - 0.9 * H, 1.6 * H * big2, 0.01, 1.4 * H * big2, [0, 0, 0], vr);
         V('boxW', 0, alt, 0, 0.28 * big2, 0.28 * big2, 1.6 * big2, [0.55, 0.57, 0.52]);
@@ -4266,6 +4274,13 @@ const App = {
       if (e || u.hitB) pose = P_ATK + ((((t + u.id * 0.37) * (gun ? 0.8 : 1.6)) % 1) < (gun ? 0.15 : 0.5) ? 1 : 0);
       else if (moved > 1e-4) pose = P_WALK + (Math.floor(s.phase / (Math.PI / 2)) & 3);
       I.shadow.push(x + 0.12 * H, 0.02, z - 0.14 * H, 0.55 * H, 0.01, 0.36 * H, [0, 0, 0], 0);
+      // 鉄砲を撃つ（1〜2秒に1発。弾が飛んで当たる）・毒ガス兵は缶を投げる
+      if (e && (gun || type === 'gas') && type !== 'ninja' && t >= (s.fireAt || 0)) {
+        s.fireAt = t + (type === 'gas' ? 6 : 1.1 + ((u.id * 0.37) % 1) * 0.9);
+        const ex = e.x, ez = e.y;
+        if (type === 'gas') this.fire(4, x, 0.6 * H, z, ex, 0.1, ez, null);
+        else this.fire(0, x + 0.2 * H, 0.55 * H, z, ex, 0.45 * H, ez, () => this.blast(9, ex, 0, ez, 0.4));
+      }
       // 忍者は黒装束、毒ガス兵は防毒衣の黄緑（県の色を少しだけ）
       const pc = type === 'ninja' ? c0.map((q) => 0.12 + q * 0.18) : type === 'gas' ? c0.map((q, k) => [0.55, 0.62, 0.3][k] * 0.75 + q * 0.25) : c0;
       put(x, z, s.yaw, type === 'ninja' ? 2 : type === 'gas' ? 0 : kind, pose, pc);
@@ -4333,6 +4348,112 @@ const App = {
     }
   },
 
+  // ------------------------------------------------ 弾の軌道と着弾（描画だけの演出。ダメージはルール側で計算済み）
+  /**
+   * 弾を1つ飛ばす。k：0=鉄砲 1=砲弾 2=高射砲 3=ロケット 4=毒ガス缶 5=爆弾 6=機銃（飛行機）
+   * (x0,h0,z0) から (x1,h1,z1) へ。着いたら hit（着弾の演出）を出す
+   */
+  fire(k, x0, h0, z0, x1, h1, z1, hit) {
+    if (!this.fx) this.fx = [];
+    if (this.fx.length > 800) return;
+    const d = Math.hypot(x1 - x0, z1 - z0, h1 - h0);
+    const sp = [26, 18, 40, 24, 14, 0, 45][k];
+    const dur = k === 5 ? 1.0 : clamp(d / sp, k === 0 || k === 6 ? 0.14 : 0.3, 3.5);
+    if (k === 0 || k === 1 || k === 3) this.blast(7, x0, h0, z0, k === 0 ? 0.25 : 0.6);   // 撃った所に白い硝煙
+    this.fx.push({ k, x0, h0, z0, x1, h1, z1, t0: this.clock, dur, arc: k === 1 || k === 4 ? d * 0.3 : k === 3 ? d * 0.12 : 0, hit });
+  },
+  /** 着弾：k 0=砲弾の爆発 1=爆弾 2=地雷 3=ロケット 8=高射砲の炸裂（空中） 9=銃弾の土ぼこり */
+  blast(k, x, h, z, r) {
+    if (!this.blasts) this.blasts = [];
+    if (this.blasts.length < 400) this.blasts.push({ k, x, h, z, r, t0: this.clock });
+  },
+  /** ルール側の砲撃・射撃を、まだ描いていなければ弾として飛ばす */
+  spawnSimFx(g, cam, H, TH) {
+    if (!this.fxSeen) this.fxSeen = new Map();
+    const seen = this.fxSeen, v = [0, 0];
+    const near = (x, z) => cam.project(x, 0, z, v) && v[0] > -200 && v[0] < this.w + 200 && v[1] > -200 && v[1] < this.h + 200;
+    for (const b of g.booms || []) {
+      const key = b[3] + '|' + b[0] + '|' + b[1];
+      if (seen.has(key)) continue;
+      seen.set(key, this.clock);
+      const [x, z, r, , k, ox, oz] = b;
+      if (!near(x, z) && !near(ox, oz)) continue;
+      if (k === 2) this.blast(2, x, 0, z, r);
+      else if (k === 1) this.fire(5, x, 4.5 * H, z, x, 0, z, () => this.blast(1, x, 0, z, r));
+      else this.fire(k === 3 ? 3 : 1, ox, TH, oz, x, 0.2, z, () => this.blast(k === 3 ? 3 : 0, x, 0, z, r));
+    }
+    for (const s of g.shots || []) {
+      const key = s[4] + '|' + s[0] + '|' + s[1] + '|' + s[2];
+      if (seen.has(key)) continue;
+      seen.set(key, this.clock);
+      const [x0, z0, x1, z1, , k] = s;
+      if (!near(x0, z0) && !near(x1, z1)) continue;
+      if (k === 2) this.fire(2, x0, TH, z0, x1, 4.5 * H, z1, () => this.blast(8, x1, 4.5 * H, z1, 1.2));
+      else this.fire(0, x0, TH, z0, x1, 0.45 * H, z1, () => this.blast(9, x1, 0, z1, 0.4));
+    }
+    if (seen.size > 3000) for (const [k, t] of seen) if (this.clock - t > 6) seen.delete(k);
+  },
+  drawFx(ctx, cam, cpx) {
+    const v = [0, 0], w = [0, 0], now = this.clock;
+    const pos = (f, p, out) => {
+      const x = f.x0 + (f.x1 - f.x0) * p, z = f.z0 + (f.z1 - f.z0) * p;
+      const h = f.k === 5 ? f.h0 + (f.h1 - f.h0) * p * p : f.h0 + (f.h1 - f.h0) * p + f.arc * 4 * p * (1 - p);
+      return cam.project(x, h, z, out);
+    };
+    const keep = [];
+    for (const f of this.fx || []) {
+      const p = (now - f.t0) / f.dur;
+      if (p >= 1) { if (f.hit) f.hit(); continue; }
+      keep.push(f);
+      if (!pos(f, p, v)) continue;
+      if (v[0] < -50 || v[0] > this.w + 50 || v[1] < -50 || v[1] > this.h + 50) continue;
+      if (f.k === 0 || f.k === 2 || f.k === 6) {   // 曳光弾：短い光の筋
+        if (!pos(f, Math.max(0, p - 0.4), w)) continue;
+        ctx.strokeStyle = f.k === 2 ? 'rgba(255,200,120,.95)' : 'rgba(255,238,170,.95)'; ctx.lineWidth = clamp(cpx * 0.06, 1.3, 2.4);
+        ctx.beginPath(); ctx.moveTo(w[0], w[1]); ctx.lineTo(v[0], v[1]); ctx.stroke();
+      } else if (f.k === 1 || f.k === 4) {   // 砲弾・毒ガス缶：弧を描く玉と薄い煙
+        for (let q = 1; q <= 3; q++) if (pos(f, Math.max(0, p - q * 0.06), w)) { ctx.fillStyle = `rgba(200,200,195,${0.25 - q * 0.06})`; ctx.beginPath(); ctx.arc(w[0], w[1], 1.5 + q, 0, 7); ctx.fill(); }
+        ctx.fillStyle = f.k === 4 ? '#a8c83c' : '#2a2622';
+        ctx.beginPath(); ctx.arc(v[0], v[1], clamp(cpx * 0.25, 1.8, 4), 0, 7); ctx.fill();
+      } else if (f.k === 3) {   // ロケット：炎と煙の尾
+        if (pos(f, Math.max(0, p - 0.3), w)) { ctx.strokeStyle = 'rgba(190,190,185,.55)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(w[0], w[1]); ctx.lineTo(v[0], v[1]); ctx.stroke(); }
+        ctx.fillStyle = '#ffb347'; ctx.beginPath(); ctx.arc(v[0], v[1], 2.6, 0, 7); ctx.fill();
+      } else if (f.k === 5) {   // 爆弾：落ちていく黒い粒
+        ctx.fillStyle = '#1e1c1a'; ctx.beginPath(); ctx.ellipse(v[0], v[1], 2, 3.2, 0, 0, 7); ctx.fill();
+      }
+    }
+    this.fx = keep;
+    const kb = [];
+    for (const b of this.blasts || []) {
+      const life = b.k === 9 ? 0.45 : b.k === 8 || b.k === 7 ? 0.9 : 1.1, k = (now - b.t0) / life;
+      if (k >= 1) continue;
+      kb.push(b);
+      if (!cam.project(b.x, b.h + 0.2, b.z, v) || v[0] < -80 || v[0] > this.w + 80 || v[1] < -80 || v[1] > this.h + 80) continue;
+      if (b.k === 7) {   // 硝煙：撃った所から白い煙が上がって消える
+        if (!cam.project(b.x, b.h + k * 0.8, b.z, w)) continue;
+        ctx.fillStyle = `rgba(235,235,228,${0.55 * (1 - k)})`; ctx.beginPath(); ctx.arc(w[0], w[1], Math.max(2, b.r * cpx) * (0.6 + k), 0, 7); ctx.fill();
+        continue;
+      }
+      if (b.k === 9) {   // 銃弾：小さな土ぼこりと火花
+        ctx.fillStyle = `rgba(200,180,140,${0.6 * (1 - k)})`; ctx.beginPath(); ctx.arc(v[0], v[1], 1.5 + k * 3, 0, 7); ctx.fill();
+        continue;
+      }
+      if (b.k === 8) {   // 高射砲の炸裂：空中の黒い煙の玉
+        ctx.fillStyle = `rgba(60,58,55,${0.7 * (1 - k)})`; ctx.beginPath(); ctx.arc(v[0], v[1], 3 + k * 8, 0, 7); ctx.fill();
+        continue;
+      }
+      const r = Math.max(5, b.r * cpx * 0.6) * (0.35 + k * 0.9);
+      if (b.k === 2) { ctx.fillStyle = `rgba(120,95,65,${0.7 * (1 - k)})`; ctx.beginPath(); ctx.ellipse(v[0], v[1] - r * 0.3, r, r * 0.8, 0, 0, 7); ctx.fill(); continue; }
+      // 爆発：白い閃光 → 橙の火の玉 → 灰色の煙
+      if (k < 0.15) { ctx.fillStyle = 'rgba(255,250,220,.9)'; ctx.beginPath(); ctx.ellipse(v[0], v[1], r * 0.8, r * 0.5, 0, 0, 7); ctx.fill(); }
+      ctx.fillStyle = `rgba(255,${Math.round(170 - 110 * k)},50,${0.8 * (1 - k)})`;
+      ctx.beginPath(); ctx.ellipse(v[0], v[1] - r * 0.2, r, r * 0.65, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = `rgba(90,85,80,${0.45 * k * (1 - k) * 4})`;
+      ctx.beginPath(); ctx.arc(v[0], v[1] - r * (0.4 + k), r * 0.7, 0, 7); ctx.fill();
+    }
+    this.blasts = kb;
+  },
+
   // ------------------------------------------------ ラベル・演出（2Dオーバーレイ）
   drawOverlay() {
     const cv = $('overlay'), ctx = cv.getContext('2d'), map = this.map, cam = this.cam, g = this.game;
@@ -4374,15 +4495,6 @@ const App = {
         ctx.beginPath(); ctx.arc(v[0] + 3, v[1], r * 2.2, 0, Math.PI * 2); ctx.fill();
         n++;
       }
-      if (g.shots && g.shots.length) {
-        ctx.strokeStyle = 'rgba(255,170,90,.8)'; ctx.lineWidth = 1.2;
-        ctx.beginPath();
-        for (const [x0, y0, x1, y1] of g.shots) {
-          if (!cam.project(x0, clamp(cam.dist * 0.0016, 0.9, 7) * 2, y0, v) || !onScreen() || !cam.project(x1, 0.5, y1, w)) continue;
-          ctx.moveTo(v[0], v[1]); ctx.lineTo(w[0], w[1]);
-        }
-        ctx.stroke();
-      }
     }
     // 毒ガスの雲（黄緑のもや）と爆発（砲撃・爆弾・地雷）
     if (g && g.gas && g.gas.length) {
@@ -4396,14 +4508,11 @@ const App = {
         }
       }
     }
-    if (g && g.booms && g.booms.length) {
-      for (const b of g.booms) {
-        const k = clamp((g.time - b[3]) / 1.2, 0, 1);
-        if (!cam.project(b[0], 0.2, b[1], v) || !onScreen()) continue;
-        const r = Math.max(4, b[2] * cpx) * (0.4 + k);
-        ctx.fillStyle = b[4] === 2 ? `rgba(120,90,60,${0.6 * (1 - k)})` : `rgba(255,${Math.round(180 - 100 * k)},60,${0.75 * (1 - k)})`;
-        ctx.beginPath(); ctx.ellipse(v[0], v[1], r, r * 0.6, 0, 0, Math.PI * 2); ctx.fill();
-      }
+    // 弾の軌道と着弾
+    if (g && this.state === STATE.PLAYING || this.state === STATE.GAMEOVER) {
+      const H = clamp(cam.dist * 0.004, 0.96, 18);
+      if (g && cpx > 0.35) this.spawnSimFx(g, cam, H, clamp(cam.dist * 0.0016, 0.9, 7) * 2);
+      this.drawFx(ctx, cam, cpx);
     }
     // 攻撃を受けている建物の耐久ゲージ（拡大時、攻撃を受けてから3秒）
     if (g && cpx > 1.5) {

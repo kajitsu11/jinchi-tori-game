@@ -841,10 +841,11 @@ class Sim {
 
   // ---------------------------------------------------------- 戦闘・移動
   /** 爆発（砲撃・爆弾・地雷）：半径 r の中の敵の兵（陸・海）と建物に被害 */
-  boom(x, y, r, dmg, P, hitB, kind) {
+  /** kind：0=砲弾 1=爆弾 2=地雷 3=ロケット。ox,oy：撃った位置（描画で砲弾の軌道を描く） */
+  boom(x, y, r, dmg, P, hitB, kind, ox, oy) {
     this.forUnitsNear(x, y, r, (v) => { if (v.pref !== P && v.bit !== 4) this.hitUnit(v, dmg); });
     if (hitB) this.buildingsNear(x, y, r, (b) => { if (b.owner !== P) { b.hp -= hitB; b.hitAt = this.time; } });
-    if (this.booms.length < 200) this.booms.push([x, y, r, this.time, kind || 0]);
+    if (this.booms.length < 200) this.booms.push([x, y, r, this.time, kind || 0, ox === undefined ? x : ox, oy === undefined ? y : oy]);
   }
   hitUnit(v, a) { this.dmg[v.k] += a * (v.buff ? v.buff.armor : 1); }
   combat(dt) {
@@ -869,7 +870,7 @@ class Sim {
         const n = this.nodes[u.goalNode];
         if (n && n.owner !== u.pref && Math.hypot(n.x - u.x, n.y - u.y) < 4 * S && u.cd <= 0) {
           u.cd = def.bomb.every; u.bombs++;
-          this.boom(u.x + (this.rng() - 0.5) * 3, u.y + (this.rng() - 0.5) * 3, def.bomb.r, def.bomb.dmg, u.pref, def.bomb.dmg * 1.5, 1);
+          this.boom(u.x + (this.rng() - 0.5) * 3, u.y + (this.rng() - 0.5) * 3, def.bomb.r, def.bomb.dmg, u.pref, def.bomb.dmg * 1.5, 1, u.x, u.y);
           if (u.bombs >= 6) u.fuel = 0;
         }
         continue;
@@ -888,7 +889,7 @@ class Sim {
           if (u.cd <= 0) { u.cd = def.gas.every; if (this.gas.length < 400) this.gas.push({ x: e.x, y: e.y, r: def.gas.r, dps: def.gas.dps, until: this.time + def.gas.life, P: u.pref }); }
           this.hitUnit(e, def.dps * udt * mult);
         } else if (def.splash) {
-          if (u.cd <= 0) { u.cd = 2; this.boom(e.x, e.y, def.splash, def.dps * 2 * mult, u.pref, def.dps * 2 * def.vsB * CONFIG.BUILDING_DPS_MULT, 0); }
+          if (u.cd <= 0) { u.cd = 2; this.boom(e.x, e.y, def.splash, def.dps * 2 * mult, u.pref, def.dps * 2 * def.vsB * CONFIG.BUILDING_DPS_MULT, 0, u.x, u.y); }
         } else this.hitUnit(e, def.dps * udt * mult * (e.bit === 1 && u.bit === 4 ? 0.5 : 1));
         continue;
       }
@@ -903,7 +904,7 @@ class Sim {
       }
       u.lastB = tb;
       if (tb) {
-        if (def.splash) { if (u.cd <= 0) { u.cd = 2; this.boom(tb.x, tb.y, def.splash, def.dps * 2 * mult, u.pref, def.dps * 2 * def.vsB * CONFIG.BUILDING_DPS_MULT, 0); } }
+        if (def.splash) { if (u.cd <= 0) { u.cd = 2; this.boom(tb.x, tb.y, def.splash, def.dps * 2 * mult, u.pref, def.dps * 2 * def.vsB * CONFIG.BUILDING_DPS_MULT, 0, u.x, u.y); } }
         else { tb.hp -= def.dps * def.vsB * CONFIG.BUILDING_DPS_MULT * udt * mult; tb.hitAt = this.time; }
         u.hitB = tb;
       }
@@ -925,9 +926,10 @@ class Sim {
       if (mask === 4) this.buildingsNear(x, y, 25, (r) => { const a = BUILDINGS[r.type].aura; if (a && a.aa && r.owner === P) mul = a.aa; });
       const e = this.nearestEnemy(x, y, P, range, mask, false);
       if (!e) return;
-      if (def.splash) this.boom(e.x, e.y, def.splash, dps * rate * mul, P, dps * rate * 0.5, 0);
-      else this.hitUnit(e, dps * rate * mul);
-      if (this.shots.length < 300) this.shots.push([x, y, e.x, e.y]);
+      if (def.splash) { this.boom(e.x, e.y, def.splash, dps * rate * mul, P, dps * rate * 0.5, def.range > 20 ? 3 : 0, x, y); return; }
+      this.hitUnit(e, dps * rate * mul);
+      // 撃った弾（描画用）：撃った位置・当たった位置・時刻・種類（0=鉄砲 2=高射砲）
+      if (this.shots.length < 300) this.shots.push([x, y, e.x, e.y, this.time, mask === 4 ? 2 : 0]);
     };
     for (const b of this.buildings) {
       const def = BUILDINGS[b.type];

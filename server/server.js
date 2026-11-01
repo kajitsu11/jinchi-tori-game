@@ -253,7 +253,7 @@ function sendSnapshot(cl) {
     for (let k = 0; k < dd.length; k += 4) if (inside(dd[k], dd[k + 1])) D.push(Math.round(dd[k] * 10), Math.round(dd[k + 1] * 10), dd[k + 2], dd[k + 3]);
     out.d = D;
     out.g = (g.gas || []).filter((c) => inside(c.x, c.y)).slice(0, 200).map((c) => [Math.round(c.x * 10), Math.round(c.y * 10), c.r, Math.round(c.until - g.time)]);
-    out.x = (g.booms || []).filter((b) => inside(b[0], b[1])).slice(0, 200).map((b) => [Math.round(b[0] * 10), Math.round(b[1] * 10), b[2], b[4]]);
+    out.x = (g.booms || []).filter((b) => inside(b[0], b[1])).slice(0, 200).map((b) => [Math.round(b[0] * 10), Math.round(b[1] * 10), b[2], b[4], Math.round(b[5] * 10), Math.round(b[6] * 10), Math.round(b[3] * 10)]);
     out.s = g.shots.filter((s) => inside(s[0], s[1]) || inside(s[2], s[3])).slice(0, 200).map((s) => s.map((q) => Math.round(q * 10)));
   }
   if (v.b) {

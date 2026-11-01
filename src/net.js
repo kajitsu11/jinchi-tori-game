@@ -164,7 +164,7 @@ class NetGame {
       for (let k = 0; k < D.length; k += 4) this.emit('death', { x: D[k] / 10, y: D[k + 1] / 10, pref: D[k + 2], id: D[k + 3] });
       this.shots = (m.s || []).map((s) => s.map((q) => q / 10));
       this.gas = (m.g || []).map(([x, y, r, left]) => ({ x: x / 10, y: y / 10, r, until: this.time + left }));
-      this.booms = (m.x || []).map(([x, y, r, k]) => [x / 10, y / 10, r, this.time, k]);
+      this.booms = (m.x || []).map(([x, y, r, k, ox, oy, t]) => [x / 10, y / 10, r, t / 10, k, ox / 10, oy / 10]);
     } else if (this.units.length) { this.units = []; this.unitIndex = new Map(); this.shots = []; }
     let changed = false;
     for (const r of m.ba || []) {
