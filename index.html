@@ -105,6 +105,14 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
 #topbar .row3 .left { color: var(--gold-hi); font-weight: 700; }
 #h-delta.up { color: var(--green); } #h-delta.down { color: var(--red); }
 
+#race { position: absolute; left: 134px; right: 66px; top: calc(100px + var(--sat)); pointer-events: none; font-size: 11px; line-height: 1.45;
+  background: rgba(20,12,4,.62); border: 1px solid rgba(217,180,92,.5); border-radius: 5px; padding: 3px 6px; color: var(--parch); }
+#race:empty { display: none; }
+#race .r { display: flex; justify-content: space-between; gap: 4px; white-space: nowrap; }
+#race .me { color: var(--gold-hi); font-weight: 700; }
+#race .war { color: #ffb3a8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#race .fin { color: #ffcf3f; font-weight: 700; }
+#race i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 3px; vertical-align: 0; }
 #minimap { position: absolute; left: 8px; top: calc(98px + var(--sat)); width: 118px; height: 124px; border-radius: 4px; background: #173a52; touch-action: none; border-color: var(--gold); }
 #sidebtns { position: absolute; right: 6px; top: calc(98px + var(--sat)); display: flex; flex-direction: column; gap: 6px; }
 #sidebtns button { width: 56px; height: 48px; border-radius: 6px; background: var(--panel-bg); font-size: 10.5px; font-weight: 700; white-space: nowrap; color: var(--parch);
@@ -255,6 +263,7 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
       <div class="row3"><span id="h-left" class="left"></span>・<span>領土 <b id="h-cells">0</b>マス <small id="h-delta">(±0)</small></span>・<span id="h-today"></span></div>
     </div>
     <canvas id="minimap"></canvas>
+    <div id="race"></div>
     <div id="sidebtns">
       <button data-act="rank"><i>🏆</i>戦況</button>
       <button data-act="top" id="btn-top"><i>🗺</i>真上</button>
@@ -3917,6 +3926,7 @@ const App = {
     $('minimap').addEventListener('pointerdown', (e) => this.onMinimap(e), { signal });
     signal.addEventListener('abort', () => { this.hidePanel(); this.setMode(null); });
     this.updateHud(true);
+    if (TRIAL) setTimeout(() => { if (this.state === STATE.PLAYING) this.banner('🚩 旗を立てる → 敵の領土をタップ', 'def', 'あなたの部隊15人と仲間が旗を立てて守る。守りきれば領土に'); }, 2500);
     this.log(ONLINE ? `出陣！ ${pr.name}の一員として参加しました。人のいない席はAIが担当します。下のメニューから建物を建てよう`
       : `出陣！ ${pr.name}の参加者${g.parts[this.me]}人（あなた＋AI）。下のメニューから建物を建てよう`, 'good', -1);
   },
@@ -4056,6 +4066,20 @@ const App = {
     const dEl = $('h-delta');
     dEl.textContent = `(${d > 0 ? '+' : d < 0 ? '−' : '±'}${fmt(Math.abs(d))})`;
     dEl.className = d > 0 ? 'up' : d < 0 ? 'down' : '';
+    // 順位の帯：上位3県とあなた・宣戦布告・決戦
+    {
+      const map = this.map, rk = g.ranking(), pc = (p) => (g.pop[p] / g.popTotal * 100).toFixed(1) + '%';
+      const chip = (p) => `<i style="background:${map.prefs[p].color}"></i>`;
+      let html = rk.slice(0, 3).map((p, k) => `<div class="r${p === me ? ' me' : ''}"><span>${k + 1}位 ${chip(p)}${map.prefs[p].short}</span><span>${pc(p)}</span></div>`).join('');
+      const myRank = rk.indexOf(me) + 1;
+      if (myRank > 3) html += `<div class="r me"><span>${myRank}位 ${chip(me)}${map.prefs[me].short}（あなた）</span><span>${pc(me)}</span></div>`;
+      const pl = g.plans && g.plans[me], foes = [];
+      if (g.plans) for (let p = 1; p <= 47; p++) if (p !== me && g.plans[p] && g.plans[p].war === me && g.nodeCount[p]) foes.push(map.prefs[p].short);
+      if (pl && pl.war) html += `<div class="war">⚔ 攻撃中：${map.prefs[pl.war].short}${foes.length ? `／狙われ：${foes.join('・')}` : ''}</div>`;
+      else if (foes.length) html += `<div class="war">⚠ 狙われ：${foes.join('・')}</div>`;
+      if (g.isFinal && g.isFinal()) html += '<div class="fin">🔥 決戦中：旗が2倍の速さ</div>';
+      if (html !== this.raceHtml) { $('race').innerHTML = html; this.raceHtml = html; }
+    }
     $('h-today').textContent = `人口 ${fmt(Math.round(g.pop[me]))}万（${(g.pop[me] / g.popTotal * 100).toFixed(1)}%）・拠点 ${g.nodeCount[me]}・兵士 ${g.unitCount(me)}/${g.unitCap(me)}・あなたの建物 ${g.myBuildings()}${ONLINE ? `・接続中 ${fmt(g.online)}人` : ''}`;
     // 建築カード：資源が足りないものは暗く
     for (const b of document.querySelectorAll('.bcard')) b.classList.toggle('poor', !g.canAfford(0, BUILDINGS[b.dataset.b].cost));

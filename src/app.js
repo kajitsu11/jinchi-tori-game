@@ -247,6 +247,7 @@ const App = {
     $('minimap').addEventListener('pointerdown', (e) => this.onMinimap(e), { signal });
     signal.addEventListener('abort', () => { this.hidePanel(); this.setMode(null); });
     this.updateHud(true);
+    if (TRIAL) setTimeout(() => { if (this.state === STATE.PLAYING) this.banner('🚩 旗を立てる → 敵の領土をタップ', 'def', 'あなたの部隊15人と仲間が旗を立てて守る。守りきれば領土に'); }, 2500);
     this.log(ONLINE ? `出陣！ ${pr.name}の一員として参加しました。人のいない席はAIが担当します。下のメニューから建物を建てよう`
       : `出陣！ ${pr.name}の参加者${g.parts[this.me]}人（あなた＋AI）。下のメニューから建物を建てよう`, 'good', -1);
   },
@@ -386,6 +387,20 @@ const App = {
     const dEl = $('h-delta');
     dEl.textContent = `(${d > 0 ? '+' : d < 0 ? '−' : '±'}${fmt(Math.abs(d))})`;
     dEl.className = d > 0 ? 'up' : d < 0 ? 'down' : '';
+    // 順位の帯：上位3県とあなた・宣戦布告・決戦
+    {
+      const map = this.map, rk = g.ranking(), pc = (p) => (g.pop[p] / g.popTotal * 100).toFixed(1) + '%';
+      const chip = (p) => `<i style="background:${map.prefs[p].color}"></i>`;
+      let html = rk.slice(0, 3).map((p, k) => `<div class="r${p === me ? ' me' : ''}"><span>${k + 1}位 ${chip(p)}${map.prefs[p].short}</span><span>${pc(p)}</span></div>`).join('');
+      const myRank = rk.indexOf(me) + 1;
+      if (myRank > 3) html += `<div class="r me"><span>${myRank}位 ${chip(me)}${map.prefs[me].short}（あなた）</span><span>${pc(me)}</span></div>`;
+      const pl = g.plans && g.plans[me], foes = [];
+      if (g.plans) for (let p = 1; p <= 47; p++) if (p !== me && g.plans[p] && g.plans[p].war === me && g.nodeCount[p]) foes.push(map.prefs[p].short);
+      if (pl && pl.war) html += `<div class="war">⚔ 攻撃中：${map.prefs[pl.war].short}${foes.length ? `／狙われ：${foes.join('・')}` : ''}</div>`;
+      else if (foes.length) html += `<div class="war">⚠ 狙われ：${foes.join('・')}</div>`;
+      if (g.isFinal && g.isFinal()) html += '<div class="fin">🔥 決戦中：旗が2倍の速さ</div>';
+      if (html !== this.raceHtml) { $('race').innerHTML = html; this.raceHtml = html; }
+    }
     $('h-today').textContent = `人口 ${fmt(Math.round(g.pop[me]))}万（${(g.pop[me] / g.popTotal * 100).toFixed(1)}%）・拠点 ${g.nodeCount[me]}・兵士 ${g.unitCount(me)}/${g.unitCap(me)}・あなたの建物 ${g.myBuildings()}${ONLINE ? `・接続中 ${fmt(g.online)}人` : ''}`;
     // 建築カード：資源が足りないものは暗く
     for (const b of document.querySelectorAll('.bcard')) b.classList.toggle('poor', !g.canAfford(0, BUILDINGS[b.dataset.b].cost));

@@ -98,6 +98,14 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
 #topbar .row3 .left { color: var(--gold-hi); font-weight: 700; }
 #h-delta.up { color: var(--green); } #h-delta.down { color: var(--red); }
 
+#race { position: absolute; left: 134px; right: 66px; top: calc(100px + var(--sat)); pointer-events: none; font-size: 11px; line-height: 1.45;
+  background: rgba(20,12,4,.62); border: 1px solid rgba(217,180,92,.5); border-radius: 5px; padding: 3px 6px; color: var(--parch); }
+#race:empty { display: none; }
+#race .r { display: flex; justify-content: space-between; gap: 4px; white-space: nowrap; }
+#race .me { color: var(--gold-hi); font-weight: 700; }
+#race .war { color: #ffb3a8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#race .fin { color: #ffcf3f; font-weight: 700; }
+#race i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 3px; vertical-align: 0; }
 #minimap { position: absolute; left: 8px; top: calc(98px + var(--sat)); width: 118px; height: 124px; border-radius: 4px; background: #173a52; touch-action: none; border-color: var(--gold); }
 #sidebtns { position: absolute; right: 6px; top: calc(98px + var(--sat)); display: flex; flex-direction: column; gap: 6px; }
 #sidebtns button { width: 56px; height: 48px; border-radius: 6px; background: var(--panel-bg); font-size: 10.5px; font-weight: 700; white-space: nowrap; color: var(--parch);
