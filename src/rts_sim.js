@@ -384,6 +384,7 @@ class Sim {
     this.pathBudget = CONFIG.PATH_BUDGET;
     this.incomeT += dt;
     if (this.incomeT >= 1) { const s = Math.floor(this.incomeT); this.incomeT -= s; this.produce(s); }   // 刻みが1秒より長くても収入を取りこぼさない
+    this.runPending();
     this.buildHash();
     this.planAll();
     this.aiBuildAll();
@@ -989,7 +990,7 @@ class Sim {
       if (!e && this.time >= (u.scanAt || 0)) { e = this.nearestEnemy(u.x, u.y, u.pref, def.range, def.mask, true); u.scanAt = this.time + 0.4 + this.rng() * 0.3; }
       u.tgt = e ? e.id : -1;
       const onHome = u.bit === 1 && this.owner[this.cellAt(u.x, u.y)] === u.pref;
-      const mult = (onHome ? CONFIG.HOME_BONUS : 1) * (buff.dps || 1) * (buff.navy || 1);
+      const mult = (onHome ? CONFIG.HOME_BONUS : 1) * (buff.dps || 1) * (buff.navy || 1) * (u.boostUntil > this.time ? 1.5 : 1);
       if (e) {
         u.engaged = e.id;
         if (def.gas) {   // 毒ガス兵：敵の位置に毒ガスを撒く
@@ -1079,7 +1080,7 @@ class Sim {
     for (const u of this.units) {
       u.px = u.x; u.py = u.y;
       if (u.engaged >= 0 || u.hitB) continue;
-      const def = UNITS[u.type], sp = base * def.spd * (u.buff ? u.buff.spd : 1);
+      const def = UNITS[u.type], sp = base * def.spd * (u.buff ? u.buff.spd : 1) * (u.boostUntil > this.time ? 1.3 : 1);
       let tx, ty, stopAt = 0;
       if (u.chase >= 0) {
         const e = this.unitIndex.get(u.chase);
@@ -1304,6 +1305,43 @@ class Sim {
     if (want <= 0) return;
     cand.sort((a, b) => Math.hypot(a.x - o.x, a.y - o.y) - Math.hypot(b.x - o.x, b.y - o.y));
     for (const u of cand.slice(0, want)) { u.follow = w; u.thinkAt = this.time; u.goalNode = -1; }
+  }
+  // ---------------------------------------------------------- 作戦（プレイヤーの技）
+  abilityReady(w, kind) { const h = w === 0 ? this : this.humans.get(w); const at = h && h.abil && h.abil[kind]; return Math.max(0, (at || 0) - this.time); }
+  /** 作戦を使う。kind：barrage（砲撃・x,y が目標）/ reinforce（援軍）/ rally（鼓舞・x,y を中心に） */
+  useAbility(w, kind, x, y) {
+    const h = w === 0 ? this : this.humans.get(w), def = CONFIG.ABILITIES[kind], P = this.prefOfWallet(w);
+    if (!h || !def || !this.nodeCount[P]) return { ok: false, why: 'no' };
+    if (this.abilityReady(w, kind) > 0) return { ok: false, why: 'cd' };
+    const cap = this.nodes[this.capNode[P]] && this.nodes[this.capNode[P]].owner === P ? this.nodes[this.capNode[P]] : this.nodes.find((n) => n.owner === P);
+    if (kind === 'barrage') {
+      if (x === undefined) return { ok: false, why: 'target' };
+      if (!this.pending) this.pending = [];
+      for (let k = 0; k < 8; k++) {
+        const a = this.rng() * 6.28, r = this.rng() * 5 * this.S;
+        this.pending.push({ at: this.time + 0.6 + k * 0.45, kind: 'shell', x: x + Math.cos(a) * r, y: y + Math.sin(a) * r, P, ox: cap.x, oy: cap.y });
+      }
+    } else if (kind === 'reinforce') {
+      for (let k = 0; k < 10; k++) this.spawnUnit(P, cap.x, cap.y, 6 * this.S, w, 'ashigaru');
+    } else if (kind === 'rally') {
+      const r = 40 * this.S;
+      let n = 0;
+      for (const u of this.units) if (u.pref === P && (u.hw === w || u.follow === w || Math.hypot(u.x - x, u.y - y) < r)) { u.boostUntil = this.time + 60; n++; }
+      if (!n) return { ok: false, why: 'nounits' };
+    }
+    if (!h.abil) h.abil = {};
+    h.abil[kind] = this.time + def.cd * (CONFIG.ABILITY_CD_MULT || 1);
+    this.emit('ability', { w, kind, x, y });
+    return { ok: true };
+  }
+  runPending() {
+    if (!this.pending || !this.pending.length) return;
+    const keep = [];
+    for (const p of this.pending) {
+      if (p.at > this.time) { keep.push(p); continue; }
+      if (p.kind === 'shell') this.boom(p.x, p.y, 2.5 * Math.max(1, this.S * 0.7), 95, p.P, 110, 0, p.ox, p.oy);
+    }
+    this.pending = keep;
   }
   rallyOf(w) { if (w === 0) return this.rally; const h = this.humans.get(w); return h ? h.rally : -1; }
   setRally(nodeId, w = 0) {

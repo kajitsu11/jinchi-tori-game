@@ -15,7 +15,7 @@ function applyFastMode() {
     FREE_HUMANS: true, SEASON_DAYS: 1 / 24, TRAIN_MULT: 1 / 15, AI_PLAN_INTERVAL: 10, AI_TARGET_TIMEOUT: 300, RECENT_HATCH: 120,
     AI_BUILD_INTERVAL: CONFIG.AI_BUILD_INTERVAL / 10, UNIT_SPEED: CONFIG.UNIT_SPEED * 1.5, START_UNITS_RATIO: 1,
     CAPTURE_NEED: { capital: 3000, town: 1200, fort: 1600, castle: 2400 },
-    FLAG_HOLD: 180, FLAG_DECAY: 100 / 60, WAR_TIME: 600,   // 旗：6時間 → 3分（1シーズン7日 → 1時間と同じ縮め方）・誰もいなければ1分で消える
+    FLAG_HOLD: 180, FLAG_DECAY: 100 / 60, WAR_TIME: 600, ABILITY_CD_MULT: 0.25,   // 作戦の待ち時間は1/4   // 旗：6時間 → 3分（1シーズン7日 → 1時間と同じ縮め方）・誰もいなければ1分で消える
   });
   for (const r of RES_KEYS) { CONFIG.BASE_INCOME[r] *= 10; CONFIG.CAPITAL_MAKE[r] *= 10; }
 }
@@ -225,6 +225,18 @@ const App = {
       if (b) this.startPlace(b.dataset.b);
     }, { signal });
     $('btn-rally').addEventListener('click', () => this.toggleRallyMode(), { signal });
+    $('abilrow').innerHTML = Object.entries(CONFIG.ABILITIES).map(([k, d]) => `<button class="b-rally" data-ab="${k}" title="${escapeHtml(d.desc)}">${d.icon} ${d.name}</button>`).join('');
+    $('abilrow').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-ab]');
+      if (!b) return;
+      const kind = b.dataset.ab, d = CONFIG.ABILITIES[kind], left = this.game.abilityReady(0, kind);
+      if (left > 0) { this.banner(`${d.name}はまだ使えません`, 'ng', `あと${this.fmtDur(left)}`); return; }
+      if (kind === 'barrage') { this.setMode(this.mode && this.mode.kind === 'abil' ? null : { kind: 'abil', ab: kind }); return; }
+      const r = this.game.useAbility(0, kind, this.cam.tx, this.cam.tz);
+      if (r.ok) this.banner(kind === 'reinforce' ? '援軍が到着！' : '鼓舞！', 'ok', kind === 'reinforce' ? '県庁に足軽10人が加わりました' : '近くのあなたの兵の攻撃と足が60秒アップ');
+      else this.banner('使えません', 'ng', r.why === 'nounits' ? '画面の中にあなたの兵がいません' : '');
+      this.updateHud(true);
+    }, { signal });
     $('btn-flag').addEventListener('click', () => {
       if (this.game.flagOrder && !(this.mode && this.mode.kind === 'flag')) { this.game.setFlagOrder(null); this.banner('旗の指示を取り消しました', 'def', '兵士は県の作戦に戻ります'); this.updateHud(true); return; }
       this.setMode(this.mode && this.mode.kind === 'flag' ? null : { kind: 'flag' });
@@ -275,6 +287,7 @@ const App = {
     for (const b of document.querySelectorAll('.bcard')) b.classList.toggle('on', !!(m && m.kind === 'place' && b.dataset.b === m.type));
     $('btn-rally').classList.toggle('on', !!(m && m.kind === 'rally'));
     $('btn-flag').classList.toggle('on', !!(m && m.kind === 'flag'));
+    for (const b of document.querySelectorAll('#abilrow [data-ab]')) b.classList.toggle('on', !!(m && m.kind === 'abil' && m.ab === b.dataset.ab));
     $('btn-cancel').classList.toggle('hidden', !m);
     const hint = $('hint');
     if (!m) { hint.classList.add('hidden'); return; }
@@ -406,6 +419,12 @@ const App = {
     for (const b of document.querySelectorAll('.bcard')) b.classList.toggle('poor', !g.canAfford(0, BUILDINGS[b.dataset.b].cost));
     const rn = g.rally >= 0 ? g.nodes[g.rally] : null;
     $('btn-rally').innerHTML = rn ? `⚔ 目標：${escapeHtml(rn.name)}` : '⚔ 攻撃目標';
+    for (const b of document.querySelectorAll('#abilrow [data-ab]')) {
+      const d = CONFIG.ABILITIES[b.dataset.ab], left = g.abilityReady ? g.abilityReady(0, b.dataset.ab) : 0;
+      const txt = left > 0 ? `${d.icon} ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}` : (this.mode && this.mode.ab === b.dataset.ab ? `${d.icon} 場所をタップ` : `${d.icon} ${d.name}`);
+      if (b.textContent !== txt) b.textContent = txt;
+      b.classList.toggle('cool', left > 0);
+    }
     const fo = g.flagOrder;
     if (this.mode && this.mode.kind === 'flag') $('btn-flag').textContent = '🚩 敵の領土をタップ';
     else if (fo && fo.defend) $('btn-flag').textContent = `🛡 敵の旗を迎撃中（あなたの兵 ${g.myUnits()}人）`;
@@ -1355,6 +1374,12 @@ const App = {
     let best = null, bd = reach;
     for (const n of g.nodes) { const d = Math.hypot(n.x - p.x, n.y - p.z); if (d < bd) { bd = d; best = { n }; } }
     g.buildingsNear(p.x, p.z, reach, (b, d) => { if (d < bd) { bd = d; best = { b }; } });
+    if (this.mode && this.mode.kind === 'abil') {
+      const r = g.useAbility(0, this.mode.ab, p.x, p.z);
+      if (r.ok) { this.banner('砲撃開始！', 'ok', '砲弾8発が降りそそぎます'); this.marker = { x: p.x, z: p.z, t: this.clock, ok: true }; }
+      this.setMode(null); this.updateHud(true);
+      return;
+    }
     if (this.mode && this.mode.kind === 'flag') {
       if (g.setFlagOrder({ x: p.x, y: p.z })) {
         if (g.flagOrder && g.flagOrder.defend) this.banner('敵の旗を倒しに行け！', 'ok', '正方形の中の敵の兵を倒せば、旗は消えます');

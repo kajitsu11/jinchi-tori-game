@@ -101,6 +101,8 @@ class NetGame {
         for (const r of RES_KEYS) this.res[r][0] = m.res[r];
         if (m.income) this.income = m.income;
         this.myB = m.myB; this.myU = m.myU; this.rally = m.rally; this.online = m.online;
+        this.abil = {};
+        for (const k in m.ab || {}) this.abil[k] = this.clock + m.ab[k];
         this.flagOrder = m.fo ? { x: m.fo[0], y: m.fo[1], flag: m.fo[2] ? { id: m.fo[2] } : null } : null;
         if (m.over && !this.over) this.setOver(m.over);
         break;
@@ -293,6 +295,12 @@ class NetGame {
   rankOf(p) { return this.ranking().indexOf(p) + 1; }
   buildingsNear(x, y, r, fn) { for (const b of this.buildings) { const d = Math.hypot(b.x - x, b.y - y); if (d <= r) fn(b, d); } }
   setRally(id) { this.rally = id; this.send({ t: 'rally', node: id }); }
+  abilityReady(w, kind) { const at = this.abil && this.abil[kind]; return at ? Math.max(0, at - this.clock) : 0; }
+  useAbility(w, kind, x, y) {
+    if (this.abilityReady(0, kind) > 0) return { ok: false, why: 'cd' };
+    this.send({ t: 'abil', kind, x, y });
+    return { ok: true };
+  }
   setFlagOrder(pt) {
     if (pt) { const c = this.map.id(pt.x, pt.y); if (c < 0 || !this.map.initPref[c]) return false; }
     this.flagOrder = pt ? { x: pt.x, y: pt.y, flag: null } : null;
