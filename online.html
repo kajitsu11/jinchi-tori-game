@@ -2286,6 +2286,7 @@ class Sim {
   }
   prefOfWallet(w) { const h = this.humans.get(w); return h ? h.pref : w; }
   participantCount(p) {
+    if (CONFIG.FIXED_PARTICIPANTS) return CONFIG.FIXED_PARTICIPANTS;   // 試作版：どの県も同じ人数
     return Math.max(CONFIG.MIN_PARTICIPANTS, Math.round(this.map.prefs[p].pop / 100 * CONFIG.PARTICIPANTS_PER_MILLION));
   }
   on(ev, fn) { (this.listeners[ev] || (this.listeners[ev] = [])).push(fn); }
@@ -2682,13 +2683,15 @@ class Sim {
       if (s > ds) { ds = s; defend = n.id; }
     }
     pl.defend = defend;
-    const cur = this.nodes[pl.target];
-    if (!cur || cur.owner === P || this.time - pl.since > CONFIG.AI_TARGET_TIMEOUT) {
+    // 参加者が多い県は、何か所かに分かれて攻める（人間が大勢いると、みんなが同じ所を攻めるわけではないので）
+    const groups = clamp(Math.round(this.aiCount(P) / 15), 1, 6);
+    const done = !pl.targets || pl.targets.length !== groups || pl.targets.some((t) => !this.nodes[t] || this.nodes[t].owner === P);
+    if (done || this.time - pl.since > CONFIG.AI_TARGET_TIMEOUT) {
       let sx = 0, sy = 0, k = 0;
       for (const u of this.units) if (u.pref === P) { sx += u.x; sy += u.y; k++; }
       const cap = this.nodes[this.capNode[P]] || this.nodes.find((n) => n.owner === P);
       const cx = k ? sx / k : cap.x, cy = k ? sy / k : cap.y;
-      let best = -1, bs = -1e9;
+      const cand = [];
       const seen = new Set();
       for (const n of this.nodes) {
         if (n.owner !== P) continue;
@@ -2698,10 +2701,12 @@ class Sim {
           seen.add(a);
           const s = this.rng() * 1.5 - e.defenders * 0.4 - Math.hypot(e.x - cx, e.y - cy) / (120 * this.S)
             + (e.type === 'capital' ? 0.8 : 0) + (e.type === 'fort' ? 0.3 : 0);
-          if (s > bs) { bs = s; best = a; }
+          cand.push([s, a]);
         }
       }
-      pl.target = best; pl.since = this.time;
+      cand.sort((p, q) => q[0] - p[0]);
+      pl.targets = cand.slice(0, groups).map((c) => c[1]);
+      pl.target = pl.targets.length ? pl.targets[0] : -1; pl.since = this.time;
     }
   }
   /** 県のAI参加者たちの建築。参加者が多いほど頻繁に建てる */
@@ -2768,7 +2773,7 @@ class Sim {
   }
   /** 周りの建物からの効果（2秒ごとに計算して覚えておく）：足・攻撃・回復・毒ガスへの強さ・被害・軍艦・見つかったか */
   updateBuff(u) {
-    u.buffAt = this.time + 2;
+    u.buffAt = this.time + 3 + this.rng();
     const f = { spd: 1, dps: 1, heal: 0, gasRes: 1, armor: 1, navy: 1, det: false };
     this.buildingsNear(u.x, u.y, 25, (b, d) => {
       const a = BUILDINGS[b.type].aura;
@@ -2804,7 +2809,7 @@ class Sim {
       if (!h || h.owner !== u.pref || (this.time - (u.homeAt || 0) > 3600)) { u.home = this.homeNode(u); u.homeAt = this.time; }
       node = pl.defend >= 0 ? pl.defend : u.home;
     }
-    else node = pl.target >= 0 ? pl.target : (pl.defend >= 0 ? pl.defend : -1);
+    else node = pl.targets && pl.targets.length ? pl.targets[u.id % pl.targets.length] : (pl.target >= 0 ? pl.target : (pl.defend >= 0 ? pl.defend : -1));
     if (node < 0) return;
     if (u.goalNode === node && (u.path || u.dest)) return;
     const n = this.nodes[node];
@@ -2870,11 +2875,15 @@ class Sim {
     if (!this.booms) this.booms = [];
     if (!this.gas) this.gas = [];
     this.booms = this.booms.filter((b) => this.time - b[3] < 1.5);
+    // 兵が多いときは、兵の攻撃を2組に分けて1刻みおきに計算する（そのぶん2刻み分の被害を与える）
+    const half = U.length > 1500, parity = (this.tickNo || 0) & 1;
     for (const u of U) {
       if (!u.alive) continue;
+      if (half && (u.id & 1) !== parity) continue;
+      const udt = half ? dt * 2 : dt;
       const def = UNITS[u.type], buff = u.buff || {};
       u.engaged = -1; u.hitB = null;
-      u.cd -= dt;
+      u.cd -= udt;
       if (def.bomb) {   // 爆撃機：目標の拠点の上で爆弾を落とす
         const n = this.nodes[u.goalNode];
         if (n && n.owner !== u.pref && Math.hypot(n.x - u.x, n.y - u.y) < 4 * S && u.cd <= 0) {
@@ -2885,26 +2894,36 @@ class Sim {
         continue;
       }
       if (!def.mask) continue;
-      const e = this.nearestEnemy(u.x, u.y, u.pref, def.range, def.mask, true);
+      // 狙う相手は0.5秒ごとに探し直す（その間は同じ相手が射程内にいる限り撃ち続ける）。兵が多いときの計算を減らす
+      let e = null;
+      if (u.tgt >= 0) { const t = this.unitIndex.get(u.tgt); if (t && t.alive && (t.x - u.x) ** 2 + (t.y - u.y) ** 2 <= def.range * def.range) e = t; }
+      if (!e && this.time >= (u.scanAt || 0)) { e = this.nearestEnemy(u.x, u.y, u.pref, def.range, def.mask, true); u.scanAt = this.time + 0.4 + this.rng() * 0.3; }
+      u.tgt = e ? e.id : -1;
       const onHome = u.bit === 1 && this.owner[this.cellAt(u.x, u.y)] === u.pref;
       const mult = (onHome ? CONFIG.HOME_BONUS : 1) * (buff.dps || 1) * (buff.navy || 1);
       if (e) {
         u.engaged = e.id;
         if (def.gas) {   // 毒ガス兵：敵の位置に毒ガスを撒く
           if (u.cd <= 0) { u.cd = def.gas.every; if (this.gas.length < 400) this.gas.push({ x: e.x, y: e.y, r: def.gas.r, dps: def.gas.dps, until: this.time + def.gas.life, P: u.pref }); }
-          this.hitUnit(e, def.dps * dt * mult);
+          this.hitUnit(e, def.dps * udt * mult);
         } else if (def.splash) {
           if (u.cd <= 0) { u.cd = 2; this.boom(e.x, e.y, def.splash, def.dps * 2 * mult, u.pref, def.dps * 2 * def.vsB * CONFIG.BUILDING_DPS_MULT, 0); }
-        } else this.hitUnit(e, def.dps * dt * mult * (e.bit === 1 && u.bit === 4 ? 0.5 : 1));
+        } else this.hitUnit(e, def.dps * udt * mult * (e.bit === 1 && u.bit === 4 ? 0.5 : 1));
         continue;
       }
       // 敵兵がいなければ、近くの敵の建物を壊す（飛行機は建物を撃たない＝爆撃機の役目）
       if (!def.vsB || u.bit === 4) continue;
       let tb = null, bd = 1e9;
-      this.buildingsNear(u.x, u.y, def.range + 1.2, (b, d) => { if (b.owner !== u.pref && d < bd) { bd = d; tb = b; } });
+      const lb = u.lastB;
+      if (lb && !lb.dead && lb.owner !== u.pref && Math.hypot(lb.x - u.x, lb.y - u.y) <= def.range + 1.2) tb = lb;
+      else if (this.time >= (u.bScanAt || 0)) {
+        u.bScanAt = this.time + 0.5;
+        this.buildingsNear(u.x, u.y, def.range + 1.2, (b, d) => { if (b.owner !== u.pref && d < bd) { bd = d; tb = b; } });
+      }
+      u.lastB = tb;
       if (tb) {
         if (def.splash) { if (u.cd <= 0) { u.cd = 2; this.boom(tb.x, tb.y, def.splash, def.dps * 2 * mult, u.pref, def.dps * 2 * def.vsB * CONFIG.BUILDING_DPS_MULT, 0); } }
-        else { tb.hp -= def.dps * def.vsB * CONFIG.BUILDING_DPS_MULT * dt * mult; tb.hitAt = this.time; }
+        else { tb.hp -= def.dps * def.vsB * CONFIG.BUILDING_DPS_MULT * udt * mult; tb.hitAt = this.time; }
         u.hitB = tb;
       }
     }
@@ -3448,7 +3467,9 @@ const App = {
       if (TRIAL) {
         progress(0.45, `細かい地図（1マス≒90m）を作成中…`); await nextFrame();
         this.map = MapData.upscale(this.map, TRIAL.S, new Set(TRIAL.prefs));
-        CONFIG.PARTICIPANTS_PER_MILLION *= TRIAL.mul;   // 1県に大勢いる状態（AIが担当）
+        // 1県に同時に何人いるか（全員AIが担当）。兵は1人あたり1.6人まで（端末で動かせる数に）
+        if (TRIAL.perPref) { CONFIG.FIXED_PARTICIPANTS = TRIAL.perPref; CONFIG.UNIT_CAP_PER_PARTICIPANT = 1.6; }
+        else CONFIG.PARTICIPANTS_PER_MILLION *= TRIAL.mul;
         if (TRIAL.fast) applyFastMode();
       }
       progress(0.5, '3D描画を準備中…'); await nextFrame();
@@ -3490,7 +3511,7 @@ const App = {
     $('title').classList.remove('hidden');
     $('hud').classList.add('hidden');
     $('t-cells').textContent = Math.round(this.map.landCells / 10000) + '万';
-    if (TRIAL) $('t-cells').parentNode.textContent = `お試し版：中国・四国の${TRIAL.prefs.length}県を1マス≒90m（${Math.round(this.map.landCells / 10000)}万マス）で。1県に大勢いる状態をAIで再現`;
+    if (TRIAL) $('t-cells').parentNode.textContent = `お試し版：中国・四国の${TRIAL.prefs.length}県を1マス≒90m（${Math.round(this.map.landCells / 10000)}万マス）で。${TRIAL.perPref ? `1県に${TRIAL.perPref}人が同時に遊んでいる想定（全員AIが担当）` : "1県に大勢いる状態をAIで再現"}`;
     this.resetCamera(false);
     $('pref-list').addEventListener('click', (e) => {
       const b = e.target.closest('.pbtn');
@@ -3519,7 +3540,7 @@ const App = {
     for (const b of document.querySelectorAll('.pbtn')) b.classList.toggle('sel', +b.dataset.p === p);
     $('pd-chip').style.background = pr.color;
     $('pd-name').textContent = pr.name;
-    const n = Math.max(CONFIG.MIN_PARTICIPANTS, Math.round(pr.pop / 100 * CONFIG.PARTICIPANTS_PER_MILLION));
+    const n = CONFIG.FIXED_PARTICIPANTS || Math.max(CONFIG.MIN_PARTICIPANTS, Math.round(pr.pop / 100 * CONFIG.PARTICIPANTS_PER_MILLION));
     $('pd-sub').textContent = `人口${fmt(Math.round(pr.pop))}万人・参加者${n}人（あなた＋AI${n - 1}人）・${fmt(this.map.initCounts[p])}マス`;
     $('btn-start').disabled = false;
     const b = document.querySelector(`.pbtn[data-p="${p}"]`);

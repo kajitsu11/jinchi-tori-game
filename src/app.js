@@ -53,7 +53,9 @@ const App = {
       if (TRIAL) {
         progress(0.45, `細かい地図（1マス≒90m）を作成中…`); await nextFrame();
         this.map = MapData.upscale(this.map, TRIAL.S, new Set(TRIAL.prefs));
-        CONFIG.PARTICIPANTS_PER_MILLION *= TRIAL.mul;   // 1県に大勢いる状態（AIが担当）
+        // 1県に同時に何人いるか（全員AIが担当）。兵は1人あたり1.6人まで（端末で動かせる数に）
+        if (TRIAL.perPref) { CONFIG.FIXED_PARTICIPANTS = TRIAL.perPref; CONFIG.UNIT_CAP_PER_PARTICIPANT = 1.6; }
+        else CONFIG.PARTICIPANTS_PER_MILLION *= TRIAL.mul;
         if (TRIAL.fast) applyFastMode();
       }
       progress(0.5, '3D描画を準備中…'); await nextFrame();
@@ -95,7 +97,7 @@ const App = {
     $('title').classList.remove('hidden');
     $('hud').classList.add('hidden');
     $('t-cells').textContent = Math.round(this.map.landCells / 10000) + '万';
-    if (TRIAL) $('t-cells').parentNode.textContent = `お試し版：中国・四国の${TRIAL.prefs.length}県を1マス≒90m（${Math.round(this.map.landCells / 10000)}万マス）で。1県に大勢いる状態をAIで再現`;
+    if (TRIAL) $('t-cells').parentNode.textContent = `お試し版：中国・四国の${TRIAL.prefs.length}県を1マス≒90m（${Math.round(this.map.landCells / 10000)}万マス）で。${TRIAL.perPref ? `1県に${TRIAL.perPref}人が同時に遊んでいる想定（全員AIが担当）` : "1県に大勢いる状態をAIで再現"}`;
     this.resetCamera(false);
     $('pref-list').addEventListener('click', (e) => {
       const b = e.target.closest('.pbtn');
@@ -124,7 +126,7 @@ const App = {
     for (const b of document.querySelectorAll('.pbtn')) b.classList.toggle('sel', +b.dataset.p === p);
     $('pd-chip').style.background = pr.color;
     $('pd-name').textContent = pr.name;
-    const n = Math.max(CONFIG.MIN_PARTICIPANTS, Math.round(pr.pop / 100 * CONFIG.PARTICIPANTS_PER_MILLION));
+    const n = CONFIG.FIXED_PARTICIPANTS || Math.max(CONFIG.MIN_PARTICIPANTS, Math.round(pr.pop / 100 * CONFIG.PARTICIPANTS_PER_MILLION));
     $('pd-sub').textContent = `人口${fmt(Math.round(pr.pop))}万人・参加者${n}人（あなた＋AI${n - 1}人）・${fmt(this.map.initCounts[p])}マス`;
     $('btn-start').disabled = false;
     const b = document.querySelector(`.pbtn[data-p="${p}"]`);
