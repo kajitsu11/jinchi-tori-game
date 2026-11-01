@@ -872,6 +872,11 @@ class Sim {
     if (u.isGeneral) {
       const o = this.genOrder;
       if (o && Math.hypot(o.x - u.x, o.y - u.y) > 2 && (u.goalNode !== -3 || !u.dest)) { if (this.setDest(u, o.x, o.y)) u.goalNode = -3; else u.thinkAt = this.time + 0.3; }
+      // 敵の領土で止まったら、その場に旗を立てる（ついて来たあなたの兵が守る）
+      else if (o && Math.hypot(o.x - u.x, o.y - u.y) <= 2 && CONFIG.FLAG_MODE && !o.planted) {
+        const f = this.plantFlagAt(u.pref, u.x, u.y, 0);
+        if (f) { o.planted = true; this.emit('flag', { flag: f, kind: 'general' }); }
+      }
       return;
     }
     // プレイヤーの「ここに旗を立てろ」：あなたの兵（と呼び寄せた仲間）はその場所へ行き、旗を立てて守る

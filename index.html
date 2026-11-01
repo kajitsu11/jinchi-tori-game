@@ -2932,6 +2932,11 @@ class Sim {
     if (u.isGeneral) {
       const o = this.genOrder;
       if (o && Math.hypot(o.x - u.x, o.y - u.y) > 2 && (u.goalNode !== -3 || !u.dest)) { if (this.setDest(u, o.x, o.y)) u.goalNode = -3; else u.thinkAt = this.time + 0.3; }
+      // 敵の領土で止まったら、その場に旗を立てる（ついて来たあなたの兵が守る）
+      else if (o && Math.hypot(o.x - u.x, o.y - u.y) <= 2 && CONFIG.FLAG_MODE && !o.planted) {
+        const f = this.plantFlagAt(u.pref, u.x, u.y, 0);
+        if (f) { o.planted = true; this.emit('flag', { flag: f, kind: 'general' }); }
+      }
       return;
     }
     // プレイヤーの「ここに旗を立てろ」：あなたの兵（と呼び寄せた仲間）はその場所へ行き、旗を立てて守る
@@ -4067,6 +4072,7 @@ const App = {
     g.on('flag', (e) => {
       const f = e.flag, cell = map.id(f.x, f.y);
       if (e.kind === 'done') (this.capFx || (this.capFx = [])).push({ x: f.x, y: f.y, half: CONFIG.FLAG_SIZE * (map.scale || 1) / 2, pref: f.pref, t0: this.clock, sq: true });
+      if (e.kind === 'general') { this.banner('大将が旗を立てた！', 'ok', `ついて来た兵と一緒に${this.fmtDur(CONFIG.FLAG_HOLD)}守り抜け`); return; }
       if (e.kind === 'done' && f.pref === this.me) Sfx.fanfare();
       if (e.kind === 'done' && f.pref === this.me && f.hw === 0) this.banner('旗を守りきった！', 'ok', e.cells ? `領土拡大 +${fmt(e.cells)}マス` : '正方形の中の拠点を占領');
       if (e.kind === 'done' && f.pref === this.me) this.log(`🚩 旗を守りきり、周りの領土を獲得しました${e.cells ? `（+${fmt(e.cells)}マス）` : ''}`, 'good', cell);

@@ -212,6 +212,7 @@ const App = {
     g.on('flag', (e) => {
       const f = e.flag, cell = map.id(f.x, f.y);
       if (e.kind === 'done') (this.capFx || (this.capFx = [])).push({ x: f.x, y: f.y, half: CONFIG.FLAG_SIZE * (map.scale || 1) / 2, pref: f.pref, t0: this.clock, sq: true });
+      if (e.kind === 'general') { this.banner('大将が旗を立てた！', 'ok', `ついて来た兵と一緒に${this.fmtDur(CONFIG.FLAG_HOLD)}守り抜け`); return; }
       if (e.kind === 'done' && f.pref === this.me) Sfx.fanfare();
       if (e.kind === 'done' && f.pref === this.me && f.hw === 0) this.banner('旗を守りきった！', 'ok', e.cells ? `領土拡大 +${fmt(e.cells)}マス` : '正方形の中の拠点を占領');
       if (e.kind === 'done' && f.pref === this.me) this.log(`🚩 旗を守りきり、周りの領土を獲得しました${e.cells ? `（+${fmt(e.cells)}マス）` : ''}`, 'good', cell);
