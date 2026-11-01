@@ -258,6 +258,9 @@ const App = {
       this.setMode({ kind: 'gen' });
       this.banner('大将をどこへ？', 'def', '地図をタップすると大将が向かい、あなたの兵がついて行きます');
     }, { signal });
+    g.on('ability', (e) => {
+      if (e.ai && e.target === this.me) { this.log(`💣 ${map.prefs[e.w].name}があなたの県の旗を砲撃しています`, 'bad', map.id(e.x, e.y)); Sfx.alert(); }
+    });
     g.on('event', (e) => {
       const nm = map.prefs[e.pref].name, mine = e.pref === this.me;
       const t = { rain: [`🌧 大雨：${nm}のまわり`, '兵の足がしばらく遅くなる'], morale: [`🔥 士気高揚：${nm}`, '兵の攻撃がしばらく1.3倍'],

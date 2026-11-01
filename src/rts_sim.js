@@ -720,6 +720,20 @@ class Sim {
       if (s > ds) { ds = s; defend = n.id; }
     }
     pl.defend = defend;
+    // AIの砲撃：自県の中に立てられた敵の旗をねらって、ときどき砲弾6発を撃ち込む
+    if (CONFIG.FLAG_MODE && this.aiCount(P) && this.time >= (pl.abilAt || 0)) {
+      const f = this.flags.find((q) => q.pref !== P && this.owner[this.cellAt(q.x, q.y)] === P);
+      if (f) {
+        pl.abilAt = this.time + CONFIG.ABILITIES.barrage.cd * (CONFIG.ABILITY_CD_MULT || 1) * 1.5;
+        const cap = this.nodes[this.capNode[P]] || this.nodes.find((n) => n.owner === P);
+        if (!this.pending) this.pending = [];
+        for (let k = 0; k < 6; k++) {
+          const a = this.rng() * 6.28, r = this.rng() * 6 * this.S;
+          this.pending.push({ at: this.time + 0.6 + k * 0.5, kind: 'shell', x: f.x + Math.cos(a) * r, y: f.y + Math.sin(a) * r, P, ox: cap.x, oy: cap.y, w: P });
+        }
+        this.emit('ability', { w: P, kind: 'barrage', x: f.x, y: f.y, ai: true, target: f.pref });
+      }
+    }
     // 宣戦布告：主に攻める相手の県を選ぶ（隣の県のうち、弱く・国境が長い県ほど選ばれやすい）
     if (!pl.war || this.time >= pl.warUntil || !this.nodeCount[pl.war]) {
       const nb = new Map();
