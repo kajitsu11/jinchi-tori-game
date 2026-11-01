@@ -1277,7 +1277,13 @@ class Sim {
   flagOrderOf(w) {
     const o = w === 0 ? this.flagOrder : (this.humans.get(w) || {}).flagOrder;
     if (!o) return null;
-    if (o.defend) { if (!this.flags.includes(o.defend)) { this.setFlagOrder(null, w); return null; } return o; }   // 迎撃：その旗が消えたら終わり
+    if (o.defend) {
+      if (!this.flags.includes(o.defend)) {   // 迎撃の成功：敵の旗が消えた
+        if (w === 0) this.stats.myDefends = (this.stats.myDefends || 0) + 1;
+        this.setFlagOrder(null, w); return null;
+      }
+      return o;
+    }   // 迎撃：その旗が消えたら終わり
     const c = this.cellAt(o.x, o.y);
     if (c < 0 || this.owner[c] === o.pref || this.eliminated.has(o.pref)) { this.setFlagOrder(null, w); return null; }
     return o;

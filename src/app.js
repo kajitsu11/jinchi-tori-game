@@ -4,6 +4,14 @@
 const STATE = { LOADING: 'LOADING', TITLE: 'TITLE', PLAYING: 'PLAYING', GAMEOVER: 'GAMEOVER' };
 // オンライン版（online.html）：サーバーが細かい地図（元の地図の1マスを S×S）とルールを持つ
 const ONLINE = window.JINCHI_ONLINE || null;
+// 目標（ミッション）：順に1つずつ。達成すると作戦の待ち時間がなくなる。全部できたら数を増やして2周目へ
+const MISSIONS = [
+  { text: '旗を1本守りきる（🚩 旗を立てる）', need: 1, get: (g) => (g.stats && g.stats.myFlags) || 0 },
+  { text: '敵を20人倒す', need: 20, get: (g) => (g.stats && g.stats.myKills) || 0 },
+  { text: '建物を10個建てる', need: 10, get: (g) => g.myBuildings() },
+  { text: '敵の旗を1本消す（自県の中で 🚩 → 敵の旗）', need: 1, get: (g) => (g.stats && g.stats.myDefends) || 0 },
+  { text: '県として敵の拠点を3つ奪う', need: 3, get: (g, app) => app.myCaps || 0 },
+];
 // お試し版（trial.html）：地域を絞り、オンライン版と同じ細かさ（元の1マスを S×S）の地図を端末の中で動かす
 const TRIAL = window.JINCHI_TRIAL || null;
 /**
@@ -185,7 +193,8 @@ const App = {
     this.goHome(48);   // 最初は自県の都を大きく映す
     // シミュレーションのイベント
     g.on('cells', (cells) => { for (const i of cells) this.renderer.cellChanged(i); this.minimapDirty = true; });
-    g.on('capture', (e) => this.onCapture(e));
+    g.on('capture', (e) => { if (e.by === this.me) this.myCaps = (this.myCaps || 0) + 1; this.onCapture(e); });
+    this.myCaps = 0; this.mission = 0; this.missionBase = 0;
     g.on('built', (e) => {
       if (!e.byPlayer) return;
       const def = BUILDINGS[e.type];
@@ -409,7 +418,7 @@ const App = {
       $('r-' + r).textContent = fmt(Math.floor(g.res[r][0]));
       $('ri-' + r).textContent = `+${Math.round(g.income[r] * 3600)}/時`;   // 1時間あたりの収入
     }
-    $('r-units').textContent = `${g.myUnits()}` + (g.stats && g.stats.myKills ? `・撃破${g.stats.myKills}` : '');
+    $('r-units').textContent = `${g.myUnits()}`;
     const c = g.counts[me], d = c - this.map.initCounts[me];
     $('h-cells').textContent = fmt(c);
     const dEl = $('h-delta');
@@ -427,6 +436,19 @@ const App = {
       if (pl && pl.war) html += `<div class="war">⚔ 攻撃中：${map.prefs[pl.war].short}${foes.length ? `／狙われ：${foes.join('・')}` : ''}</div>`;
       else if (foes.length) html += `<div class="war">⚠ 狙われ：${foes.join('・')}</div>`;
       if (g.isFinal && g.isFinal()) html += '<div class="fin">🔥 決戦中：旗が2倍の速さ</div>';
+      // 目標
+      const lap = Math.floor(this.mission / MISSIONS.length), ms = MISSIONS[this.mission % MISSIONS.length], need = ms.need * (lap + 1);
+      const have = ms.get(g, this);
+      if (have >= need) {
+        this.mission++;
+        Sfx.fanfare();
+        if (!ONLINE && g.abil) g.abil = {};   // ごほうび：作戦の待ち時間をなくす
+        this.banner('目標達成！', 'ok', ONLINE ? ms.text.replace(/（.*）/, '') : '作戦（砲撃・援軍・鼓舞）がすぐ使えるようになりました');
+        this.log(`🎯 目標達成：${ms.text.replace(/（.*）/, '')}`, 'good', -1);
+      }
+      const mtext = ms.text.replace(/（.*）/, '').replace('1本', `${need}本`).replace('20人', `${need}人`).replace('10個', `${need}個`).replace('3つ', `${need}つ`);
+      html += `<div class="mis">🎯 ${Math.min(have, need)}/${need} ${mtext}</div>`;
+      html += `<div class="r"><span>あなたの部隊 ${g.myUnits()}人</span><span>撃破 ${(g.stats && g.stats.myKills) || 0}</span></div>`;
       if (html !== this.raceHtml) { $('race').innerHTML = html; this.raceHtml = html; }
     }
     $('h-today').textContent = `人口 ${fmt(Math.round(g.pop[me]))}万（${(g.pop[me] / g.popTotal * 100).toFixed(1)}%）・拠点 ${g.nodeCount[me]}・兵士 ${g.unitCount(me)}/${g.unitCap(me)}・あなたの建物 ${g.myBuildings()}${ONLINE ? `・接続中 ${fmt(g.online)}人` : ''}`;

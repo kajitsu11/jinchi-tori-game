@@ -104,6 +104,7 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
 #race .r { display: flex; justify-content: space-between; gap: 4px; white-space: nowrap; }
 #race .me { color: var(--gold-hi); font-weight: 700; }
 #race .war { color: #ffb3a8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#race .mis { color: #cfe9ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #race .fin { color: #ffcf3f; font-weight: 700; }
 #race i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 3px; vertical-align: 0; }
 #minimap { position: absolute; left: 8px; top: calc(98px + var(--sat)); width: 118px; height: 124px; border-radius: 4px; background: #173a52; touch-action: none; border-color: var(--gold); }
