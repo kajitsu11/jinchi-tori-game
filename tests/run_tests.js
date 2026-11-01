@@ -18,6 +18,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
 (async () => {
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true });
+  page.setDefaultTimeout(120000);   // ソフト描画のテスト環境では1枚の描画に時間がかかることがある
   const errors = [];
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
@@ -56,7 +57,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     }
     return -1;
   }, { type, P });
-  const cellXY = (c) => ev((c) => { const W = window.__jinchi.App.map.W; return [c % W + 0.5, ((c / W) | 0) + 0.5]; }, c);
+  const cellXY = (c) => ev((c) => { const m = window.__jinchi.App.map; return [m.X(c) + 0.5, m.Y(c) + 0.5]; }, c);
   const richPlayer = () => ev(() => { const g = window.__jinchi.game; for (const r of ['food', 'wood', 'gold']) g.res[r][0] = 20000; });
 
   await test('読み込み → TITLE 状態になる', async () => {
@@ -70,8 +71,8 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
       return { W: m.W, H: m.H, land: m.landCells, prefs: m.prefs.filter(Boolean).length, de: m.raw.minNeighborDeltaE,
         towns: m.raw.towns.length, elev: m.elev.length, src: document.querySelector('.credit').textContent };
     });
-    assert(info.W === 3600 && info.H === 3765, 'grid size');
-    assert(info.land > 1200000 && info.land < 1500000, 'land cells ' + info.land);
+    assert(info.W === 7200 && info.H === 7530, 'grid size');
+    assert(info.land > 5000000 && info.land < 6000000, 'land cells ' + info.land);
     assert(info.prefs === 47 && info.de >= 70, 'prefs / deltaE');
     assert(info.towns > 400 && info.elev === 1800 * 1882, 'towns/elev');
     assert(info.src.includes('地球地図日本（国土地理院）'), '出典表示');
@@ -81,7 +82,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
 
   await test('タイトル: 地図タップで県を選べる', async () => {
     const hok = await ev(() => window.__jinchi.App.map.capitalCell[1]);
-    const v = await ev((c) => { const { App } = window.__jinchi; const W = App.map.W; App.cam.compute(); const v = [0, 0]; return App.cam.project(c % W + 0.5, 0, ((c / W) | 0) + 0.5, v); }, hok);
+    const v = await ev((c) => { const { App } = window.__jinchi; const m = App.map; App.cam.compute(); const v = [0, 0]; return App.cam.project(m.X(c) + 0.5, 0, m.Y(c) + 0.5, v); }, hok);
     await page.mouse.click(v[0], v[1]);
     assert((await ev(() => window.__jinchi.App.titleSel)) === 1, 'titleSel');
   });
@@ -109,11 +110,11 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
       const okNodes = g.nodes.filter((n) => n.pref === 47).map((n) => n.id);
       const adjPrefs = new Set();
       for (const id of okNodes) for (const a of g.nodeAdj[id]) if (g.nodes[a].pref !== 47) adjPrefs.add(g.nodes[a].pref);
-      const path = g.nav.find((kago % W) + 0.5, ((kago / W) | 0) + 0.5, (cap % W) + 0.5, ((cap / W) | 0) + 0.5);
-      const ll = m.lonLat(cap % W, (cap / W) | 0);
-      return { capY: (cap / W) | 0, kagoY: (kago / W) | 0, capX: cap % W, hokX: hok % W, adj: [...adjPrefs], path: path ? path.length : -1, ll };
+      const path = g.nav.find(m.X(kago) + 0.5, m.Y(kago) + 0.5, m.X(cap) + 0.5, m.Y(cap) + 0.5);
+      const ll = m.lonLat(m.X(cap), m.Y(cap));
+      return { capY: m.Y(cap), kagoY: m.Y(kago), capX: m.X(cap), hokX: m.X(hok), adj: [...adjPrefs], path: path ? path.length : -1, ll };
     });
-    assert(r.capY > r.kagoY && r.capX < r.hokX - 800, '配置 ' + JSON.stringify(r));
+    assert(r.capY > r.kagoY && r.capX < r.hokX - 1600, '配置 ' + JSON.stringify(r));
     assert(r.adj.length >= 1 && r.adj.every((p) => p === 46), '隣接は鹿児島のみ ' + r.adj);
     assert(r.path > 0, '鹿児島から那覇へ経路がある');
     assert(Math.abs(r.ll[0] - 127.68) < 0.05 && Math.abs(r.ll[1] - 26.21) < 0.05, '経緯度 ' + r.ll);
@@ -180,11 +181,11 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     const s = await ev((site) => {
       const g = window.__jinchi.game;
       const r = g.playerBuild('barracks', site);
-      const u0 = g.myUnits(), f0 = g.res.food[0];
-      for (let k = 0; k < 1100; k++) g.step(1);   // 兵舎の訓練は15分ごと
-      return { ok: r.ok, u0, u1: g.myUnits(), spent: f0 - g.res.food[0] };
+      const t0 = g.stats.trainedMine;
+      for (let k = 0; k < 1300; k++) g.step(1);   // 兵舎の訓練は10分ごと（訓練した兵士はすぐ戦いに出るので、訓練した人数で確かめる）
+      return { ok: r.ok, trained: g.stats.trainedMine - t0 };
     }, site);
-    assert(s.ok && s.u1 > s.u0, JSON.stringify(s));
+    assert(s.ok && s.trained >= 1, JSON.stringify(s));
   });
 
   await test('町: 建てると国境が広がり、自分の拠点になる', async () => {
@@ -329,11 +330,12 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     const box = await page.locator('#minimap').boundingBox();
     await page.mouse.click(box.x + box.width * 0.85, box.y + box.height * 0.15);
     const goal = await ev(() => window.__jinchi.App.cam.goal);
-    assert(goal && goal.x > 1700, 'minimap ' + JSON.stringify(goal));
+    assert(goal && goal.x > 3400, 'minimap ' + JSON.stringify(goal));
     await page.waitForTimeout(800);
     await page.click('[data-act=home]');
     await page.waitForTimeout(900);
-    const du = await ev(() => { const { App } = window.__jinchi, n = App.game.nodes.find((q) => q.owner === App.me); return Math.hypot(App.cam.tx - n.x, App.cam.tz - n.y); });
+    // カメラは目標地点へ動いている途中かもしれないので、目標地点で確かめる
+    const du = await ev(() => { const { App } = window.__jinchi, n = App.game.nodes.find((q) => q.owner === App.me); const g = App.cam.goal || { x: App.cam.tx, z: App.cam.tz }; return Math.hypot(g.x - n.x, g.z - n.y); });
     assert(du < 400, 'home focus ' + du);
   });
 

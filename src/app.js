@@ -109,7 +109,7 @@ const App = {
   },
   flyToPref(p, dist, anchorY) {
     const c = this.map.capitalCell[p];
-    this.cam.flyTo((c % this.map.W) + 0.5, ((c / this.map.W) | 0) + 0.5, dist, anchorY);
+    this.cam.flyTo(this.map.X(c) + 0.5, this.map.Y(c) + 0.5, dist, anchorY);
   },
   resetCamera(instant) {
     const W = this.map.W, H = this.map.H;
@@ -337,7 +337,7 @@ const App = {
       $('cp-note').textContent = note;
     }
   },
-  focusCell(i) { this.cam.flyTo((i % this.map.W) + 0.5, ((i / this.map.W) | 0) + 0.5, Math.min(this.cam.dist, 160), 0.42); },
+  focusCell(i) { this.cam.flyTo(this.map.X(i) + 0.5, this.map.Y(i) + 0.5, Math.min(this.cam.dist, 160), 0.42); },
   showRanking() {
     const g = this.game, map = this.map;
     const rows = g.ranking().map((p, k) => {
@@ -421,7 +421,7 @@ const App = {
       if (detail) { P('box', lx - w * 0.6, y - 0.05 * s2, lz, 0.12 * s2, 0.2 * s2, 0.06 * s2, [0.85, 0.7, 0.25]); P('box', lx + w * 0.6, y - 0.05 * s2, lz, 0.12 * s2, 0.2 * s2, 0.06 * s2, [0.85, 0.7, 0.25]); }
     };
     // ---- 拠点
-    const nodes = g ? g.nodes : map.prefs.filter(Boolean).map((p) => ({ x: (p.capital % map.W) + 0.5, y: ((p.capital / map.W) | 0) + 0.5, owner: p.id, type: 'capital' }));
+    const nodes = g ? g.nodes : map.prefs.filter(Boolean).map((p) => ({ x: map.X(p.capital) + 0.5, y: map.Y(p.capital) + 0.5, owner: p.id, type: 'capital' }));
     for (const n of nodes) {
       if (!visible(n.x, n.y)) continue;
       const c = col[n.owner];
@@ -622,7 +622,9 @@ const App = {
     let n = 0;
     for (let y = y0; y <= y1; y += step) {
       for (let x = x0; x <= x1; x += step) {
-        const i = y * W + x, k = t[i] & 7;
+        const i = map.id(x, y);
+        if (i < 0) continue;
+        const k = t[i] & 7;
         if (k !== 2 && k !== 1) continue;
         const h = ((i * 2654435761) >>> 0) / 4294967296;
         if (k === 1 ? h > 0.01 : h > 0.5) continue;
@@ -630,7 +632,7 @@ const App = {
         const px = x + h2, pz = y + h3;
         if (!cam.project(px, 0, pz, v) || v[0] < -20 || v[0] > this.w + 20 || v[1] < -40 || v[1] > this.h + 20) continue;
         const sz = s * (0.8 + h2 * 0.5), snow = t[i] & 8;
-        const e = ev[(y >> 1) * ew + (x >> 1)];
+        const es = map.elevScale, e = ev[Math.floor(y / es) * ew + Math.floor(x / es)];
         const conifer = snow || e > 120 || y < map.H * 0.3 || h3 > 0.75;
         if (shadows) I.shadow.push(px + sz * 0.35, 0.02, pz - sz * 0.4, sz * 0.9, 0.01, sz * 0.7, [0, 0, 0], 0);
         I.cylW.push(px, 0, pz, sz * 0.15, sz * 0.55, sz * 0.15, [0.36, 0.25, 0.15], 0);
@@ -724,7 +726,7 @@ const App = {
     if (g) {
       for (const n of g.nodes) if (n.type === 'capital' || cpx > 2.4 || (n.progress > 0 && cpx > 0.6) || n.id === g.rally) order.push(n);
     } else {
-      for (let p = 1; p <= 47; p++) order.push({ type: 'capital', pref: p, owner: p, x: (map.capitalCell[p] % map.W) + 0.5, y: ((map.capitalCell[p] / map.W) | 0) + 0.5 });
+      for (let p = 1; p <= 47; p++) order.push({ type: 'capital', pref: p, owner: p, x: map.X(map.capitalCell[p]) + 0.5, y: map.Y(map.capitalCell[p]) + 0.5 });
     }
     const pri = this.state === STATE.TITLE ? this.titleSel : this.me;
     const score = (n) => (g && n.id === g.rally ? 2e6 : 0) + (n.pref === pri && n.type === 'capital' ? 1e6 : 0) + (n.type === 'capital' ? 1e4 + map.prefs[n.pref].pop : n.type === 'fort' ? 10 : 0);
@@ -762,7 +764,7 @@ const App = {
       for (const l of map.raw.links) {
         if (seen.has(l.name) || l.stub) continue;
         seen.add(l.name);
-        const ax = l.a % map.W, ay = (l.a / map.W) | 0, bx = l.b % map.W, by = (l.b / map.W) | 0;
+        const ax = map.X(l.a), ay = map.Y(l.a), bx = map.X(l.b), by = map.Y(l.b);
         if (!cam.project((ax + bx) / 2 + 0.5, 0, (ay + by) / 2 + 0.5, v)) continue;
         ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(30,18,6,.7)'; ctx.strokeText(l.name, v[0], v[1] - 4);
         ctx.fillStyle = '#ffe9a8'; ctx.fillText(l.name, v[0], v[1] - 4);
@@ -934,7 +936,8 @@ const App = {
           let o = 0;
           for (let k = 0; k < 9 && !o; k++) {
             const cx = Math.floor((x + (k % 3) / 3 + 0.17) * sx), cy = Math.floor((y + ((k / 3) | 0) / 3 + 0.17) * sy);
-            o = own[cy * map.W + cx];
+            const ci = map.id(cx, cy);
+            o = ci >= 0 ? own[ci] : 0;
           }
           const c = cols[o] || cols[0], q = (y * mw + x) * 4;
           d[q] = c[0]; d[q + 1] = c[1]; d[q + 2] = c[2]; d[q + 3] = 255;
@@ -1062,8 +1065,7 @@ const App = {
     const p = this.cam.groundAt(sx, sy);
     if (!p) return -1;
     const x = Math.floor(p.x), y = Math.floor(p.z);
-    if (x < 0 || y < 0 || x >= this.map.W || y >= this.map.H) return -1;
-    return y * this.map.W + x;
+    return this.map.id(x, y);
   },
   restoreGL() {
     try {

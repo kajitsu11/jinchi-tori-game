@@ -37,19 +37,20 @@ class Heap {
   }
 }
 
-/** 8×8マスのブロック単位の移動グラフ（陸地を含むブロックだけ通れる。連絡マスは追加の辺） */
+/** 24×24マスのブロック単位の移動グラフ（陸地を含むブロックだけ通れる。連絡マスは追加の辺） */
 class NavGrid {
   constructor(map) {
-    const B = 12, W = map.W, H = map.H;   // 12×12マスのブロック
+    const B = 24, W = map.W, H = map.H;   // 24×24マス（約6km）のブロック
     this.B = B; this.W = W;
     this.bw = Math.ceil(W / B); this.bh = Math.ceil(H / B);
     const n = this.bw * this.bh;
     this.rep = new Int32Array(n).fill(-1);       // ブロック内で中心に一番近い陸地マス
     const best = new Float32Array(n).fill(1e9);
     const ip = map.initPref;
+    this.map = map;
     for (let i = 0; i < map.N; i++) {
       if (!ip[i]) continue;
-      const x = i % W, y = (i / W) | 0;
+      const x = map.X(i), y = map.Y(i);
       const b = ((y / B) | 0) * this.bw + ((x / B) | 0);
       const dx = (x % B) - B / 2 + 0.5, dy = (y % B) - B / 2 + 0.5, d = dx * dx + dy * dy;
       if (d < best[b]) { best[b] = d; this.rep[b] = i; }
@@ -70,7 +71,7 @@ class NavGrid {
     this.gen = 0;
     this.heap = new Heap(4096);
   }
-  blockOfCell(i) { const x = i % this.W, y = (i / this.W) | 0; return ((y / this.B) | 0) * this.bw + ((x / this.B) | 0); }
+  blockOfCell(i) { const x = this.map.X(i), y = this.map.Y(i); return ((y / this.B) | 0) * this.bw + ((x / this.B) | 0); }
   blockAt(x, y) {
     const bx = clamp((x / this.B) | 0, 0, this.bw - 1), by = clamp((y / this.B) | 0, 0, this.bh - 1);
     return by * this.bw + bx;
@@ -135,7 +136,7 @@ class NavGrid {
     const pts = [];
     for (let b = t; b !== s && b >= 0; b = this.came[b]) {
       const c = this.rep[b];
-      pts.push([(c % this.W) + 0.5, ((c / this.W) | 0) + 0.5]);
+      pts.push([this.map.X(c) + 0.5, this.map.Y(c) + 0.5]);
     }
     pts.reverse();
     // 間引き：3点ほぼ一直線なら真ん中を省く
@@ -171,7 +172,6 @@ class Sim {
     this.popTotal = this.pop.reduce((a, b) => a + b, 0);
     this.landIdx = new Int32Array(map.landCells);
     for (let i = 0, k = 0; i < N; i++) if (map.initPref[i]) this.landIdx[k++] = i;
-    this.offs = [-W - 1, -W, -W + 1, -1, 1, W - 1, W, W + 1];
     // ---- 拠点（県庁・町・砦）
     this.nodes = [];
     for (let p = 1; p <= 47; p++) {
@@ -179,7 +179,7 @@ class Sim {
     }
     for (const t of map.raw.towns) {
       const c = map.capitalCell[t.pref];
-      if (Math.hypot(t.cell % W - c % W, ((t.cell / W) | 0) - ((c / W) | 0)) < 18) continue;
+      if (t.cell < 0 || Math.hypot(map.X(t.cell) - map.X(c), map.Y(t.cell) - map.Y(c)) < 36) continue;
       this.addNode({ cell: t.cell, pref: t.pref, type: 'town', name: t.name });
     }
     this.nodeOf = new Int16Array(N).fill(-1);
@@ -224,7 +224,7 @@ class Sim {
     this.eliminated = new Set();
     this.over = null;
     this.recent = [];
-    this.stats = { captures: 0, kills: 0, built: 0, destroyed: 0, trained: 0, paths: 0 };
+    this.stats = { captures: 0, kills: 0, built: 0, destroyed: 0, trained: 0, trainedMine: 0, paths: 0 };
     this.pathBudget = 0;
     this.income = { food: 0, wood: 0, gold: 0 };   // プレイヤーの直近の収入/秒
     this.shots = [];                                // 塔・砦の射撃（描画用）
@@ -240,7 +240,9 @@ class Sim {
   // ---------------------------------------------------------- 地形・拠点
   forNeighbors(i, fn) {
     const ip = this.map.initPref;
-    for (const o of this.offs) { const j = i + o; if (ip[j]) fn(j); }
+    const lx = i & 63, ly = (i >> 6) & 63;
+    if (lx > 0 && lx < 63 && ly > 0 && ly < 63) { for (let k = 0; k < 8; k++) { const j = i + OFF8[k]; if (ip[j]) fn(j); } }
+    else this.map.nb8(i, (j) => { if (ip[j]) fn(j); });
     const ls = this.map.linkMap.get(i);
     if (ls) for (const j of ls) fn(j);
   }
@@ -251,17 +253,16 @@ class Sim {
     this.pop[from] -= w; this.pop[to] += w;
     this.owner[i] = to;
   }
-  cellAt(x, y) { return (y | 0) * this.map.W + (x | 0); }
+  cellAt(x, y) { return this.map.id(x | 0, y | 0); }
   addNode(o) {
-    const W = this.map.W;
-    const n = { id: this.nodes.length, cell: o.cell, x: (o.cell % W) + 0.5, y: ((o.cell / W) | 0) + 0.5, pref: o.pref,
+    const n = { id: this.nodes.length, cell: o.cell, x: this.map.X(o.cell) + 0.5, y: this.map.Y(o.cell) + 0.5, pref: o.pref,
       owner: o.owner || o.pref, type: o.type, name: o.name, progress: 0, capBy: 0, capturedAt: -999, attackers: 0, defenders: 0,
       byPlayer: !!o.byPlayer };
     this.nodes.push(n);
     return n;
   }
   assignTerritory() {
-    const ip = this.map.initPref, nodeOf = this.nodeOf, dist = this.nodeDist, W = this.map.W;
+    const ip = this.map.initPref, nodeOf = this.nodeOf, dist = this.nodeDist, map = this.map;
     const q = new Int32Array(this.map.landCells + this.nodes.length);
     let qh = 0, qt = 0;
     for (const n of this.nodes) { nodeOf[n.cell] = n.id; dist[n.cell] = 0; q[qt++] = n.cell; }
@@ -274,7 +275,7 @@ class Sim {
       let best = -1, bd = 1e9;
       for (const n of this.nodes) {
         if (n.pref !== ip[i]) continue;
-        const d = Math.hypot(n.x - (i % W), n.y - ((i / W) | 0));
+        const d = Math.hypot(n.x - map.X(i), n.y - map.Y(i));
         if (d < bd) { bd = d; best = n.id; }
       }
       nodeOf[i] = best; dist[i] = Math.min(255, Math.round(bd));
@@ -291,11 +292,11 @@ class Sim {
   }
   computeNodeAdj() {
     const adj = this.nodes.map(() => new Set());
-    const nodeOf = this.nodeOf, W = this.map.W, ip = this.map.initPref;
+    const nodeOf = this.nodeOf, map = this.map, ip = map.initPref;
     for (const i of this.landIdx) {
-      const a = nodeOf[i];
-      for (const j of [i + 1, i + W, i + W + 1, i + W - 1]) {
-        if (!ip[j]) continue;
+      const a = nodeOf[i], x = map.X(i), y = map.Y(i);
+      for (const j of [map.id(x + 1, y), map.id(x, y + 1), map.id(x + 1, y + 1), map.id(x - 1, y + 1)]) {
+        if (j < 0 || !ip[j]) continue;
         const b = nodeOf[j];
         if (a !== b) { adj[a].add(b); adj[b].add(a); }
       }
@@ -352,11 +353,11 @@ class Sim {
   canAfford(w, cost) { for (const r of RES_KEYS) if ((cost[r] || 0) > this.res[r][w]) return false; return true; }
   pay(w, cost) { for (const r of RES_KEYS) this.res[r][w] -= cost[r] || 0; }
   forestNear(c, r) {
-    const W = this.map.W, x0 = c % W, y0 = (c / W) | 0, t = this.map.terrain;
+    const map = this.map, x0 = map.X(c), y0 = map.Y(c), t = map.terrain;
     let n = 0;
     for (let dy = -r; dy <= r; dy += 2) for (let dx = -r; dx <= r; dx += 2) {
-      const i = (y0 + dy) * W + x0 + dx;
-      if (i >= 0 && i < this.map.N && (t[i] & 7) === 2) n++;
+      const i = map.id(x0 + dx, y0 + dy);
+      if (i >= 0 && (t[i] & 7) === 2) n++;
     }
     return n;
   }
@@ -396,10 +397,10 @@ class Sim {
   }
   /** 建てられるか（null なら可。理由の文字列を返す） */
   canBuild(type, P, c, w) {
-    const def = BUILDINGS[type], map = this.map, W = map.W;
+    const def = BUILDINGS[type], map = this.map;
     if (c < 0 || c >= map.N || !map.initPref[c]) return 'sea';
     if (this.owner[c] !== P) return 'notown';
-    const x = c % W + 0.5, y = ((c / W) | 0) + 0.5, t = map.terrain[c] & 7;
+    const x = map.X(c) + 0.5, y = map.Y(c) + 0.5, t = map.terrain[c] & 7;
     let blocked = false;
     this.buildingsNear(x, y, CONFIG.BUILD_GAP, () => { blocked = true; });
     if (blocked) return 'crowded';
@@ -416,7 +417,7 @@ class Sim {
     const w = this.walletOf(P, byPlayer);
     const why = this.canBuild(type, P, c, w);
     if (why) return { ok: false, why };
-    const def = BUILDINGS[type], W = this.map.W;
+    const def = BUILDINGS[type];
     this.pay(w, def.cost);
     this.stats.built++;
     if (def.node) {
@@ -424,7 +425,7 @@ class Sim {
       this.emit('built', { node: n, type, by: P, byPlayer });
       return { ok: true, node: n };
     }
-    const b = { id: ++this.bseq, type, cell: c, x: c % W + 0.5, y: ((c / W) | 0) + 0.5, owner: P, wallet: w, byPlayer: !!byPlayer,
+    const b = { id: ++this.bseq, type, cell: c, x: this.map.X(c) + 0.5, y: this.map.Y(c) + 0.5, owner: P, wallet: w, byPlayer: !!byPlayer,
       hp: def.hp, maxHp: def.hp, t: 0, rot: (this.rng() * 4 | 0) * Math.PI / 2, forest: def.forest ? this.forestNear(c, 6) : 0,
       mul: type === 'farm' && (this.map.terrain[c] & 7) === 2 ? 0.5 : 1 };   // 森を切り開いた農場は収穫が半分
     this.buildings.push(b);
@@ -487,7 +488,6 @@ class Sim {
 
   // ---------------------------------------------------------- 兵士
   spawnUnit(P, x, y, r, fromPlayer) {
-    const W = this.map.W;
     let px = x, py = y;
     for (let k = 0; k < 12; k++) {
       const tx = x + (this.rng() * 2 - 1) * r, ty = y + (this.rng() * 2 - 1) * r;
@@ -517,6 +517,7 @@ class Sim {
       this.spawnUnit(b.owner, b.x, b.y, 2.5, b.wallet === 0);
       cnt[b.owner]++;
       this.stats.trained++;
+      if (b.wallet === 0) this.stats.trainedMine++;
     }
   }
   buildHash() {
@@ -635,7 +636,6 @@ class Sim {
     const front = (type === 'tower' || BUILDINGS[type].node)
       ? own.filter((n) => this.nodeAdj[n.id].some((a) => this.nodes[a].owner !== P)) : own;
     const list = front.length ? front : own;
-    const W = this.map.W;
     for (let tries = 0; tries < 14; tries++) {
       const n = list[(this.rng() * list.length) | 0];
       const r = BUILDINGS[type].node ? CONFIG.NODE_MIN_DIST + this.rng() * 15 : 3 + this.rng() * 20;

@@ -37,10 +37,11 @@ CACHE = os.path.join(DATA, "dem_cache")
 PREVIEW = os.path.join(DATA, "preview")
 
 # ---- グリッド定義 ----
-DLON = 0.006            # 1マス ≒ 540m × 530m（以前の 0.009°×0.0072° から 1.5倍細かく）
-DLAT = 0.0048
-W = 3600
-H = 3765
+DLON = 0.003            # 1マス ≒ 270m × 265m（1万人規模に向けて細かく。陸地 約546万マス）
+DLAT = 0.0024
+W = 7200
+H = 7530
+TILE = 64               # 陸地を含む 64×64 マスの区画だけをゲームで持つ
 LON0 = 128.25            # 左端の経度
 LAT_TOP = 45.65          # 上端の緯度（行0が北）
 
@@ -226,7 +227,7 @@ def classify_terrain(pref, region):
     elev[ys, xs] = elev_land
 
     # 傾斜（1マス≒0.8km）
-    gy, gx = np.gradient(ndimage.gaussian_filter(elev, 0.7))
+    gy, gx = np.gradient(ndimage.gaussian_filter(elev, 1.4))
     slope = np.hypot(gx, gy) / (DLAT * 111000.0)
 
     # 市街地スコア
@@ -240,7 +241,7 @@ def classify_terrain(pref, region):
         near = d2 < (4 * sigma) ** 2
         urb[near] += np.exp(-d2[near] / (2 * sigma * sigma)) * min(pop, 300) / 50.0
     rng = np.random.default_rng(7)
-    noise = ndimage.gaussian_filter(rng.standard_normal((H, W)).astype(np.float32), 2.5) * 6
+    noise = ndimage.gaussian_filter(rng.standard_normal((H, W)).astype(np.float32), 5.0) * 12
     nz = noise[ys, xs]
 
     e = elev_land
@@ -271,7 +272,7 @@ def classify_terrain(pref, region):
 def majority_clean(terr, land):
     out = terr.copy()
     codes = [PLAIN, FOREST, MOUNTAIN, CITY, PLAIN | SNOW, FOREST | SNOW, MOUNTAIN | SNOW]
-    counts = np.stack([ndimage.uniform_filter((terr == c).astype(np.float32), 3) for c in codes])
+    counts = np.stack([ndimage.uniform_filter((terr == c).astype(np.float32), 5) for c in codes])
     best = np.array(codes, np.uint8)[counts.argmax(0)]
     own = np.zeros(terr.shape, np.float32)
     for i, c in enumerate(codes):
@@ -328,7 +329,7 @@ def build_lines(topo, arcs):
         p = shifted(a, reg)
         gx, gy = to_grid(p[:, 0], p[:, 1])
         g = np.stack([gx, gy], 1)
-        s = dp_simplify(g, 0.7)
+        s = dp_simplify(g, 1.4)
         if len(s) < 2:
             continue
         # 小さすぎる島の海岸線は省略（マス自体は残る）
@@ -351,7 +352,7 @@ def nearest_cell_of(pref, pid, lon, lat, region_hint=None):
     dx, dy = SHIFTS[reg]
     gx, gy = to_grid(lon + dx, lat + dy)
     r = 4
-    while r < 200:
+    while r < 400:
         x0, x1 = max(int(gx) - r, 0), min(int(gx) + r + 1, W)
         y0, y1 = max(int(gy) - r, 0), min(int(gy) + r + 1, H)
         sub = pref[y0:y1, x0:x1] == pid
@@ -579,7 +580,7 @@ def save_previews(pref, terr, colors, named, auto, capitals):
 
 
 # ---------------------------------------------------------------- towns (RTS の拠点)
-TOWN_SPACING = 57   # 拠点どうしのおおよその間隔（マス）
+TOWN_SPACING = 114  # 拠点どうしのおおよその間隔（マス。約30km）
 
 
 def place_towns(pref, terr, capitals):
@@ -587,7 +588,7 @@ def place_towns(pref, terr, capitals):
     land = pref > 0
     lab, n = ndimage.label(land, structure=np.ones((3, 3), int))
     sizes = np.bincount(lab.ravel())
-    big = land & (sizes[lab] >= 135)
+    big = land & (sizes[lab] >= 540)
     rank = {CITY: 0, PLAIN: 1, FOREST: 2, MOUNTAIN: 3}
     dirs = ["東", "北東", "北", "北西", "西", "南西", "南", "南東"]
     towns = []
@@ -606,8 +607,8 @@ def place_towns(pref, terr, capitals):
             x, y = int(pts[k, 0]), int(pts[k, 1])
             # 近くの市街地・平地に寄せる
             best, bs = (x, y), 9
-            for dy in range(-9, 10):
-                for dx in range(-9, 10):
+            for dy in range(-18, 19, 2):
+                for dx in range(-18, 19, 2):
                     xx, yy = x + dx, y + dy
                     if 0 <= xx < W and 0 <= yy < H and pref[yy, xx] == pid and big[yy, xx]:
                         sc = rank.get(int(terr[yy, xx]) & 7, 5) + 0.05 * (abs(dx) + abs(dy))
@@ -625,15 +626,16 @@ def place_towns(pref, terr, capitals):
 
 
 def encode_elevation(elev):
-    """標高を半分の解像度・8bit（平方根スケール）のPNGにして base64 で返す（山の陰影用）"""
-    h2, w2 = H // 2, W // 2
-    e = elev[:h2 * 2, :w2 * 2].reshape(h2, 2, w2, 2).mean(axis=(1, 3))
+    """標高を 1/4 の解像度・8bit（平方根スケール）のPNGにして base64 で返す（山の陰影用）"""
+    k = 4
+    h2, w2 = H // k, W // k
+    e = elev[:h2 * k, :w2 * k].reshape(h2, k, w2, k).mean(axis=(1, 3))
     v = np.clip(np.sqrt(np.maximum(e, 0) / 3800.0) * 255, 0, 255).astype(np.uint8)
     buf = io.BytesIO()
     Image.fromarray(v).save(buf, format="PNG", optimize=True)
     data = base64.b64encode(buf.getvalue()).decode("ascii")
     print(f"  elevation PNG {w2}x{h2}: {len(data) // 1024}KB")
-    return {"w": int(w2), "h": int(h2), "png": data}
+    return {"w": int(w2), "h": int(h2), "scale": k, "png": data}
 
 
 # ---------------------------------------------------------------- main
@@ -681,7 +683,7 @@ def main():
         ys, xs = np.nonzero(m)
         return [int(xs.min()) - pad, int(ys.min()) - pad, int(xs.max()) + pad, int(ys.max()) + pad]
 
-    pad = 33
+    pad = 66
     # 沖縄・奄美：先島（左・低い）と本島〜奄美（右・高い）を囲む階段状の枠
     ax0, ay0, ax1, ay1 = bbox([4], pad)
     bx0, by0, bx1, by1 = bbox([1, 5], pad)
@@ -706,12 +708,12 @@ def main():
     for r in (5, 4, 1, 3, 2):
         ys, xs = np.nonzero(region == r)
         if len(xs):
-            shift_rects.append({"x0": int(xs.min()) - 10, "y0": int(ys.min()) - 10, "x1": int(xs.max()) + 10,
-                                "y1": int(ys.max()) + 10, "dlon": SHIFTS[r][0], "dlat": SHIFTS[r][1]})
+            shift_rects.append({"x0": int(xs.min()) - 20, "y0": int(ys.min()) - 20, "x1": int(xs.max()) + 20,
+                                "y1": int(ys.max()) + 20, "dlon": SHIFTS[r][0], "dlat": SHIFTS[r][1]})
 
     out = {
         "source": "地球地図日本（国土地理院）／ dataofjapan/land",
-        "W": W, "H": H, "lon0": LON0, "latTop": LAT_TOP, "dlon": DLON, "dlat": DLAT,
+        "W": W, "H": H, "tile": TILE, "lon0": LON0, "latTop": LAT_TOP, "dlon": DLON, "dlat": DLAT,
         "landCells": int(land.sum()),
         "prefs": prefs,
         "pref": pref_b64,

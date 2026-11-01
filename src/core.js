@@ -62,7 +62,7 @@ const CONFIG = {
   // ---- 画面
   CAMERA_PITCH: 42, TOP_PITCH: 90, TITLE_PITCH: 75, FOV: 34,
   ZOOM_MIN: 6, ZOOM_MAX: 13500,
-  FILL: 0.1, FILL_TOP: 0.78,      // 領土の塗りの濃さ（斜め／真上）
+  FILL: 0.035, FILL_TOP: 0.7,     // 領土の塗りの濃さ（斜め／真上）。斜めは国境線が主役
   TREE_MAX: 9000,
   LOG_MAX: 4, BANNER_MS: 1800, MINIMAP_REFRESH: 1.0, MAX_DPR: 2, HUD_REFRESH: 0.25,
 };
@@ -112,33 +112,6 @@ function b64ToBytes(s) {
   for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
   return u;
 }
-function rleDecode(b64, n) {
-  const src = b64ToBytes(b64);
-  const out = new Uint8Array(n);
-  let p = 0, o = 0;
-  while (p < src.length) {
-    const v = src[p++];
-    let len = 0, shift = 0, b;
-    do { b = src[p++]; len |= (b & 127) << shift; shift += 7; } while (b & 128);
-    out.fill(v, o, o + len);
-    o += len;
-  }
-  if (o !== n) throw new Error('RLE size mismatch ' + o + ' / ' + n);
-  return out;
-}
-function decodeLines(list) {
-  // [x0,y0,dx,dy,...] (1/4マス単位) → Float32Array の折れ線
-  return list.map((flat) => {
-    const pts = new Float32Array(flat.length);
-    let x = 0, y = 0;
-    for (let i = 0; i < flat.length; i += 2) {
-      x += flat[i]; y += flat[i + 1];
-      pts[i] = x / 4; pts[i + 1] = y / 4;
-    }
-    return pts;
-  });
-}
-
 const TERRAIN_NAMES = ['海', '平地', '森', '山', '市街地'];
 // 自然な色（草原・森・岩・街は草原寄り、雪）
 const TERRAIN_COLORS = {
@@ -146,23 +119,77 @@ const TERRAIN_COLORS = {
   9: [226, 231, 233], 10: [176, 196, 190], 11: [240, 242, 245], 12: [216, 222, 222],
 };
 
+/** RLE（値＋可変長の長さ）を、(開始位置, 長さ, 値) の並びとして読む */
+function rleRuns(b64, fn) {
+  const src = b64ToBytes(b64);
+  let p = 0, o = 0;
+  while (p < src.length) {
+    const v = src[p++];
+    let len = 0, shift = 0, b;
+    do { b = src[p++]; len |= (b & 127) << shift; shift += 7; } while (b & 128);
+    fn(o, len, v);
+    o += len;
+  }
+  return o;
+}
+const TILE = 64, TSH = 6, TMASK = 63;               // 区画は 64×64 マス
+const OFF8 = [-65, -64, -63, -1, 1, 63, 64, 65];    // 区画の内側での 8方向の隣（番号の差）
+
+/**
+ * 地図データ。日本を囲む長方形（W×H）の9割は海なので、陸地を含む 64×64 マスの区画だけを持つ。
+ *   マスの番号 i ＝ 区画の番号×4096 ＋ 区画内の行×64 ＋ 区画内の列（海だけの区画のマスは -1）
+ *   id(x, y) で座標→番号、X(i)・Y(i) で番号→座標
+ */
 class MapData {
   constructor(raw) {
     this.raw = raw;
-    this.W = raw.W; this.H = raw.H; this.N = raw.W * raw.H;
+    this.W = raw.W; this.H = raw.H;
+    this.TW = Math.ceil(raw.W / TILE); this.TH = Math.ceil(raw.H / TILE);
     this.prefs = [null];
     for (const p of raw.prefs) this.prefs[p.id] = p;
     this.landCells = raw.landCells;
   }
+  /** 長方形の中の通し番号（y*W+x）の範囲 [o, o+len) を、行ごと・区画ごとの区切りに分けて fn(区画番号, 区画内の行, 列0, 列1) */
+  forSpan(o, len, fn) {
+    const W = this.W;
+    let y = (o / W) | 0, x = o - y * W, left = len;
+    while (left > 0) {
+      const n = Math.min(left, W - x);
+      let x0 = x;
+      const x1 = x + n;
+      while (x0 < x1) {
+        const tx = x0 >> TSH, end = Math.min(x1, (tx + 1) << TSH);
+        fn(tx + (y >> TSH) * this.TW, y & TMASK, x0 & TMASK, ((end - 1) & TMASK) + 1);
+        x0 = end;
+      }
+      left -= n; x = 0; y++;
+    }
+  }
   async decode(progress) {
-    const { N, W } = this;
+    const raw = this.raw, W = this.W;
     progress(0.1, '県のマスを展開中…'); await nextFrame();
-    this.initPref = rleDecode(this.raw.pref, N);
+    // 1回目：陸地を含む区画を数える
+    const has = new Uint8Array(this.TW * this.TH);
+    rleRuns(raw.pref, (o, len, v) => { if (v) this.forSpan(o, len, (t) => { has[t] = 1; }); });
+    this.tileBase = new Int32Array(this.TW * this.TH).fill(-1);
+    const tx = [], ty = [];
+    for (let t = 0; t < has.length; t++) if (has[t]) { this.tileBase[t] = tx.length << (TSH * 2); tx.push(t % this.TW); ty.push((t / this.TW) | 0); }
+    this.nTiles = tx.length;
+    this.tileX = Int16Array.from(tx); this.tileY = Int16Array.from(ty);
+    const N = this.N = this.nTiles << (TSH * 2);
+    // 2回目：区画の中に値を書く
+    const fill = (b64, out) => rleRuns(b64, (o, len, v) => {
+      if (!v) return;
+      this.forSpan(o, len, (t, ly, x0, x1) => { const b = this.tileBase[t]; if (b >= 0) out.fill(v, b + (ly << TSH) + x0, b + (ly << TSH) + x1); });
+    });
+    this.initPref = new Uint8Array(N);
+    fill(raw.pref, this.initPref);
     progress(0.25, '地形を展開中…'); await nextFrame();
-    this.terrain = rleDecode(this.raw.terrain, N);
+    this.terrain = new Uint8Array(N);
+    fill(raw.terrain, this.terrain);
     progress(0.35, '標高を展開中…');
-    // 標高（PNG・半分の解像度）：ブラウザの画像デコーダで読み、明るさを取り出す
-    const ev = this.raw.elev;
+    // 標高（PNG・1/4 の解像度）：ブラウザの画像デコーダで読み、明るさを取り出す
+    const ev = raw.elev;
     const img = new Image();
     await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('標高データを読めません')); img.src = 'data:image/png;base64,' + ev.png; });
     const cv = document.createElement('canvas');
@@ -172,29 +199,58 @@ class MapData {
     const px = cx.getImageData(0, 0, ev.w, ev.h).data;
     this.elev = new Uint8Array(ev.w * ev.h);
     for (let k = 0; k < this.elev.length; k++) this.elev[k] = px[k * 4];
-    this.elevW = ev.w; this.elevH = ev.h;
+    this.elevW = ev.w; this.elevH = ev.h; this.elevScale = ev.scale || 2;
+    // データ中のマスの番号（長方形の通し番号）を、区画方式の番号に置き換える
+    const conv = (d) => this.id(d % W, (d / W) | 0);
+    if (!raw.converted) {
+      for (const p of raw.prefs) p.capital = conv(p.capital);
+      for (const l of raw.links) { l.a = conv(l.a); l.b = conv(l.b); }
+      raw.autoLinks = raw.autoLinks.map(([a, b]) => [conv(a), conv(b)]);
+      for (const t of raw.towns) t.cell = conv(t.cell);
+      raw.converted = true;
+    }
     // 連絡マス（隣接扱い）
     this.linkMap = new Map();
     const addLink = (a, b) => {
+      if (a < 0 || b < 0) return;
       if (!this.linkMap.has(a)) this.linkMap.set(a, []);
       if (!this.linkMap.has(b)) this.linkMap.set(b, []);
       this.linkMap.get(a).push(b); this.linkMap.get(b).push(a);
     };
     this.linkName = new Map();
-    for (const l of this.raw.links) {
+    for (const l of raw.links) {
       addLink(l.a, l.b);
       this.linkName.set(l.a, l.name); this.linkName.set(l.b, l.name);
     }
-    for (const [a, b] of this.raw.autoLinks) addLink(a, b);
+    for (const [a, b] of raw.autoLinks) addLink(a, b);
     this.capitalCell = this.prefs.map((p) => (p ? p.capital : -1));
     this.capitalOf = new Map();
     for (const p of this.prefs) if (p) this.capitalOf.set(p.capital, p.id);
     this.initCounts = new Int32Array(48);
     const ip = this.initPref;
     for (let i = 0; i < N; i++) if (ip[i]) this.initCounts[ip[i]]++;
-    this.xy = (i) => [i % W, (i / W) | 0];
   }
-  isLand(i) { return this.initPref[i] !== 0; }
+  /** 座標 → マスの番号（海だけの区画・地図の外は -1） */
+  id(x, y) {
+    if (x < 0 || y < 0 || x >= this.W || y >= this.H) return -1;
+    const b = this.tileBase[(y >> TSH) * this.TW + (x >> TSH)];
+    return b < 0 ? -1 : b + ((y & TMASK) << TSH) + (x & TMASK);
+  }
+  X(i) { return (this.tileX[i >> 12] << TSH) + (i & TMASK); }
+  Y(i) { return (this.tileY[i >> 12] << TSH) + ((i >> TSH) & TMASK); }
+  xy(i) { return [this.X(i), this.Y(i)]; }
+  /** 8方向の隣（区画の内側は番号の差で速く、ふちは座標から） */
+  nb8(i, fn) {
+    const lx = i & TMASK, ly = (i >> TSH) & TMASK;
+    if (lx > 0 && lx < TMASK && ly > 0 && ly < TMASK) { for (let k = 0; k < 8; k++) fn(i + OFF8[k]); return; }
+    const x = this.X(i), y = this.Y(i);
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (!dx && !dy) continue;
+      const j = this.id(x + dx, y + dy);
+      if (j >= 0) fn(j);
+    }
+  }
+  isLand(i) { return i >= 0 && this.initPref[i] !== 0; }
   ownerName(o) { return o === WASTE ? '焦土（持ち主なし）' : this.prefs[o].name; }
   ownerColor(o) { return o === WASTE ? WASTE_COLOR : this.prefs[o].color; }
   paletteColors() { const c = this.prefs.map((p) => (p ? p.color : null)); c[WASTE] = WASTE_COLOR; return c; }
@@ -346,10 +402,13 @@ const GROUND_FS = `
 #extension GL_OES_standard_derivatives : enable
 #endif
 precision highp float;
-uniform sampler2D uTerrain;   // RGB=地形の色, A=陸(1)/海(0)
-uniform sampler2D uElev;      // L=標高, A=陸地への近さ（浅瀬用）
-uniform sampler2D uOwner;     // L=持ち主, A=最近占領された
-uniform sampler2D uPalette;
+uniform sampler2D uElev;      // L=標高, A=周りの陸地の割合（浅瀬・海岸の判定）。1/4 の解像度
+uniform sampler2D uOwner;     // 区画アトラス：L=持ち主, A=地形の種類×16＋（最近占領されたら8）
+uniform sampler2D uInd;       // 区画の表：RG=アトラスの中の区画の位置, A=陸地を含む区画か
+uniform sampler2D uPalette;   // 1行目=県の色, 2行目=地形の色
+uniform vec2 uTiles;          // 区画の数（横・縦）
+uniform vec2 uAtlas;          // アトラスの大きさ（px）
+uniform float uElevScale;
 uniform sampler2D uGrass;      // 緑の草の筋（くり返し）
 uniform sampler2D uDry;        // 黄金色の枯れ草の筋（くり返し）
 uniform float uHasGrass;
@@ -365,7 +424,25 @@ float noise(vec2 p){
   vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
   return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
 }
-float ownerAt(vec2 w){ return floor(texture2D(uOwner, (floor(w) + 0.5) / uGrid).r * 255.0 + 0.5); }
+// マス → アトラスの中のデータ（x=持ち主, y=地形の種類, z=最近占領されたか）。
+// 中心のマスの区画を覚えておき、同じ区画のマスは区画の表を引き直さない
+vec2 gTile; vec2 gOrig; float gOk;
+void setTile(vec2 cell){
+  gTile = floor(cell / 64.0);
+  vec4 ind = texture2D(uInd, (gTile + 0.5) / uTiles);
+  gOk = ind.a; gOrig = floor(ind.rg * 255.0 + 0.5) * 64.0;
+}
+vec3 cellData(vec2 cell){
+  vec2 t = floor(cell / 64.0);
+  vec2 orig = gOrig; float ok = gOk;
+  if (t != gTile) { vec4 ind = texture2D(uInd, (t + 0.5) / uTiles); ok = ind.a; orig = floor(ind.rg * 255.0 + 0.5) * 64.0; }
+  if (ok < 0.5 || cell.x < 0.0 || cell.y < 0.0) return vec3(0.0);
+  vec4 d = texture2D(uOwner, (orig + (cell - t * 64.0) + 0.5) / uAtlas);
+  float a = floor(d.a * 255.0 + 0.5);
+  return vec3(floor(d.r * 255.0 + 0.5), floor(a / 16.0), step(7.5, mod(a, 16.0)));
+}
+float landAt(vec2 cell){ return step(0.5, cellData(cell).y); }
+float ownerAt(vec2 w){ return cellData(floor(w)).x; }
 void main(){
 #ifdef HAS_DERIV
   vec2 fw = fwidth(vWorld);
@@ -376,10 +453,28 @@ void main(){
   vec2 uv = vWorld / uGrid;
   vec3 deep = vec3(0.09, 0.25, 0.40);
   if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { gl_FragColor = vec4(deep, 1.0); return; }
-  vec4 t = texture2D(uTerrain, uv);
   vec4 e = texture2D(uElev, uv);
+  // 沖合（近くに陸地がない）は区画を読まずに海だけ描く
+  if (e.a < 0.004) {
+    vec3 w0 = deep + (noise(vWorld * 0.8 + vec2(uTime * 0.15, uTime * 0.07)) - 0.5) * 0.04;
+    gl_FragColor = vec4(w0, 1.0); return;
+  }
+  // 地形：このマスの種類の色（高いところは岩の色に）＋ 4マスの陸／海をなめらかにつないで海岸線を丸く
+  vec2 cell = floor(vWorld);
+  setTile(cell);
+  vec3 here = cellData(cell);
+  float cls = here.y;
+  vec3 tcol = texture2D(uPalette, vec2((cls + 0.5) / 64.0, 0.75)).rgb;
+  if (cls > 0.5 && cls < 7.5) tcol = mix(tcol, vec3(0.49, 0.44, 0.36), clamp((e.r - 0.35) * 1.6, 0.0, 0.75));
+  float landA = step(0.5, cls);
+  if (e.a < 0.99) {   // 海岸の近くだけ、まわり4マスから海岸線をなめらかに
+    vec2 q = vWorld - 0.5, qf = fract(q), q0 = floor(q);
+    float l00 = landAt(q0), l10 = landAt(q0 + vec2(1.0, 0.0)), l01 = landAt(q0 + vec2(0.0, 1.0)), l11 = landAt(q0 + vec2(1.0, 1.0));
+    landA = mix(mix(l00, l10, qf.x), mix(l01, l11, qf.x), qf.y);
+  }
+  vec4 t = vec4(tcol, landA);
   // 標高から陰影（北西から光）
-  vec2 px = 2.0 / uGrid;
+  vec2 px = uElevScale / uGrid;
   float hL = texture2D(uElev, uv - vec2(px.x, 0.0)).r, hR = texture2D(uElev, uv + vec2(px.x, 0.0)).r;
   float hU = texture2D(uElev, uv - vec2(0.0, px.y)).r, hD = texture2D(uElev, uv + vec2(0.0, px.y)).r;
   vec3 n = normalize(vec3((hL - hR) * 9.0, 1.0, (hU - hD) * 9.0));
@@ -416,7 +511,7 @@ void main(){
   }
   land *= shade;
   // 海：岸に近いほど浅い色、さざ波
-  float near = e.a;
+  float near = min(1.0, e.a * 2.2);
   vec3 shallow = vec3(0.24, 0.52, 0.58);
   vec3 water = mix(deep, shallow, near * near);
   water += (noise(vWorld * 0.8 + vec2(uTime * 0.15, uTime * 0.07)) - 0.5) * 0.04;
@@ -425,9 +520,9 @@ void main(){
   vec3 col = mix(water + foam * 0.25, land, isLand);
   // 領土
   if (isLand > 0.01) {
-    float id = ownerAt(vWorld);
+    float id = here.x;
     if (id > 0.5) {
-      vec3 pc = texture2D(uPalette, vec2((id + 0.5) / 64.0, 0.5)).rgb;
+      vec3 pc = texture2D(uPalette, vec2((id + 0.5) / 64.0, 0.25)).rgb;
       col = mix(col, pc, uFill * isLand);
       // 国境線：となりの持ち主が違えば、自分の側に自分の色の線を引く
       // 引いているときは画面上で2pxくらい、拡大すると0.35マスの帯
@@ -439,9 +534,9 @@ void main(){
         if (q > 0.5 && abs(q - id) > 0.5) edge = 1.0;
       }
       float zoomedIn = clamp((1.0 / cpp - 3.0) / 6.0, 0.0, 1.0);
-      if (edge > 0.5) col = mix(col, pc * 1.1 + 0.08, (0.9 - 0.35 * zoomedIn) * isLand);
+      if (edge > 0.5) col = mix(col, pc * 1.1 + 0.08, (0.8 - 0.4 * zoomedIn) * isLand);
       // 最近占領されたところは斜線
-      if (texture2D(uOwner, (floor(vWorld) + 0.5) / uGrid).a > 0.5) {
+      if (here.z > 0.5) {
         float s = step(0.5, fract((gl_FragCoord.x + gl_FragCoord.y) / 12.0));
         col = mix(col, pc, s * 0.35);
       }
@@ -642,7 +737,6 @@ class Renderer {
     if (!gl) throw new Error('WebGLが使えません');
     this.gl = gl;
     const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
-    if (maxTex < Math.max(map.W, map.H)) throw new Error(`この端末はテクスチャサイズ ${maxTex} までしか扱えません`);
     const deriv = gl.getExtension('OES_standard_derivatives');
     const hp = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
     let fs = GROUND_FS;
@@ -678,10 +772,11 @@ class Renderer {
     this.ownerTex = gl.createTexture();
     this.terrainTex = gl.createTexture();
     this.elevTex = gl.createTexture();
+    this.indTex = gl.createTexture();
   }
   dispose() {
     const gl = this.gl;
-    for (const t of [this.palette, this.ownerTex, this.terrainTex, this.elevTex, this.spriteColor, this.spriteMask, this.grassTex, this.dryTex]) gl.deleteTexture(t);
+    for (const t of [this.palette, this.ownerTex, this.terrainTex, this.elevTex, this.indTex, this.spriteColor, this.spriteMask, this.grassTex, this.dryTex]) gl.deleteTexture(t);
     for (const b of [this.spriteBuf, this.spriteQuad]) gl.deleteBuffer(b);
     gl.deleteProgram(this.sprite.p);
     for (const b of [this.groundBuf, this.lineBuf, this.instBuf]) gl.deleteBuffer(b);
@@ -695,35 +790,51 @@ class Renderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   }
-  /** 地形テクスチャ（自然な色。標高が高いほど岩っぽく）と、標高・浅瀬テクスチャ */
+  /**
+   * 区画アトラス：陸地を含む 64×64 マスの区画を、横 64 個ずつ並べた 1 枚の絵（4096 × 64・行数）。
+   * マスの番号 i の区画 t = i>>12 は、アトラスの (t%64, t/64) 番目に置く。
+   */
+  atlasPos(i) {
+    const t = i >> 12;
+    return [((t & 63) << 6) + (i & 63), ((t >> 6) << 6) + ((i >> 6) & 63)];
+  }
+  /** 区画方式の配列（1マス k バイト）を、アトラスの並びのバイト列に並べ替える */
+  toAtlas(fn, k) {
+    const map = this.map, AW = this.AW, AH = this.AH;
+    const out = new Uint8Array(AW * AH * k);
+    for (let t = 0; t < map.nTiles; t++) {
+      const ax = (t & 63) << 6, ay = (t >> 6) << 6, base = t << 12;
+      for (let ly = 0; ly < 64; ly++) {
+        let o = ((ay + ly) * AW + ax) * k;
+        for (let lx = 0; lx < 64; lx++, o += k) fn(base + (ly << 6) + lx, out, o);
+      }
+    }
+    return out;
+  }
+  /** 区画の表・標高と浅瀬のテクスチャ（地形の種類は持ち主と同じアトラスに入れる） */
   uploadTerrain() {
     const { gl, map } = this;
-    const { W, H, N, terrain } = map;
-    const ew = map.elevW, eh = map.elevH, elev = map.elev;
-    const rgba = new Uint8Array(N * 4);
-    const pal = new Uint8Array(16 * 3);
-    for (const k in TERRAIN_COLORS) pal.set(TERRAIN_COLORS[k], k * 3);
-    const ROCK = [126, 112, 92];
-    for (let i = 0; i < N; i++) {
-      const t = terrain[i], o = i * 4;
-      if (!t) { rgba[o] = 40; rgba[o + 1] = 90; rgba[o + 2] = 110; rgba[o + 3] = 0; continue; }
-      const x = i % W, y = (i / W) | 0;
-      const ev = elev[Math.min(eh - 1, y >> 1) * ew + Math.min(ew - 1, x >> 1)] / 255;   // 0..1（平方根スケール）
-      const r = (t & 8) ? 0 : clamp((ev - 0.35) * 1.6, 0, 0.75);   // 高いところは岩の色に寄せる（雪は除く）
-      rgba[o] = pal[t * 3] + (ROCK[0] - pal[t * 3]) * r;
-      rgba[o + 1] = pal[t * 3 + 1] + (ROCK[1] - pal[t * 3 + 1]) * r;
-      rgba[o + 2] = pal[t * 3 + 2] + (ROCK[2] - pal[t * 3 + 2]) * r;
-      rgba[o + 3] = 255;
-    }
-    gl.bindTexture(gl.TEXTURE_2D, this.terrainTex);
+    this.AW = 4096; this.AH = Math.max(64, Math.ceil(map.nTiles / 64) * 64);
+    const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    if (this.AH > maxTex || this.AW > maxTex) throw new Error(`この端末はテクスチャサイズ ${maxTex} までしか扱えません`);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
-    this.texParams(gl, true);
-    // 標高(L) と 陸地への近さ(A)（半分の解像度。ぼかして浅瀬の幅にする）
+    // 区画の表（TW×TH）：アトラスの中の位置
+    const ind = new Uint8Array(map.TW * map.TH * 4);
+    for (let k = 0; k < map.TW * map.TH; k++) {
+      const b = map.tileBase[k];
+      if (b < 0) continue;
+      const t = b >> 12;
+      ind[k * 4] = t & 63; ind[k * 4 + 1] = t >> 6; ind[k * 4 + 3] = 255;
+    }
+    gl.bindTexture(gl.TEXTURE_2D, this.indTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, map.TW, map.TH, 0, gl.RGBA, gl.UNSIGNED_BYTE, ind);
+    this.texParams(gl, false);
+    // 標高(L) と 陸地への近さ(A)（1/4 の解像度。ぼかして浅瀬の幅にする）
+    const ew = map.elevW, eh = map.elevH, elev = map.elev, k = map.elevScale;
     const near = new Float32Array(ew * eh);
     for (let y = 0; y < eh; y++) for (let x = 0; x < ew; x++) {
-      const i = (y * 2) * W + x * 2;
-      near[y * ew + x] = (map.initPref[i] || map.initPref[i + 1] || map.initPref[i + W] || map.initPref[i + W + 1]) ? 1 : 0;
+      const i = map.id(x * k + (k >> 1), y * k + (k >> 1));
+      near[y * ew + x] = i >= 0 && map.initPref[i] ? 1 : 0;
     }
     const blur = (src, r) => {
       const tmp = new Float32Array(src.length), out = new Float32Array(src.length);
@@ -733,7 +844,7 @@ class Renderer {
     };
     const nb = blur(blur(near, 5), 5);
     const la = new Uint8Array(ew * eh * 2);
-    for (let k = 0; k < ew * eh; k++) { la[k * 2] = elev[k]; la[k * 2 + 1] = Math.min(255, nb[k] * 2.2 * 255); }
+    for (let q = 0; q < ew * eh; q++) { la[q * 2] = elev[q]; la[q * 2 + 1] = Math.round(Math.min(1, nb[q]) * 255); }   // 周りの陸地の割合
     gl.bindTexture(gl.TEXTURE_2D, this.elevTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE_ALPHA, ew, eh, 0, gl.LUMINANCE_ALPHA, gl.UNSIGNED_BYTE, la);
     this.texParams(gl, true);
@@ -768,31 +879,33 @@ class Renderer {
     this.spriteSize = [painter.w, painter.h];
     this.hasSprites = true;
   }
+  /** 色の表：1行目＝県の色、2行目＝地形の色 */
   setPalette(colors) {
     const gl = this.gl;
-    const data = new Uint8Array(64 * 4);
+    const data = new Uint8Array(64 * 2 * 4);
     colors.forEach((c, i) => { if (c) { const [r, g, b] = hexToRgb(c); data.set([r, g, b, 255], i * 4); } });
+    for (const k in TERRAIN_COLORS) data.set([...TERRAIN_COLORS[k], 255], (64 + +k) * 4);
+    data.set([40, 90, 110, 255], 64 * 4);
     gl.bindTexture(gl.TEXTURE_2D, this.palette);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 64, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 64, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
     this.texParams(gl, false);
   }
   /** 持ち主テクスチャ（1マス2バイト）: L=持ち主, A=255 なら最近占領されたマス */
   attachGame(game, me) {
     this.game = game; this.me = me;
     this.dirty.clear();
-    const { gl, map } = this;
-    const { N, W, H } = map;
-    const data = new Uint8Array(N * 2);
-    for (let i = 0; i < N; i++) this.computeTexel(i, data, i * 2);
+    const { gl } = this;
+    const data = this.toAtlas((i, out, o) => this.computeTexel(i, out, o), 2);
     gl.bindTexture(gl.TEXTURE_2D, this.ownerTex);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE_ALPHA, W, H, 0, gl.LUMINANCE_ALPHA, gl.UNSIGNED_BYTE, data);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE_ALPHA, this.AW, this.AH, 0, gl.LUMINANCE_ALPHA, gl.UNSIGNED_BYTE, data);
     this.texParams(gl, false);
   }
+  /** 1マス2バイト：持ち主、地形の種類×16＋（最近占領されたら8） */
   computeTexel(i, out, o) {
     const g = this.game, map = this.map;
     out[o] = g ? g.owner[i] : map.initPref[i];
-    out[o + 1] = g && g.isRecent(i) ? 255 : 0;
+    out[o + 1] = (map.terrain[i] << 4) | (g && g.isRecent(i) ? 8 : 0);
   }
   cellChanged(i) { this.dirty.add(i); }
   flush() {
@@ -803,7 +916,8 @@ class Renderer {
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     for (const i of this.dirty) {
       this.computeTexel(i, this.texel, 0);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, i % map.W, (i / map.W) | 0, 1, 1, gl.LUMINANCE_ALPHA, gl.UNSIGNED_BYTE, this.texel);
+      const [ax, ay] = this.atlasPos(i);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, ax, ay, 1, 1, gl.LUMINANCE_ALPHA, gl.UNSIGNED_BYTE, this.texel);
     }
     this.dirty.clear();
   }
@@ -833,8 +947,7 @@ class Renderer {
         d += L;
       }
     };
-    const W = map.W;
-    const c = (i) => [(i % W) + 0.5, ((i / W) | 0) + 0.5];
+    const c = (i) => [map.X(i) + 0.5, map.Y(i) + 0.5];
     this.linkStubs = [];
     group('links', () => {
       for (const l of map.raw.links) {
@@ -874,9 +987,12 @@ class Renderer {
     gl.enableVertexAttribArray(g.a.aPos);
     gl.vertexAttribPointer(g.a.aPos, 2, gl.FLOAT, false, 0, 0);
     gl.uniformMatrix4fv(g.u.uVP, false, vp);
-    const tex = [[this.terrainTex, 'uTerrain'], [this.elevTex, 'uElev'], [this.ownerTex, 'uOwner'], [this.palette, 'uPalette'], [this.grassTex, 'uGrass'], [this.dryTex, 'uDry']];
+    const tex = [[this.elevTex, 'uElev'], [this.ownerTex, 'uOwner'], [this.palette, 'uPalette'], [this.grassTex, 'uGrass'], [this.dryTex, 'uDry'], [this.indTex, 'uInd']];
     tex.forEach(([t, name], k) => { gl.activeTexture(gl.TEXTURE0 + k); gl.bindTexture(gl.TEXTURE_2D, t); gl.uniform1i(g.u[name], k); });
     gl.uniform2f(g.u.uGrid, map.W, map.H);
+    gl.uniform2f(g.u.uTiles, map.TW, map.TH);
+    gl.uniform2f(g.u.uAtlas, this.AW, this.AH);
+    gl.uniform1f(g.u.uElevScale, map.elevScale);
     gl.uniform1f(g.u.uFill, opt.fill);
     gl.uniform1f(g.u.uHasGrass, this.hasGrass ? 1 : 0);
     gl.uniform1f(g.u.uMe, this.me);
