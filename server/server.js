@@ -10,11 +10,14 @@ const path = require('path');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const { loadEngine, loadMaps, ROOT } = require('./engine');
+const persist = require('./persist');
 
 const PORT = +(process.env.PORT || 8080);
 const S = +(process.env.GRID_SCALE || 3);           // 地図の細かさ（元の地図の1マスを S×S に分ける）
 const SPEED = +(process.env.SPEED || 1);            // 確認用の早送り
 const SEED = +(process.env.SEED || (Date.now() & 0x7fffffff));
+const SAVE_FILE = process.env.SAVE_FILE || path.join(ROOT, 'server', 'season.sav');   // シーズンの保存先
+const SAVE_MS = +(process.env.SAVE_MS || 300000);   // 5分ごとに保存
 const SNAP_MS = 500;                                // 兵士・建物を送る間隔
 const MAX_SUBS = 600;                               // 1人が同時に受け取れる細かい区画の数
 const MAX_UNITS = 2500, MAX_BUILDINGS = 4000;
@@ -46,13 +49,19 @@ function frame(kind, idx, body) {
 }
 
 class Season {
-  constructor(coarse, fine) {
+  constructor(coarse, fine, resume) {
     this.coarse = coarse; this.fine = fine;
     const t0 = Date.now();
     Season.count = (Season.count || 0) + 1;
+    this.seasonNo = Season.count;
     this.sim = new E.Sim(fine, 0, (SEED + Season.count - 1) >>> 0);   // シーズンごとに違う展開
-    console.log(`season ready in ${Date.now() - t0}ms: nodes ${this.sim.nodes.length}, units ${this.sim.units.length}`);
     this.accounts = new Map();                      // token → { w, pref, name }
+    // 保存したシーズンがあれば続きから
+    if (resume) {
+      try { if (persist.load(this, SAVE_FILE)) { Season.count = this.seasonNo; console.log(`resumed season ${this.seasonNo} at t=${this.sim.time.toFixed(0)}s`); } }
+      catch (e) { console.error('could not load save file:', e.message); }
+    }
+    console.log(`season ready in ${Date.now() - t0}ms: nodes ${this.sim.nodes.length}, units ${this.sim.units.length}`);
     this.startedAt = Date.now();
     // 粗い持ち主（元の地図の1マスごと。そのマスの中央の細かいマスの持ち主。最近占領なら +64）
     // 送るときは「元の県のままなら 0」にする（ブラウザは元の県を知っている）。長い同じ値の並びになり、小さく送れる
@@ -340,7 +349,7 @@ wss.on('connection', (ws) => {
   const t0 = Date.now();
   maps = await loadMaps(E, S);
   console.log(`map ${maps.fine.W}x${maps.fine.H}, land ${maps.fine.landCells} cells (${Date.now() - t0}ms)`);
-  season = new Season(maps.coarse, maps.fine);
+  season = new Season(maps.coarse, maps.fine, true);
   server.listen(PORT, () => console.log(`listening on :${PORT}`));
   let last = Date.now(), snapAt = 0, statsAt = 0, restartAt = 0;
   setInterval(() => {
@@ -352,6 +361,7 @@ wss.on('connection', (ws) => {
       for (const cl of clients) { send(cl.ws, { t: 'reset' }); cl.ws.close(); }
       season = new Season(maps.coarse, maps.fine);
       last = Date.now();
+      saveNow();
       return;
     }
     const dt = Math.min(1, (now - last) / 1000);
@@ -368,6 +378,17 @@ wss.on('connection', (ws) => {
     }
   }, 100);
   setInterval(() => season.countNodeCells(), 30000);
+  let saving = false;
+  const saveNow = async () => {
+    if (saving) return;
+    saving = true;
+    try { const r = await persist.save(season, SAVE_FILE); console.log(`saved season (${(r.bytes / 1e6).toFixed(1)}MB, ${r.ms}ms)`); }
+    catch (e) { console.error('save failed:', e.message); }
+    saving = false;
+  };
+  setInterval(saveNow, SAVE_MS);
+  // 止めるとき（systemctl stop・Ctrl+C）も保存してから終わる
+  for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, async () => { console.log('saving before exit…'); await saveNow(); process.exit(0); });
   setInterval(() => {
     const mu = process.memoryUsage();
     console.log(`t=${season.sim.time.toFixed(0)} online=${clients.size} units=${season.sim.units.length} blds=${season.sim.buildings.length} nodes=${season.sim.nodes.length} rss=${(mu.rss / 1e6) | 0}MB`);

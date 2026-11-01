@@ -72,6 +72,8 @@ node tests/run_tests.js       # Playwright テスト（MINUTES=20 などで長�
 - 参加：県を選んで「出陣」。参加の印（トークン）を端末に保存し、同じ端末なら同じ県・同じ財布で続きから遊べる。
   抜けても建物と資源は残る。各県の参加者数は「人口から決まる席数」と「人間の参加者数」の多い方で、空いている席をAIが担当。
 - シーズンが終わると10分後に次のシーズンが始まる（つないでいる人は自動で読み込み直す）。
+- シーズンは5分ごとと止めるとき（`systemctl stop`・Ctrl+C）に `server/season.sav` へ保存し、起動時に続きから始める
+  （約5MB・圧縮は別スレッドで約3秒。兵士の経路だけは保存せず、読み込み後に考え直す）。最初からにしたいときはこのファイルを消す。
 
 ### 測った数字（テスト環境・`node tests/online_tests.js`、`BOTS=1000` で1000人）
 | | 値 |
@@ -95,10 +97,9 @@ sudo ln -s /etc/nginx/sites-available/jinchi47 /etc/nginx/sites-enabled/ && sudo
 sudo certbot --nginx -d あなたのドメイン                             # HTTPS（wss）
 ```
 手元で試すなら `npm install --omit=dev && node server/server.js` → `http://localhost:8080/`。
-環境変数：`PORT`（8080）・`GRID_SCALE`（3）・`SEED`・`SPEED`（確認用の早送り）・`RESTART_MS`（終了後に次を始めるまで）。
+環境変数：`PORT`（8080）・`GRID_SCALE`（3）・`SEED`・`SPEED`（確認用の早送り）・`RESTART_MS`（終了後に次を始めるまで）・`SAVE_FILE`・`SAVE_MS`（保存の間隔）。
 
 ### まだないもの（次の段階）
-- シーズンの保存：サーバーを再起動すると、そのシーズンは最初からになる（定期的にファイルへ保存する仕組みが必要）
 - ログイン（今は端末に保存した印だけ。機種変更すると引き継げない）・名前の表示・チャット
 - 不正対策（送信回数の制限など）
 
