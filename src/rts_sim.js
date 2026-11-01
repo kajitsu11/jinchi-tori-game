@@ -237,6 +237,9 @@ class Sim {
       if (cn) for (let k = 0; k < n; k++) this.spawnUnit(p, cn.x, cn.y, 20 * S, -1);
     }
     this.rally = -1;                                // プレイヤーの兵士の攻撃目標（拠点）
+    // あなたの最初の部隊（試作版など。CONFIG.PLAYER_START_UNITS 人。5人に1人は騎馬隊）
+    const myCap = me ? this.nodes[this.capNode[me]] : null;
+    if (myCap) for (let k = 0; k < (CONFIG.PLAYER_START_UNITS || 0); k++) this.spawnUnit(me, myCap.x, myCap.y, 8 * S, 0, k % 5 === 4 ? 'cavalry' : 'ashigaru');
     this.plans = [];
     for (let p = 0; p <= 47; p++) this.plans.push({ target: -1, since: 0, defend: -1, next: this.rng() * CONFIG.AI_PLAN_INTERVAL });
     this.hs = 24;
@@ -852,6 +855,7 @@ class Sim {
     if (fo) {
       const half = this.flagHalf(), tx = fo.x + u.offX * 0.6, ty = fo.y + u.offY * 0.6;
       if (Math.hypot(fo.x - u.x, fo.y - u.y) < half * 0.8) {
+        if (fo.defend) { u.path = null; u.dest = null; u.goalNode = -2; return; }   // 迎撃：正方形の中にとどまって敵を倒す
         if (!fo.flag || !this.flags.includes(fo.flag)) {
           // すでに自県の旗が近くにあれば、それを守る
           fo.flag = this.plantFlagAt(u.pref, fo.x, fo.y, u.fromPlayer ? u.hw : u.follow)
@@ -1243,6 +1247,7 @@ class Sim {
   flagOrderOf(w) {
     const o = w === 0 ? this.flagOrder : (this.humans.get(w) || {}).flagOrder;
     if (!o) return null;
+    if (o.defend) { if (!this.flags.includes(o.defend)) { this.setFlagOrder(null, w); return null; } return o; }   // 迎撃：その旗が消えたら終わり
     const c = this.cellAt(o.x, o.y);
     if (c < 0 || this.owner[c] === o.pref || this.eliminated.has(o.pref)) { this.setFlagOrder(null, w); return null; }
     return o;
@@ -1253,8 +1258,15 @@ class Sim {
     if (!h) return false;
     if (!pt) { h.flagOrder = null; return true; }
     const c = this.cellAt(pt.x, pt.y);
-    if (c < 0 || !this.map.initPref[c] || this.owner[c] === P) return false;
-    h.flagOrder = { x: pt.x, y: pt.y, pref: P, flag: null, at: this.time, w };
+    if (c < 0 || !this.map.initPref[c]) return false;
+    if (this.owner[c] === P) {
+      // 自県の中：近くの敵の旗を倒しに行く（迎撃）
+      const half = this.flagHalf();
+      let f = null, bd = 1e9;
+      for (const q of this.flags) { const d = Math.hypot(q.x - pt.x, q.y - pt.y); if (q.pref !== P && d < half * 1.5 && d < bd) { bd = d; f = q; } }
+      if (!f) return false;
+      h.flagOrder = { x: f.x, y: f.y, pref: P, flag: null, defend: f, at: this.time, w };
+    } else h.flagOrder = { x: pt.x, y: pt.y, pref: P, flag: null, at: this.time, w };
     this.recruit(w, h.flagOrder);
     for (const u of this.units) if (u.fromPlayer && u.hw === w) { u.thinkAt = this.time; u.goalNode = -1; }
     return true;

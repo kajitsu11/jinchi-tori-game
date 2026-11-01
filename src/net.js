@@ -294,7 +294,7 @@ class NetGame {
   buildingsNear(x, y, r, fn) { for (const b of this.buildings) { const d = Math.hypot(b.x - x, b.y - y); if (d <= r) fn(b, d); } }
   setRally(id) { this.rally = id; this.send({ t: 'rally', node: id }); }
   setFlagOrder(pt) {
-    if (pt) { const c = this.map.id(pt.x, pt.y); if (c < 0 || !this.map.initPref[c] || this.owner[c] === this.me) return false; }
+    if (pt) { const c = this.map.id(pt.x, pt.y); if (c < 0 || !this.map.initPref[c]) return false; }
     this.flagOrder = pt ? { x: pt.x, y: pt.y, flag: null } : null;
     this.send({ t: 'flagorder', x: pt ? pt.x : null, y: pt ? pt.y : null });
     return true;

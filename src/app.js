@@ -59,6 +59,7 @@ const App = {
         if (TRIAL.perPref) { CONFIG.FIXED_PARTICIPANTS = TRIAL.perPref; CONFIG.UNIT_CAP_PER_PARTICIPANT = 1.6; CONFIG.MAX_BUILDINGS_PER_PARTICIPANT = 30; CONFIG.FREE_AI = true; }
         else CONFIG.PARTICIPANTS_PER_MILLION *= TRIAL.mul;
         if (TRIAL.fast) applyFastMode();
+        CONFIG.PLAYER_START_UNITS = 15;   // 最初からあなたの部隊がいる（旗の指示をすぐ試せるように）
       }
       progress(0.5, '3D描画を準備中…'); await nextFrame();
       this.renderer = new Renderer($('gl'), this.map);
@@ -386,6 +387,7 @@ const App = {
     $('btn-rally').innerHTML = rn ? `⚔ 目標：${escapeHtml(rn.name)}` : '⚔ 攻撃目標';
     const fo = g.flagOrder;
     if (this.mode && this.mode.kind === 'flag') $('btn-flag').textContent = '🚩 敵の領土をタップ';
+    else if (fo && fo.defend) $('btn-flag').textContent = `🛡 敵の旗を迎撃中（あなたの兵 ${g.myUnits()}人）`;
     else if (fo) {
       const f = fo.flag && (g.flags || []).find((q) => q.id === fo.flag.id || q === fo.flag);
       $('btn-flag').textContent = f ? `🚩 守っています ${Math.floor(f.prog / CONFIG.FLAG_HOLD * 100)}%（${f.own}人）` : '🚩 旗の場所へ向かっています';
@@ -1334,10 +1336,11 @@ const App = {
     g.buildingsNear(p.x, p.z, reach, (b, d) => { if (d < bd) { bd = d; best = { b }; } });
     if (this.mode && this.mode.kind === 'flag') {
       if (g.setFlagOrder({ x: p.x, y: p.z })) {
-        this.banner('ここに旗を立てろ！', 'ok', `あなたの兵士と近くの仲間が向かい、旗を立てて${this.fmtDur(CONFIG.FLAG_HOLD)}守ります`);
+        if (g.flagOrder && g.flagOrder.defend) this.banner('敵の旗を倒しに行け！', 'ok', '正方形の中の敵の兵を倒せば、旗は消えます');
+        else this.banner('ここに旗を立てろ！', 'ok', `あなたの兵士と近くの仲間が向かい、旗を立てて${this.fmtDur(CONFIG.FLAG_HOLD)}守ります`);
         this.marker = { x: p.x, z: p.z, t: this.clock, ok: true };
         this.setMode(null);
-      } else this.banner('そこには立てられません', 'ng', '自県以外の領土（敵の領土）をタップしてください');
+      } else this.banner('そこには立てられません', 'ng', '敵の領土をタップ（自県の中なら、敵の旗の近くをタップすると迎撃）');
       this.updateHud(true);
       return;
     }
@@ -1478,6 +1481,11 @@ const App = {
       pts.forEach((p, k) => { const X = (p.x - V.x0) / V.w * mw, Y = (p.z - V.y0) / V.h * mh; k ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); });
       ctx.closePath(); ctx.stroke();
       ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 1; ctx.stroke();
+    }
+    // 旗（県の色の点。あなたの指示の旗は白い縁）
+    if (g && g.flags) for (const f of g.flags) {
+      ctx.fillStyle = map.prefs[f.pref].color; ctx.strokeStyle = f.hw === 0 ? '#fff' : '#000'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc((f.x - V.x0) / V.w * mw, (f.y - V.y0) / V.h * mh, f.hw === 0 ? 3 : 2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
     const rn = g && g.rally >= 0 ? g.nodes[g.rally] : null;   // 攻撃目標
     if (rn) {

@@ -2268,6 +2268,9 @@ class Sim {
       if (cn) for (let k = 0; k < n; k++) this.spawnUnit(p, cn.x, cn.y, 20 * S, -1);
     }
     this.rally = -1;                                // プレイヤーの兵士の攻撃目標（拠点）
+    // あなたの最初の部隊（試作版など。CONFIG.PLAYER_START_UNITS 人。5人に1人は騎馬隊）
+    const myCap = me ? this.nodes[this.capNode[me]] : null;
+    if (myCap) for (let k = 0; k < (CONFIG.PLAYER_START_UNITS || 0); k++) this.spawnUnit(me, myCap.x, myCap.y, 8 * S, 0, k % 5 === 4 ? 'cavalry' : 'ashigaru');
     this.plans = [];
     for (let p = 0; p <= 47; p++) this.plans.push({ target: -1, since: 0, defend: -1, next: this.rng() * CONFIG.AI_PLAN_INTERVAL });
     this.hs = 24;
@@ -2883,6 +2886,7 @@ class Sim {
     if (fo) {
       const half = this.flagHalf(), tx = fo.x + u.offX * 0.6, ty = fo.y + u.offY * 0.6;
       if (Math.hypot(fo.x - u.x, fo.y - u.y) < half * 0.8) {
+        if (fo.defend) { u.path = null; u.dest = null; u.goalNode = -2; return; }   // 迎撃：正方形の中にとどまって敵を倒す
         if (!fo.flag || !this.flags.includes(fo.flag)) {
           // すでに自県の旗が近くにあれば、それを守る
           fo.flag = this.plantFlagAt(u.pref, fo.x, fo.y, u.fromPlayer ? u.hw : u.follow)
@@ -3274,6 +3278,7 @@ class Sim {
   flagOrderOf(w) {
     const o = w === 0 ? this.flagOrder : (this.humans.get(w) || {}).flagOrder;
     if (!o) return null;
+    if (o.defend) { if (!this.flags.includes(o.defend)) { this.setFlagOrder(null, w); return null; } return o; }   // 迎撃：その旗が消えたら終わり
     const c = this.cellAt(o.x, o.y);
     if (c < 0 || this.owner[c] === o.pref || this.eliminated.has(o.pref)) { this.setFlagOrder(null, w); return null; }
     return o;
@@ -3284,8 +3289,15 @@ class Sim {
     if (!h) return false;
     if (!pt) { h.flagOrder = null; return true; }
     const c = this.cellAt(pt.x, pt.y);
-    if (c < 0 || !this.map.initPref[c] || this.owner[c] === P) return false;
-    h.flagOrder = { x: pt.x, y: pt.y, pref: P, flag: null, at: this.time, w };
+    if (c < 0 || !this.map.initPref[c]) return false;
+    if (this.owner[c] === P) {
+      // 自県の中：近くの敵の旗を倒しに行く（迎撃）
+      const half = this.flagHalf();
+      let f = null, bd = 1e9;
+      for (const q of this.flags) { const d = Math.hypot(q.x - pt.x, q.y - pt.y); if (q.pref !== P && d < half * 1.5 && d < bd) { bd = d; f = q; } }
+      if (!f) return false;
+      h.flagOrder = { x: f.x, y: f.y, pref: P, flag: null, defend: f, at: this.time, w };
+    } else h.flagOrder = { x: pt.x, y: pt.y, pref: P, flag: null, at: this.time, w };
     this.recruit(w, h.flagOrder);
     for (const u of this.units) if (u.fromPlayer && u.hw === w) { u.thinkAt = this.time; u.goalNode = -1; }
     return true;
@@ -3618,7 +3630,7 @@ class NetGame {
   buildingsNear(x, y, r, fn) { for (const b of this.buildings) { const d = Math.hypot(b.x - x, b.y - y); if (d <= r) fn(b, d); } }
   setRally(id) { this.rally = id; this.send({ t: 'rally', node: id }); }
   setFlagOrder(pt) {
-    if (pt) { const c = this.map.id(pt.x, pt.y); if (c < 0 || !this.map.initPref[c] || this.owner[c] === this.me) return false; }
+    if (pt) { const c = this.map.id(pt.x, pt.y); if (c < 0 || !this.map.initPref[c]) return false; }
     this.flagOrder = pt ? { x: pt.x, y: pt.y, flag: null } : null;
     this.send({ t: 'flagorder', x: pt ? pt.x : null, y: pt ? pt.y : null });
     return true;
@@ -3695,6 +3707,7 @@ const App = {
         if (TRIAL.perPref) { CONFIG.FIXED_PARTICIPANTS = TRIAL.perPref; CONFIG.UNIT_CAP_PER_PARTICIPANT = 1.6; CONFIG.MAX_BUILDINGS_PER_PARTICIPANT = 30; CONFIG.FREE_AI = true; }
         else CONFIG.PARTICIPANTS_PER_MILLION *= TRIAL.mul;
         if (TRIAL.fast) applyFastMode();
+        CONFIG.PLAYER_START_UNITS = 15;   // 最初からあなたの部隊がいる（旗の指示をすぐ試せるように）
       }
       progress(0.5, '3D描画を準備中…'); await nextFrame();
       this.renderer = new Renderer($('gl'), this.map);
@@ -4022,6 +4035,7 @@ const App = {
     $('btn-rally').innerHTML = rn ? `⚔ 目標：${escapeHtml(rn.name)}` : '⚔ 攻撃目標';
     const fo = g.flagOrder;
     if (this.mode && this.mode.kind === 'flag') $('btn-flag').textContent = '🚩 敵の領土をタップ';
+    else if (fo && fo.defend) $('btn-flag').textContent = `🛡 敵の旗を迎撃中（あなたの兵 ${g.myUnits()}人）`;
     else if (fo) {
       const f = fo.flag && (g.flags || []).find((q) => q.id === fo.flag.id || q === fo.flag);
       $('btn-flag').textContent = f ? `🚩 守っています ${Math.floor(f.prog / CONFIG.FLAG_HOLD * 100)}%（${f.own}人）` : '🚩 旗の場所へ向かっています';
@@ -4970,10 +4984,11 @@ const App = {
     g.buildingsNear(p.x, p.z, reach, (b, d) => { if (d < bd) { bd = d; best = { b }; } });
     if (this.mode && this.mode.kind === 'flag') {
       if (g.setFlagOrder({ x: p.x, y: p.z })) {
-        this.banner('ここに旗を立てろ！', 'ok', `あなたの兵士と近くの仲間が向かい、旗を立てて${this.fmtDur(CONFIG.FLAG_HOLD)}守ります`);
+        if (g.flagOrder && g.flagOrder.defend) this.banner('敵の旗を倒しに行け！', 'ok', '正方形の中の敵の兵を倒せば、旗は消えます');
+        else this.banner('ここに旗を立てろ！', 'ok', `あなたの兵士と近くの仲間が向かい、旗を立てて${this.fmtDur(CONFIG.FLAG_HOLD)}守ります`);
         this.marker = { x: p.x, z: p.z, t: this.clock, ok: true };
         this.setMode(null);
-      } else this.banner('そこには立てられません', 'ng', '自県以外の領土（敵の領土）をタップしてください');
+      } else this.banner('そこには立てられません', 'ng', '敵の領土をタップ（自県の中なら、敵の旗の近くをタップすると迎撃）');
       this.updateHud(true);
       return;
     }
@@ -5114,6 +5129,11 @@ const App = {
       pts.forEach((p, k) => { const X = (p.x - V.x0) / V.w * mw, Y = (p.z - V.y0) / V.h * mh; k ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); });
       ctx.closePath(); ctx.stroke();
       ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 1; ctx.stroke();
+    }
+    // 旗（県の色の点。あなたの指示の旗は白い縁）
+    if (g && g.flags) for (const f of g.flags) {
+      ctx.fillStyle = map.prefs[f.pref].color; ctx.strokeStyle = f.hw === 0 ? '#fff' : '#000'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc((f.x - V.x0) / V.w * mw, (f.y - V.y0) / V.h * mh, f.hw === 0 ? 3 : 2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
     const rn = g && g.rally >= 0 ? g.nodes[g.rally] : null;   // 攻撃目標
     if (rn) {
