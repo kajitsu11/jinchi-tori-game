@@ -36,6 +36,10 @@ html, body { margin: 0; height: 100%; background: #173a52; color: var(--parch); 
 #overlay { pointer-events: none; }
 .hidden { display: none !important; }
 button { font-family: inherit; color: inherit; cursor: pointer; touch-action: manipulation; }
+/* ページの拡大はさせない（スクロールする場所だけ、その向きのスクロールを許す） */
+html, body { touch-action: none; overscroll-behavior: none; }
+#buildmenu, #bcats { touch-action: pan-x; }
+#pref-list, #m-body, #log { touch-action: pan-y; }
 button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
 .chip { display: inline-block; width: 14px; height: 14px; border-radius: 3px; border: 1.5px solid var(--gold-hi); vertical-align: -2px; flex: none; box-shadow: 0 0 0 1px var(--ink); }
 
@@ -4800,7 +4804,22 @@ const App = {
     this.minimapDirty = saved;
   },
 
+  /**
+   * ページ自体が拡大されないようにする（地図の拡大・縮小はゲームが受け持つ）。
+   * 埋め込み先で viewport の設定が外れていても、ピンチ・ダブルタップ・Ctrl+ホイールでHUDが拡大されたままにならないように
+   */
+  lockPageZoom() {
+    let m = document.querySelector('meta[name="viewport"]');
+    if (!m) { m = document.createElement('meta'); m.name = 'viewport'; document.head.appendChild(m); }
+    m.content = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
+    const stop = (e) => e.preventDefault();
+    for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, stop, { passive: false });   // iPhone の Safari
+    document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+    document.addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+    document.addEventListener('dblclick', stop, { passive: false });
+  },
   start() {
+    this.lockPageZoom();
     this.resize();
     this.setState(STATE.LOADING);
     requestAnimationFrame((t) => { this.lastT = t; this.frame(t); });

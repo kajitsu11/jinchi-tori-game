@@ -1386,7 +1386,22 @@ const App = {
     this.minimapDirty = saved;
   },
 
+  /**
+   * ページ自体が拡大されないようにする（地図の拡大・縮小はゲームが受け持つ）。
+   * 埋め込み先で viewport の設定が外れていても、ピンチ・ダブルタップ・Ctrl+ホイールでHUDが拡大されたままにならないように
+   */
+  lockPageZoom() {
+    let m = document.querySelector('meta[name="viewport"]');
+    if (!m) { m = document.createElement('meta'); m.name = 'viewport'; document.head.appendChild(m); }
+    m.content = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
+    const stop = (e) => e.preventDefault();
+    for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, stop, { passive: false });   // iPhone の Safari
+    document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+    document.addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+    document.addEventListener('dblclick', stop, { passive: false });
+  },
   start() {
+    this.lockPageZoom();
     this.resize();
     this.setState(STATE.LOADING);
     requestAnimationFrame((t) => { this.lastT = t; this.frame(t); });
