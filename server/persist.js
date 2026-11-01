@@ -62,8 +62,7 @@ function load(season, file) {
   g.rebuildNodeCells();
   g.computeNodeAdj();
   g.buildings = st.buildings;
-  g.bgrid = new Map();
-  for (const b of g.buildings) { const k = g.bkey(b.x, b.y); if (!g.bgrid.has(k)) g.bgrid.set(k, []); g.bgrid.get(k).push(b); }
+  g.rebuildGrids();
   g.units = st.units.map((u) => ({ ...u, path: null, pi: 0, dest: null, hitB: null, goalNode: -1, thinkAt: g.time + Math.random() * 3 }));
   return true;
 }

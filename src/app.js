@@ -54,7 +54,8 @@ const App = {
         progress(0.45, `細かい地図（1マス≒90m）を作成中…`); await nextFrame();
         this.map = MapData.upscale(this.map, TRIAL.S, new Set(TRIAL.prefs));
         // 1県に同時に何人いるか（全員AIが担当）。兵は1人あたり1.6人まで（端末で動かせる数に）
-        if (TRIAL.perPref) { CONFIG.FIXED_PARTICIPANTS = TRIAL.perPref; CONFIG.UNIT_CAP_PER_PARTICIPANT = 1.6; }
+        // 100人がそれぞれ建てる：1人30まで・AIも資源無制限（全員がプレイヤー役）
+        if (TRIAL.perPref) { CONFIG.FIXED_PARTICIPANTS = TRIAL.perPref; CONFIG.UNIT_CAP_PER_PARTICIPANT = 1.6; CONFIG.MAX_BUILDINGS_PER_PARTICIPANT = 30; CONFIG.FREE_AI = true; }
         else CONFIG.PARTICIPANTS_PER_MILLION *= TRIAL.mul;
         if (TRIAL.fast) applyFastMode();
       }
@@ -193,7 +194,7 @@ const App = {
       const s = this.anim && this.anim.get(u.id);
       if (this.corpses.length < 300) this.corpses.push({ x: u.x, z: u.y, yaw: s ? s.yaw : 0, kind: (u.id % 3 !== 0 ? 0 : 2), col: this.colCache ? this.colCache[u.pref] : [0.5, 0.5, 0.5], t: this.clock });
     });
-    g.on('destroyed', (b) => { if (b.owner === this.me) this.log(`🔥 ${BUILDINGS[b.type].name}が壊されました`, 'bad', b.cell); if (this.sel && this.sel.b === b) this.hidePanel(); });
+    g.on('destroyed', (b) => { if (b.owner === this.me && (b.wallet === 0 || b.wallet === undefined)) this.log(`🔥 ${BUILDINGS[b.type].name}が壊されました`, 'bad', b.cell); if (this.sel && this.sel.b === b) this.hidePanel(); });
     g.on('flipped', (e) => { if (e.from === this.me) this.log(`⚠ ${BUILDINGS[e.building.type].name}を${map.prefs[e.to].name}に奪われました`, 'bad', e.building.cell); });
     g.on('eliminated', (p) => { if (p !== this.me) this.log(`${map.prefs[p].name}が全ての拠点を失い、脱落しました`, 'bad', -1); });
     g.on('buildfail', (m) => { this.marker = { x: m.x, z: m.y, t: this.clock, ok: false }; this.showBuildFail(m.why); });
@@ -541,7 +542,24 @@ const App = {
     if (g) {
       // ---- 建物
       const t = this.clock;
-      for (const b of g.buildings) {
+      // 画面に映る範囲の建物だけを調べる（建物が数万あっても重くならないよう、格子から拾う）
+      let blist = g.buildings;
+      if (g.bgrid && g.buildings.length > 2000 && cpx >= 0.3) {
+        const pts = [[0, 0], [this.w, 0], [0, this.h], [this.w, this.h]].map(([sx, sy]) => cam.groundAt(sx, sy)).filter(Boolean);
+        if (pts.length === 4) {
+          const m2 = 8, gs = g.bgs;
+          const x0 = Math.min(...pts.map((p) => p.x)) - m2, x1 = Math.max(...pts.map((p) => p.x)) + m2;
+          const z0 = Math.min(...pts.map((p) => p.z)) - m2, z1 = Math.max(...pts.map((p) => p.z)) + m2;
+          if ((x1 - x0) * (z1 - z0) < 4e6) {
+            blist = [];
+            for (let by = Math.max(0, (z0 / gs) | 0); by <= (z1 / gs) | 0; by++) for (let bx = Math.max(0, (x0 / gs) | 0); bx <= (x1 / gs) | 0; bx++) {
+              const l = g.bgrid.get(by * g.bgw + bx);
+              if (l) for (const b of l) blist.push(b);
+            }
+          }
+        }
+      }
+      for (const b of blist) {
         if (cpx < 0.3 || !visible(b.x, b.y)) continue;
         const c = col[b.owner];
         at(b.x, b.y, b.rot, big * 0.8, c);

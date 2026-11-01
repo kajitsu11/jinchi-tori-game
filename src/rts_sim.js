@@ -348,7 +348,7 @@ class Sim {
     if (!this.buildingsNear) return base;
     if (this.time >= (n.holdAt || 0)) {
       n.holdAt = this.time + 10; n.hold = 1;
-      this.buildingsNear(n.x, n.y, 20, (b) => { const a = BUILDINGS[b.type].aura; if (a && a.hold && b.owner === n.owner) n.hold = a.hold; });
+      this.auraNear(n.x, n.y, 20, (b) => { const a = BUILDINGS[b.type].aura; if (a && a.hold && b.owner === n.owner) n.hold = a.hold; });
     }
     return base * (n.hold || 1);
   }
@@ -433,7 +433,7 @@ class Sim {
       const def = BUILDINGS[b.type];
       if (def.cat === 'eco' && this.time >= (b.ecoAt || 0)) {   // 蔵の近くは生産が増える（1分ごとに確かめる）
         b.ecoAt = this.time + 60; b.eco = 1;
-        this.buildingsNear(b.x, b.y, 10, (o) => { const a = BUILDINGS[o.type].aura; if (a && a.eco && o.owner === b.owner) b.eco = a.eco; });
+        this.auraNear(b.x, b.y, 10, (o) => { const a = BUILDINGS[o.type].aura; if (a && a.eco && o.owner === b.owner) b.eco = a.eco; });
       }
       const em = b.eco || 1;
       if (def.make) for (const r in def.make) inc(b.wallet, r, def.make[r] * b.mul * em);
@@ -445,6 +445,26 @@ class Sim {
 
   // ---------------------------------------------------------- 建物
   bkey(x, y) { return ((y / this.bgs) | 0) * this.bgw + ((x / this.bgs) | 0); }
+  /** 周りへの効果を持つ建物だけの格子（32マス）。兵の効果の計算で数万の建物を見なくてすむように */
+  auraAdd(b) {
+    if (!BUILDINGS[b.type].aura) return;
+    if (!this.agrid) this.agrid = new Map();
+    const k = ((b.y / 32) | 0) * 100000 + ((b.x / 32) | 0);
+    if (!this.agrid.has(k)) this.agrid.set(k, []);
+    this.agrid.get(k).push(b);
+  }
+  auraNear(x, y, r, fn) {
+    if (!this.agrid) return;
+    for (let by = ((y - r) / 32) | 0; by <= ((y + r) / 32) | 0; by++) for (let bx = ((x - r) / 32) | 0; bx <= ((x + r) / 32) | 0; bx++) {
+      const list = this.agrid.get(by * 100000 + bx);
+      if (list) for (const b of list) { if (b.dead) continue; const d = Math.hypot(b.x - x, b.y - y); if (d <= r) fn(b, d); }
+    }
+  }
+  /** 格子を作り直す（保存したシーズンを読み込んだあと） */
+  rebuildGrids() {
+    this.bgrid = new Map(); this.agrid = new Map();
+    for (const b of this.buildings) { const k = this.bkey(b.x, b.y); if (!this.bgrid.has(k)) this.bgrid.set(k, []); this.bgrid.get(k).push(b); this.auraAdd(b); }
+  }
   buildingsNear(x, y, r, fn) {
     const g = this.bgs;
     for (let by = ((y - r) / g) | 0; by <= ((y + r) / g) | 0; by++) for (let bx = ((x - r) / g) | 0; bx <= ((x + r) / g) | 0; bx++) {
@@ -494,14 +514,16 @@ class Sim {
     const k = this.bkey(b.x, b.y);
     if (!this.bgrid.has(k)) this.bgrid.set(k, []);
     this.bgrid.get(k).push(b);
+    this.auraAdd(b);
+    if (this.cat) this.catAdd(this.cat, b);
     this.emit('built', { building: b, type, by: P, byPlayer, wallet: w });
     return { ok: true, building: b };
   }
-  removeBuilding(b) {
+  removeBuilding(b, batch) {
     const k = this.bkey(b.x, b.y), list = this.bgrid.get(k);
     if (list) { const i = list.indexOf(b); if (i >= 0) list.splice(i, 1); }
-    const i = this.buildings.indexOf(b);
-    if (i >= 0) this.buildings.splice(i, 1);
+    if (BUILDINGS[b.type].aura && this.agrid) { const al = this.agrid.get(((b.y / 32) | 0) * 100000 + ((b.x / 32) | 0)); if (al) { const j = al.indexOf(b); if (j >= 0) al.splice(j, 1); } }
+    if (!batch) { const i = this.buildings.indexOf(b); if (i >= 0) this.buildings.splice(i, 1); }
     b.dead = true;
     this.stats.destroyed++;
     this.emit('destroyed', b);
@@ -538,6 +560,22 @@ class Sim {
     this.checkEnd();
     return n;
   }
+  /** 建物の一覧を2秒ごとに作り直す：訓練する建物・撃つ建物・県ごとの数（建物が数万あっても毎刻み全部を見ないように） */
+  catalog() {
+    if (this.cat && this.time < this.catAt) return this.cat;
+    this.catAt = this.time + 2;
+    const c = { trainers: [], shooters: [], plus: new Int32Array(49), mine: [], total: new Int32Array(49) };
+    for (let p = 0; p <= 48; p++) c.mine.push({});
+    for (const b of this.buildings) this.catAdd(c, b);
+    return (this.cat = c);
+  }
+  catAdd(c, b) {
+    const def = BUILDINGS[b.type];
+    if (def.unit) c.trainers.push(b);
+    if (def.dps || def.mine) c.shooters.push(b);
+    if (def.capPlus) c.plus[b.owner] += def.capPlus;
+    if (b.wallet === b.owner && b.owner <= 47) { c.mine[b.owner][b.type] = (c.mine[b.owner][b.type] || 0) + 1; c.total[b.owner]++; }
+  }
   /** 持ち主が変わったマスにある建物は、新しい持ち主のものになる */
   flipBuildings(cells, P) {
     if (!cells.length || !this.buildings.length) return;
@@ -573,25 +611,29 @@ class Sim {
     return u;
   }
   isSea(x, y) { const i = this.cellAt(x, y); return i < 0 || !this.map.initPref[i]; }
-  unitCap(P) { return Math.floor(this.parts[P] * CONFIG.UNIT_CAP_PER_PARTICIPANT + this.nodeCount[P] * CONFIG.UNIT_CAP_PER_NODE + (this.capPlus ? this.capPlus[P] : 0)); }
+  unitCap(P) { return Math.floor(this.parts[P] * CONFIG.UNIT_CAP_PER_PARTICIPANT + this.nodeCount[P] * CONFIG.UNIT_CAP_PER_NODE + (this.capPlus ? Math.min(this.capPlus[P], this.parts[P] * 0.6) : 0)); }   // 兵站基地で増やせるのは参加者1人あたり0.6人まで
   unitCount(P) { let n = 0; for (const u of this.units) if (u.pref === P) n++; return n; }
-  isFree(w) { return CONFIG.FREE_HUMANS && this.isHuman(w); }
+  isFree(w) { return (CONFIG.FREE_HUMANS && this.isHuman(w)) || (CONFIG.FREE_AI && w >= 1 && w <= 47); }
   trainAll(dt) {
     const cnt = new Int32Array(49), tc = new Map();
     for (const u of this.units) { cnt[u.pref]++; const k = u.pref * 16 + (u.bit || 1); tc.set(k, (tc.get(k) || 0) + 1); }
-    const plus = this.capPlus = new Int32Array(49);
-    for (const b of this.buildings) if (BUILDINGS[b.type].capPlus) plus[b.owner] += BUILDINGS[b.type].capPlus;
-    for (const b of this.buildings) {
+    const cat = this.catalog();
+    this.capPlus = cat.plus;
+    // 訓練は4組に分けて、1刻みに1組ずつ（4刻みぶん進める）
+    const tr = cat.trainers, slot4 = this.tickNo & 3, cap = new Map();
+    const capOf = (P) => { let v = cap.get(P); if (v === undefined) cap.set(P, v = this.unitCap(P)); return v; };
+    for (let i = slot4; i < tr.length; i += 4) {
+      const b = tr[i];
+      if (b.dead) continue;
       const def = BUILDINGS[b.type];
-      if (!def.unit) continue;
-      b.t += dt;
+      b.t += dt * 4;
       const need = def.train * (CONFIG.TRAIN_MULT || 1);
       if (b.t < need) continue;
       const free = this.isFree(b.wallet);
       // 軍艦は兵の上限の15%まで、飛行機は12%まで（陸の兵がいなくならないように）
       const bit = UNITS[def.unit].bit, share = bit === 2 ? 0.15 : bit === 4 ? 0.12 : 1;
-      if (share < 1 && (tc.get(b.owner * 16 + bit) || 0) >= Math.max(2, this.unitCap(b.owner) * share)) { b.t = need; continue; }
-      if (cnt[b.owner] >= this.unitCap(b.owner) || (!free && this.res.food[b.wallet] < def.trainFood)) { b.t = need; continue; }
+      if (share < 1 && (tc.get(b.owner * 16 + bit) || 0) >= Math.max(2, capOf(b.owner) * share)) { b.t = need; continue; }
+      if (cnt[b.owner] >= capOf(b.owner) || (!free && this.res.food[b.wallet] < def.trainFood)) { b.t = need; continue; }
       const u = this.spawnUnit(b.owner, b.x, b.y, def.unit === 'ship' ? 3 * this.S : 2.5, this.isHuman(b.wallet) ? b.wallet : -1, def.unit);
       b.t = 0;
       if (!u) continue;
@@ -697,13 +739,19 @@ class Sim {
       const k = this.aiCount(p);
       if (!k) { this.aiBuildAt[p] = this.time + 600; continue; }
       this.aiBuildAt[p] = this.time + CONFIG.AI_BUILD_INTERVAL * 10 / k * (0.6 + this.rng() * 0.8);
-      this.aiBuild(p, k);
+      // 参加者が多い県は、一度に何人分も建てる（25人ごとに1つ）
+      const n = CONFIG.FREE_AI ? Math.max(1, Math.round(k / 25)) : 1;
+      for (let q = 0; q < n; q++) this.aiBuild(p, k);
     }
   }
   aiBuild(P, k) {
     const mine = { farm: 0, lumber: 0, market: 0, barracks: 0, tower: 0 };
     let total = 0;
-    for (const b of this.buildings) if (b.owner === P && b.wallet === P) { mine[b.type] = (mine[b.type] || 0) + 1; total++; }
+    const cat = this.catalog();
+    Object.assign(mine, cat.mine[P]);
+    total = cat.total[P];
+    if (!this.bcount) this.bcount = new Int32Array(49);
+    this.bcount[P] = total;
     if (total >= k * CONFIG.MAX_BUILDINGS_PER_PARTICIPANT) return;
     const nodes = this.nodeCount[P];
     const want = [];
@@ -730,7 +778,9 @@ class Sim {
     const list = front.length ? front : own;
     for (let tries = 0; tries < (BUILDINGS[type].need ? 30 : 14); tries++) {
       const n = list[(this.rng() * list.length) | 0];
-      const S = this.S, r = BUILDINGS[type].node ? (CONFIG.NODE_MIN_DIST + this.rng() * 15) * S : (3 + this.rng() * 20) * S;
+      // 建物が増えるほど、拠点から遠くまで広げて建てる
+      const spread = Math.min(70, 20 + (this.bcount ? this.bcount[P] : 0) / 25);
+      const S = this.S, r = BUILDINGS[type].node ? (CONFIG.NODE_MIN_DIST + this.rng() * 15) * S : (3 + this.rng() * spread) * S;
       const a = this.rng() * Math.PI * 2;
       let x = n.x + Math.cos(a) * r, y = n.y + Math.sin(a) * r;
       if (BUILDINGS[type].node && pl0(this, P)) {
@@ -756,7 +806,7 @@ class Sim {
   updateBuff(u) {
     u.buffAt = this.time + 3 + this.rng();
     const f = { spd: 1, dps: 1, heal: 0, gasRes: 1, armor: 1, navy: 1, det: false };
-    this.buildingsNear(u.x, u.y, 25, (b, d) => {
+    this.auraNear(u.x, u.y, 25, (b, d) => {
       const a = BUILDINGS[b.type].aura;
       if (!a || d > a.r) return;
       if (b.owner === u.pref) {
@@ -844,7 +894,7 @@ class Sim {
   /** kind：0=砲弾 1=爆弾 2=地雷 3=ロケット。ox,oy：撃った位置（描画で砲弾の軌道を描く） */
   boom(x, y, r, dmg, P, hitB, kind, ox, oy) {
     this.forUnitsNear(x, y, r, (v) => { if (v.pref !== P && v.bit !== 4) this.hitUnit(v, dmg); });
-    if (hitB) this.buildingsNear(x, y, r, (b) => { if (b.owner !== P) { b.hp -= hitB; b.hitAt = this.time; } });
+    if (hitB) this.buildingsNear(x, y, r, (b) => { if (b.owner !== P) { b.hp -= hitB; b.hitAt = this.time; this.hurtB.push(b); } });
     if (this.booms.length < 200) this.booms.push([x, y, r, this.time, kind || 0, ox === undefined ? x : ox, oy === undefined ? y : oy]);
   }
   hitUnit(v, a) { this.dmg[v.k] += a * (v.buff ? v.buff.armor : 1); }
@@ -855,6 +905,7 @@ class Sim {
     const dmg = this.dmg;
     for (let k = 0; k < U.length; k++) { U[k].k = k; dmg[k] = 0; this.unitIndex.set(U[k].id, U[k]); }
     if (!this.booms) this.booms = [];
+    if (!this.hurtB) this.hurtB = [];
     if (!this.gas) this.gas = [];
     this.booms = this.booms.filter((b) => this.time - b[3] < 1.5);
     // 兵が多いときは、兵の攻撃を2組に分けて1刻みおきに計算する（そのぶん2刻み分の被害を与える）
@@ -905,7 +956,7 @@ class Sim {
       u.lastB = tb;
       if (tb) {
         if (def.splash) { if (u.cd <= 0) { u.cd = 2; this.boom(tb.x, tb.y, def.splash, def.dps * 2 * mult, u.pref, def.dps * 2 * def.vsB * CONFIG.BUILDING_DPS_MULT, 0, u.x, u.y); } }
-        else { tb.hp -= def.dps * def.vsB * CONFIG.BUILDING_DPS_MULT * udt * mult; tb.hitAt = this.time; }
+        else { tb.hp -= def.dps * def.vsB * CONFIG.BUILDING_DPS_MULT * udt * mult; tb.hitAt = this.time; this.hurtB.push(tb); }
         u.hitB = tb;
       }
     }
@@ -917,25 +968,29 @@ class Sim {
     // 建物と拠点が撃つ（それぞれ決まった間隔でまとめて撃つ）
     this.tickNo = (this.tickNo || 0) + 1;
     if (this.tickNo % 5 === 0) this.shots = [];
-    const shoot = (o, x, y, P, def, range, dps, mask) => {
-      o.cd = (o.cd || 0) - dt;
+    const shoot = (o, x, y, P, def, range, dps, mask, sdt = dt) => {
+      o.cd = (o.cd || 0) - sdt;
       if (o.cd > 0) return;
       const rate = def.rate || 1.25;
       o.cd = rate;
       let mul = 1;
-      if (mask === 4) this.buildingsNear(x, y, 25, (r) => { const a = BUILDINGS[r.type].aura; if (a && a.aa && r.owner === P) mul = a.aa; });
+      if (mask === 4) this.auraNear(x, y, 25, (r) => { const a = BUILDINGS[r.type].aura; if (a && a.aa && r.owner === P) mul = a.aa; });
       const e = this.nearestEnemy(x, y, P, range, mask, false);
-      if (!e) return;
+      if (!e) { o.cd = rate * 2 + this.rng() * rate; return; }   // 近くに敵がいなければ、次に探すまで少し待つ
       if (def.splash) { this.boom(e.x, e.y, def.splash, dps * rate * mul, P, dps * rate * 0.5, def.range > 20 ? 3 : 0, x, y); return; }
       this.hitUnit(e, dps * rate * mul);
       // 撃った弾（描画用）：撃った位置・当たった位置・時刻・種類（0=鉄砲 2=高射砲）
       if (this.shots.length < 300) this.shots.push([x, y, e.x, e.y, this.time, mask === 4 ? 2 : 0]);
     };
-    for (const b of this.buildings) {
+    // 撃つ建物は5組に分けて、1刻みに1組ずつ（5刻みぶん進める）
+    const sh = this.catalog().shooters, slot5 = this.tickNo % 5, dt5 = dt * 5;
+    for (let i = slot5; i < sh.length; i += 5) {
+      const b = sh[i];
+      if (b.dead) continue;
       const def = BUILDINGS[b.type];
-      if (def.dps) shoot(b, b.x, b.y, b.owner, def, def.range, def.dps, def.mask);
+      if (def.dps) shoot(b, b.x, b.y, b.owner, def, def.range, def.dps, def.mask, dt5);
       else if (def.mine) {   // 地雷原
-        b.cd = (b.cd || 0) - dt;
+        b.cd = (b.cd || 0) - dt5;
         if (b.cd <= 0 && this.nearestEnemy(b.x, b.y, b.owner, def.mine.r, 1, true)) { b.cd = def.mine.every; this.boom(b.x, b.y, def.mine.r, def.mine.dmg, b.owner, 0, 2); }
       }
     }
@@ -957,7 +1012,11 @@ class Sim {
       if (def.fuel) { u.fuel -= dt; if (u.fuel <= 0) { u.alive = false; continue; } }   // 燃料切れ：基地へ帰る
       if (u.hp <= 0) { u.alive = false; this.stats.kills++; this.emit('death', u); }
     }
-    for (const b of this.buildings.slice()) if (b.hp <= 0) this.removeBuilding(b);
+    // 壊れた建物をまとめて片付ける（建物の並びは1回だけ作り直す）
+    let gone = 0;
+    for (const b of this.hurtB) if (b.hp <= 0 && !b.dead) { this.removeBuilding(b, true); gone++; }
+    this.hurtB.length = 0;
+    if (gone) this.buildings = this.buildings.filter((b) => !b.dead);
   }
   moveAll(dt) {
     const base = CONFIG.UNIT_SPEED * this.S * dt;
