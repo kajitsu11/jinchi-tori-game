@@ -628,6 +628,13 @@ class Renderer {
     this.ground = compile(gl, GROUND_VS, fs, deriv ? '#define HAS_DERIV\n' : '');
     this.line = compile(gl, LINE_VS, LINE_FS);
     this.mesh = compile(gl, MESH_VS, MESH_FS);
+    this.sprite = compile(gl, SPRITE_VS, SPRITE_FS);
+    this.spriteBuf = gl.createBuffer();
+    this.spriteQuad = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.spriteQuad);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-0.5, 0, 0.5, 0, -0.5, 1, 0.5, 0, 0.5, 1, -0.5, 1]), gl.STATIC_DRAW);
+    this.spriteColor = gl.createTexture();
+    this.spriteMask = gl.createTexture();
     this.instExt = gl.getExtension('ANGLE_instanced_arrays');
     this.instBuf = gl.createBuffer();
     this.dirty = new Set();
@@ -650,7 +657,9 @@ class Renderer {
   }
   dispose() {
     const gl = this.gl;
-    for (const t of [this.palette, this.ownerTex, this.terrainTex, this.elevTex]) gl.deleteTexture(t);
+    for (const t of [this.palette, this.ownerTex, this.terrainTex, this.elevTex, this.spriteColor, this.spriteMask]) gl.deleteTexture(t);
+    for (const b of [this.spriteBuf, this.spriteQuad]) gl.deleteBuffer(b);
+    gl.deleteProgram(this.sprite.p);
     for (const b of [this.groundBuf, this.lineBuf, this.instBuf]) gl.deleteBuffer(b);
     for (const m of Object.values(this.meshBufs)) gl.deleteBuffer(m.buf);
     for (const p of [this.ground, this.line, this.mesh]) gl.deleteProgram(p.p);
@@ -704,6 +713,22 @@ class Renderer {
     gl.bindTexture(gl.TEXTURE_2D, this.elevTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE_ALPHA, ew, eh, 0, gl.LUMINANCE_ALPHA, gl.UNSIGNED_BYTE, la);
     this.texParams(gl, true);
+  }
+  /** 兵士の絵（SoldierPainter）をテクスチャにする。縮小してもきれいなようにミップマップ付き */
+  uploadSprites(painter) {
+    const gl = this.gl;
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    for (const [tex, cv, fmt] of [[this.spriteColor, painter.color, gl.RGBA], [this.spriteMask, painter.mask, gl.LUMINANCE]]) {
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, fmt, fmt, gl.UNSIGNED_BYTE, cv);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    }
+    this.spriteSize = [painter.w, painter.h];
+    this.hasSprites = true;
   }
   setPalette(colors) {
     const gl = this.gl;
@@ -902,6 +927,89 @@ class Renderer {
       this._solid = false;
       gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND);
     }
+    // --- 兵士のスプライト（建物の陰に隠れるよう、深度テストあり）
+    const sp = opt.sprites;
+    if (sp && sp.count && this.hasSprites) {
+      const Sx = this.sprite, ext = this.instExt;
+      gl.useProgram(Sx.p);
+      gl.enable(gl.DEPTH_TEST);
+      if (!meshes) gl.clear(gl.DEPTH_BUFFER_BIT);
+      gl.uniformMatrix4fv(Sx.u.uVP, false, vp);
+      const b = cam.basis();
+      gl.uniform3f(Sx.u.uRight, 1, 0, 0);
+      gl.uniform3f(Sx.u.uUp, b.u[0], b.u[1], b.u[2]);
+      gl.uniform1f(Sx.u.uFoot, (SPR.FH - SPR.FOOT) / SPR.FH);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.spriteColor); gl.uniform1i(Sx.u.uColor, 0);
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.spriteMask); gl.uniform1i(Sx.u.uMask, 1);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.spriteQuad);
+      gl.enableVertexAttribArray(Sx.a.aCorner);
+      gl.vertexAttribPointer(Sx.a.aCorner, 2, gl.FLOAT, false, 0, 0);
+      const attrs = [[Sx.a.iPos, 3, 0], [Sx.a.iSize, 2, 12], [Sx.a.iUV, 4, 20], [Sx.a.iTeam, 3, 36]];
+      if (ext) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.spriteBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, sp.data.subarray(0, sp.count * SPRITE_FLOATS), gl.DYNAMIC_DRAW);
+        for (const [a, n, off] of attrs) { gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a, n, gl.FLOAT, false, SPRITE_FLOATS * 4, off); ext.vertexAttribDivisorANGLE(a, 1); }
+        ext.drawArraysInstancedANGLE(gl.TRIANGLES, 0, 6, sp.count);
+        for (const [a] of attrs) { ext.vertexAttribDivisorANGLE(a, 0); gl.disableVertexAttribArray(a); }
+      } else {
+        const d = sp.data;
+        for (let k = 0; k < sp.count; k++) {
+          const o = k * SPRITE_FLOATS;
+          gl.vertexAttrib3f(attrs[0][0], d[o], d[o + 1], d[o + 2]);
+          gl.vertexAttrib2f(attrs[1][0], d[o + 3], d[o + 4]);
+          gl.vertexAttrib4f(attrs[2][0], d[o + 5], d[o + 6], d[o + 7], d[o + 8]);
+          gl.vertexAttrib3f(attrs[3][0], d[o + 9], d[o + 10], d[o + 11]);
+          gl.drawArrays(gl.TRIANGLES, 0, 6);
+        }
+      }
+      gl.disableVertexAttribArray(Sx.a.aCorner);
+      gl.disable(gl.DEPTH_TEST);
+    }
+  }
+}
+
+// 兵士のスプライト（カメラの方を向いた板）。12 floats/個: 位置3・幅高さ2・UV4・県の色3
+const SPRITE_VS = `
+attribute vec2 aCorner;
+attribute vec3 iPos;
+attribute vec2 iSize;
+attribute vec4 iUV;
+attribute vec3 iTeam;
+uniform mat4 uVP;
+uniform vec3 uRight;
+uniform vec3 uUp;
+uniform float uFoot;     // コマの下の余白（足元をそろえる）
+varying vec2 vUV;
+varying vec3 vTeam;
+void main(){
+  vec3 p = iPos + uRight * (aCorner.x * iSize.x) + uUp * ((aCorner.y - uFoot) * iSize.y);
+  vUV = vec2(mix(iUV.x, iUV.z, aCorner.x + 0.5), mix(iUV.w, iUV.y, aCorner.y));
+  vTeam = iTeam;
+  gl_Position = uVP * vec4(p, 1.0);
+}`;
+const SPRITE_FS = `
+precision mediump float;
+uniform sampler2D uColor;
+uniform sampler2D uMask;
+varying vec2 vUV;
+varying vec3 vTeam;
+void main(){
+  vec4 c = texture2D(uColor, vUV);
+  if (c.a < 0.45) discard;
+  float m = texture2D(uMask, vUV).r;
+  vec3 col = mix(c.rgb, c.rgb * vTeam * 1.45, m);
+  gl_FragColor = vec4(col / max(c.a, 0.001) * min(1.0, c.a * 1.6), 1.0);
+}`;
+const SPRITE_FLOATS = 12;
+class SpriteList {
+  constructor() { this.data = new Float32Array(SPRITE_FLOATS * 1024); this.count = 0; }
+  clear() { this.count = 0; }
+  push(x, y, z, w, h, u0, v0, u1, v1, c) {
+    if ((this.count + 1) * SPRITE_FLOATS > this.data.length) { const d = new Float32Array(this.data.length * 2); d.set(this.data); this.data = d; }
+    const o = this.count * SPRITE_FLOATS, d = this.data;
+    d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = w; d[o + 4] = h;
+    d[o + 5] = u0; d[o + 6] = v0; d[o + 7] = u1; d[o + 8] = v1; d[o + 9] = c[0]; d[o + 10] = c[1]; d[o + 11] = c[2];
+    this.count++;
   }
 }
 

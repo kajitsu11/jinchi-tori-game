@@ -275,15 +275,17 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     assert((await page.textContent('#btn-rally')).includes('目標'), 'label');
   });
 
-  await test('兵士を間近で描く（関節のある足軽・戦闘の構え）', async () => {
+  await test('兵士の絵（スプライト）を描く', async () => {
+    const atlas = await ev(() => { const p = window.__jinchi.App.painter; return p && [p.w, p.h]; });
+    assert(atlas && atlas[0] === 2048 && atlas[1] >= 1024, 'atlas ' + atlas);
     await ev(() => {
       const { App } = window.__jinchi, g = App.game;
       const u = g.units.find((q) => q.engaged >= 0) || g.units[0];
       App.cam.goal = null; App.cam.tx = u.x; App.cam.tz = u.y + 1; App.cam.dist = 9;
     });
     await page.waitForTimeout(800);
-    const n = await ev(() => { const { App } = window.__jinchi; App.cam.compute(); return App.buildScene().cyl.count; });
-    assert(n > 0, 'limbs drawn');
+    const n = await ev(() => { const { App } = window.__jinchi; App.cam.compute(); App.buildScene(); return App.sprites.count; });
+    assert(n > 0, 'soldier sprites drawn');
     await shot('14_soldiers');
   });
 
