@@ -193,7 +193,7 @@ const App = {
     this.goHome(48);   // 最初は自県の都を大きく映す
     // シミュレーションのイベント
     g.on('cells', (cells) => { for (const i of cells) this.renderer.cellChanged(i); this.minimapDirty = true; });
-    g.on('capture', (e) => { if (e.by === this.me) this.myCaps = (this.myCaps || 0) + 1; this.onCapture(e); });
+    g.on('capture', (e) => { (this.capFx || (this.capFx = [])).push({ x: e.node.x, y: e.node.y, pref: e.by, t0: this.clock, sq: false }); if (e.by === this.me) this.myCaps = (this.myCaps || 0) + 1; this.onCapture(e); });
     this.myCaps = 0; this.mission = 0; this.missionBase = 0;
     g.on('built', (e) => {
       if (!e.byPlayer) return;
@@ -210,9 +210,10 @@ const App = {
     g.on('eliminated', (p) => { if (p !== this.me) this.log(`${map.prefs[p].name}が全ての拠点を失い、脱落しました`, 'bad', -1); });
     g.on('flag', (e) => {
       const f = e.flag, cell = map.id(f.x, f.y);
+      if (e.kind === 'done') (this.capFx || (this.capFx = [])).push({ x: f.x, y: f.y, half: CONFIG.FLAG_SIZE * (map.scale || 1) / 2, pref: f.pref, t0: this.clock, sq: true });
       if (e.kind === 'done' && f.pref === this.me) Sfx.fanfare();
-      if (e.kind === 'done' && f.pref === this.me && f.hw === 0) this.banner('旗を守りきった！', 'ok', `領土拡大 +${fmt(e.cells || 0)}マス`);
-      if (e.kind === 'done' && f.pref === this.me) this.log(`🚩 旗を守りきり、周りの領土を獲得しました（+${fmt(e.cells || 0)}マス）`, 'good', cell);
+      if (e.kind === 'done' && f.pref === this.me && f.hw === 0) this.banner('旗を守りきった！', 'ok', e.cells ? `領土拡大 +${fmt(e.cells)}マス` : '正方形の中の拠点を占領');
+      if (e.kind === 'done' && f.pref === this.me) this.log(`🚩 旗を守りきり、周りの領土を獲得しました${e.cells ? `（+${fmt(e.cells)}マス）` : ''}`, 'good', cell);
       else if (e.kind === 'done' && this.game.owner && cell >= 0 && this.game.owner[cell] === f.pref && map.initPref[cell] === this.me) this.log(`⚠ ${map.prefs[f.pref].name}の旗で領土を奪われました`, 'bad', cell);
       else if (e.kind === 'plant' && f.pref !== this.me && cell >= 0 && this.game.owner[cell] === this.me) this.log(`⚠ ${map.prefs[f.pref].name}が自県の中に旗を立てました`, 'bad', cell);
       else if (e.kind === 'lost' && f.pref === this.me && f.hw === 0) this.log('あなたの兵の旗が消えました（正方形の中に兵がいなくなった）', 'bad', cell);
@@ -1284,6 +1285,29 @@ const App = {
           ctx.fillStyle = f.own ? '#fff5dc' : '#ffb3a8'; ctx.fillText(txt, v[0], v[1] - 27);
         }
       }
+    }
+    // 領土を手に入れた瞬間：正方形が県の色で光る・拠点を取った所に光の輪
+    if (this.capFx && this.capFx.length) {
+      const keep = [];
+      for (const c of this.capFx) {
+        const k = (this.clock - c.t0) / 1.8;
+        if (k >= 1) continue;
+        keep.push(c);
+        const col = map.prefs[c.pref].color;
+        if (c.sq) {
+          const h = c.half * (0.85 + 0.15 * k), pts = [];
+          for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { const o = [0, 0]; if (cam.project(c.x + a * h, 0, c.y + b * h, o)) pts.push(o); }
+          if (pts.length < 4) continue;
+          ctx.beginPath(); pts.forEach((p, q) => (q ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.closePath();
+          ctx.globalAlpha = 0.45 * (1 - k); ctx.fillStyle = col; ctx.fill();
+          ctx.globalAlpha = 1 - k; ctx.lineWidth = 3; ctx.strokeStyle = '#fff6c8'; ctx.stroke(); ctx.globalAlpha = 1;
+        } else if (cam.project(c.x, 0, c.y, v) && onScreen()) {
+          const r = 10 + k * 70;
+          ctx.globalAlpha = 1 - k; ctx.lineWidth = 4; ctx.strokeStyle = col;
+          ctx.beginPath(); ctx.ellipse(v[0], v[1], r, r * 0.55, 0, 0, 7); ctx.stroke(); ctx.globalAlpha = 1;
+        }
+      }
+      this.capFx = keep;
     }
     // あなたの旗の指示の場所（まだ旗が立っていないとき）
     if (g && g.flagOrder && !(g.flagOrder.flag && (g.flags || []).some((q) => q.id === g.flagOrder.flag.id))) {
