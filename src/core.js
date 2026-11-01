@@ -559,7 +559,8 @@ void main(){
   vec3 tcol = cls > 0.5 ? mix(mix(c00, c10, sf.x), mix(c01, c11, sf.x), sf.y) : hc;
   if (cls > 0.5 && cls < 7.5) tcol = mix(tcol, vec3(0.49, 0.44, 0.36), clamp((e.r - 0.35) * 1.6, 0.0, 0.75));
   // 海岸線もまわり4マスの陸／海からなめらかに
-  vec2 p2 = tw - 0.5 + warp * 0.35, pf = fract(p2), p0 = floor(p2);
+  vec2 warp2 = vec2(noise(vWorld * 0.31 - 2.1), noise(vWorld * 0.31 + 8.4)) - 0.5;
+  vec2 p2 = tw - 0.5 + warp * 0.5 + warp2 * 0.25 / uTS, pf = fract(p2), p0 = floor(p2);
   float landA = mix(mix(landAt(p0), landAt(p0 + vec2(1.0, 0.0)), pf.x), mix(landAt(p0 + vec2(0.0, 1.0)), landAt(p0 + vec2(1.0, 1.0)), pf.x), pf.y);
   vec4 t = vec4(tcol, landA);
   // 標高から陰影（北西から光）
@@ -567,7 +568,7 @@ void main(){
   float hL = texture2D(uElev, uv - vec2(px.x, 0.0)).r, hR = texture2D(uElev, uv + vec2(px.x, 0.0)).r;
   float hU = texture2D(uElev, uv - vec2(0.0, px.y)).r, hD = texture2D(uElev, uv + vec2(0.0, px.y)).r;
   vec3 n = normalize(vec3((hL - hR) * 9.0, 1.0, (hU - hD) * 9.0));
-  float shade = clamp(0.55 + 0.6 * dot(n, normalize(vec3(-0.55, 0.75, -0.45))), 0.45, 1.25);
+  float shade = clamp(0.68 + 0.45 * dot(n, normalize(vec3(-0.55, 0.75, -0.45))), 0.6, 1.2);   // 粗い標高のぼやけた影が目立ちすぎないよう控えめに
   // 草原らしい細かいゆらぎ（拡大すると見える）
   float zin = clamp(1.5 - cpp * 2.0, 0.0, 1.0);
   float nz = noise(vWorld * 0.35) * 0.45 + noise(vWorld * 1.6) * 0.35 + noise(vWorld * 6.0) * 0.2 * zin;
@@ -577,9 +578,14 @@ void main(){
   vec3 land = t.rgb * (0.82 + 0.36 * nz);
   if (uHasGrass > 0.5) {
     // 草の筋の絵を2つの大きさで重ねて貼る（くり返しが目立たないように）
-    vec2 w1 = vWorld / 5.0, w2 = vec2(vWorld.y, -vWorld.x) / 17.0 + 0.37;
-    vec3 g = texture2D(uGrass, w1).rgb * 0.6 + texture2D(uGrass, w2).rgb * 0.4;
-    vec3 d = texture2D(uDry, w1 * 0.9 + 0.21).rgb * 0.6 + texture2D(uDry, w2 * 1.1).rgb * 0.4;
+    // 引いたときも筋がつぶれて平らな色にならないよう、拡大率に合わせて絵の大きさを2倍ずつ切り替える（となりの段となめらかに混ぜる）
+    float lod = max(0.0, log2(cpp * 40.0));
+    float s0 = exp2(floor(lod)), lf = fract(lod);
+    vec2 r2 = vec2(vWorld.y, -vWorld.x);
+    vec2 w1 = vWorld / (5.0 * s0), w2 = r2 / (17.0 * s0) + 0.37;
+    vec2 v1 = w1 * 0.5 + 0.13, v2 = w2 * 0.5 + 0.61;
+    vec3 g = mix(texture2D(uGrass, w1).rgb * 0.6 + texture2D(uGrass, w2).rgb * 0.4, texture2D(uGrass, v1).rgb * 0.6 + texture2D(uGrass, v2).rgb * 0.4, lf);
+    vec3 d = mix(texture2D(uDry, w1 * 0.9 + 0.21).rgb * 0.6 + texture2D(uDry, w2 * 1.1).rgb * 0.4, texture2D(uDry, v1 * 0.9 + 0.21).rgb * 0.6 + texture2D(uDry, v2 * 1.1).rgb * 0.4, lf);
     // 黄金色の枯れ草の帯（大きなむら。ふちはやわらかく）
     float m = noise(vWorld * 0.022 + 3.7) * 0.65 + noise(vWorld * 0.07 - 1.3) * 0.35;
     float dry = smoothstep(0.47, 0.6, m);
@@ -591,8 +597,17 @@ void main(){
     float lum = dot(land, vec3(0.299, 0.587, 0.114));
     land = mix(vec3(lum), land, 1.25);   // 少し彩度を上げる
     // 道のように踏み固められた土の斑
-    float worn = smoothstep(0.78, 0.86, noise(vWorld * 0.05 - 9.1));
-    land = mix(land, vec3(0.62, 0.52, 0.34) * (0.85 + 0.3 * g.g), worn * 0.55 * plainLike);
+    // 市街地：ぼやけた灰色の四角にならないよう、小さな屋根と道の区画をくっきり描く（拡大したときだけ）
+    // 市街地の広がり：まわり4マスから求め（ゆらした位置）、ふちをなめらかに
+    float cityK = smoothstep(0.35, 0.65, mix(mix(step(abs(k00 - 4.0), 0.5), step(abs(k10 - 4.0), 0.5), qf.x), mix(step(abs(k01 - 4.0), 0.5), step(abs(k11 - 4.0), 0.5), qf.x), qf.y));
+    float cityZ = clamp(1.6 - cpp * 3.0, 0.0, 1.0) * cityK;
+    if (cityZ > 0.0) {
+      vec2 bw = vWorld * 0.8, bf = fract(bw), bi = floor(bw);
+      float hb = hash(bi);
+      float roof = step(0.16, bf.x) * step(bf.x, 0.86) * step(0.16, bf.y) * step(bf.y, 0.86) * step(0.3, hb);
+      vec3 rc = hb > 0.7 ? vec3(0.36, 0.37, 0.42) : hb > 0.5 ? vec3(0.55, 0.32, 0.22) : vec3(0.62, 0.58, 0.5);
+      land = mix(land, mix(vec3(0.66, 0.6, 0.48), rc, roof), 0.75 * cityZ);
+    }
   } else {
     float patch = noise(vWorld * 0.06 + 7.3), patch2 = noise(vWorld * 0.11 - 3.1);
     land = mix(land, vec3(0.6, 0.6, 0.3), smoothstep(0.66, 0.9, patch) * 0.22 * t.a);
