@@ -950,12 +950,16 @@ class Sim {
   // ---------------------------------------------------------- 戦闘・移動
   /** 爆発（砲撃・爆弾・地雷）：半径 r の中の敵の兵（陸・海）と建物に被害 */
   /** kind：0=砲弾 1=爆弾 2=地雷 3=ロケット。ox,oy：撃った位置（描画で砲弾の軌道を描く） */
-  boom(x, y, r, dmg, P, hitB, kind, ox, oy) {
-    this.forUnitsNear(x, y, r, (v) => { if (v.pref !== P && v.bit !== 4) this.hitUnit(v, dmg); });
+  boom(x, y, r, dmg, P, hitB, kind, ox, oy, by) {
+    this.forUnitsNear(x, y, r, (v) => { if (v.pref !== P && v.bit !== 4) this.hitUnit(v, dmg, by); });
     if (hitB) this.buildingsNear(x, y, r, (b) => { if (b.owner !== P) { b.hp -= hitB; b.hitAt = this.time; this.hurtB.push(b); } });
     if (this.booms.length < 200) this.booms.push([x, y, r, this.time, kind || 0, ox === undefined ? x : ox, oy === undefined ? y : oy]);
   }
-  hitUnit(v, a) { this.dmg[v.k] += a * (v.buff ? v.buff.armor : 1); }
+  /** by：撃った兵（あなたの部隊の撃破を数えるため） */
+  hitUnit(v, a, by) {
+    this.dmg[v.k] += a * (v.buff ? v.buff.armor : 1);
+    if (by) v.lastBy = by.hw >= 0 ? by.hw : by.follow !== undefined ? by.follow : -1;
+  }
   combat(dt) {
     this.unitIndex = new Map();
     const U = this.units, S = this.S;
@@ -996,10 +1000,10 @@ class Sim {
         u.engaged = e.id;
         if (def.gas) {   // 毒ガス兵：敵の位置に毒ガスを撒く
           if (u.cd <= 0) { u.cd = def.gas.every; if (this.gas.length < 400) this.gas.push({ x: e.x, y: e.y, r: def.gas.r, dps: def.gas.dps, until: this.time + def.gas.life, P: u.pref }); }
-          this.hitUnit(e, def.dps * udt * mult);
+          this.hitUnit(e, def.dps * udt * mult, u);
         } else if (def.splash) {
-          if (u.cd <= 0) { u.cd = 2; this.boom(e.x, e.y, def.splash, def.dps * 2 * mult, u.pref, def.dps * 2 * def.vsB * CONFIG.BUILDING_DPS_MULT, 0, u.x, u.y); }
-        } else this.hitUnit(e, def.dps * udt * mult * (e.bit === 1 && u.bit === 4 ? 0.5 : 1));
+          if (u.cd <= 0) { u.cd = 2; this.boom(e.x, e.y, def.splash, def.dps * 2 * mult, u.pref, def.dps * 2 * def.vsB * CONFIG.BUILDING_DPS_MULT, 0, u.x, u.y, u); }
+        } else this.hitUnit(e, def.dps * udt * mult * (e.bit === 1 && u.bit === 4 ? 0.5 : 1), u);
         continue;
       }
       // 敵兵がいなければ、近くの敵の建物を壊す（飛行機は建物を撃たない＝爆撃機の役目）
@@ -1068,7 +1072,11 @@ class Sim {
       }
       if (u.buff && u.buff.heal && !got) u.hp = Math.min(def.hp, u.hp + u.buff.heal * dt);
       if (def.fuel) { u.fuel -= dt; if (u.fuel <= 0) { u.alive = false; continue; } }   // 燃料切れ：基地へ帰る
-      if (u.hp <= 0) { u.alive = false; this.stats.kills++; this.emit('death', u); }
+      if (u.hp <= 0) {
+        u.alive = false; this.stats.kills++; this.emit('death', u);
+        if (u.lastBy === 0) this.stats.myKills = (this.stats.myKills || 0) + 1;   // あなたの部隊が倒した
+        else if (u.lastBy >= 48) { const h = this.humans.get(u.lastBy); if (h) h.kills = (h.kills || 0) + 1; }
+      }
     }
     // 壊れた建物をまとめて片付ける（建物の並びは1回だけ作り直す）
     let gone = 0;
@@ -1320,7 +1328,7 @@ class Sim {
       if (!this.pending) this.pending = [];
       for (let k = 0; k < 8; k++) {
         const a = this.rng() * 6.28, r = this.rng() * 5 * this.S;
-        this.pending.push({ at: this.time + 0.6 + k * 0.45, kind: 'shell', x: x + Math.cos(a) * r, y: y + Math.sin(a) * r, P, ox: cap.x, oy: cap.y });
+        this.pending.push({ at: this.time + 0.6 + k * 0.45, kind: 'shell', x: x + Math.cos(a) * r, y: y + Math.sin(a) * r, P, ox: cap.x, oy: cap.y, w });
       }
     } else if (kind === 'reinforce') {
       for (let k = 0; k < 10; k++) this.spawnUnit(P, cap.x, cap.y, 6 * this.S, w, 'ashigaru');
@@ -1340,7 +1348,7 @@ class Sim {
     const keep = [];
     for (const p of this.pending) {
       if (p.at > this.time) { keep.push(p); continue; }
-      if (p.kind === 'shell') this.boom(p.x, p.y, 2.5 * Math.max(1, this.S * 0.7), 95, p.P, 110, 0, p.ox, p.oy);
+      if (p.kind === 'shell') this.boom(p.x, p.y, 2.5 * Math.max(1, this.S * 0.7), 95, p.P, 110, 0, p.ox, p.oy, { hw: p.w });
     }
     this.pending = keep;
   }

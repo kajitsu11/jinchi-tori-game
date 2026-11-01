@@ -388,8 +388,9 @@ const App = {
       cls = o.win ? 'win' : 'lose';
       detail = o.win ? `${CONFIG.SEASON_DAYS}日間を戦い抜き、${map.prefs[this.me].name}が全国1位になりました。` : `${CONFIG.SEASON_DAYS}日間が終わりました。優勝は${map.prefs[o.rival].name}です。`;
     } else { head = '敗北…'; cls = 'lose'; detail = `${map.prefs[this.me].name}は全ての拠点を失いました。`; }
-    const body = `<div class="result-big ${cls}">${head}</div><p style="text-align:center">${detail}<br>経過 ${this.fmtTime(o.time)}・最終領土 ${fmt(g.counts[this.me])}マス・${g.rankOf(this.me)}位<br>あなたが建てた建物 ${g.myBuildings()}・あなたの指示で守りきった旗 ${(g.stats && g.stats.myFlags) || 0}本</p>`;
-    this.openModal('ゲーム終了', body, [{ label: 'タイトルへ', cls: 'primary', fn: () => this.setState(STATE.TITLE) }]);
+    const body = `<div class="result-big ${cls}">${head}</div><p style="text-align:center">${detail}<br>経過 ${this.fmtTime(o.time)}・最終領土 ${fmt(g.counts[this.me])}マス・${g.rankOf(this.me)}位<br>あなたが建てた建物 ${g.myBuildings()}・あなたの指示で守りきった旗 ${(g.stats && g.stats.myFlags) || 0}本・あなたの部隊の撃破 ${(g.stats && g.stats.myKills) || 0}</p>`;
+    const again = ONLINE ? [] : [{ label: `もう一回（${map.prefs[this.me].short}）`, cls: 'primary', fn: () => { const p = this.me; this.closeModal(); this.startGame(p); } }];
+    this.openModal('ゲーム終了', body, [...again, { label: 'タイトルへ', cls: again.length ? '' : 'primary', fn: () => this.setState(STATE.TITLE) }]);
     signal.addEventListener('abort', () => { this.closeModal(); $('hud').classList.add('hidden'); });
   },
 
@@ -408,7 +409,7 @@ const App = {
       $('r-' + r).textContent = fmt(Math.floor(g.res[r][0]));
       $('ri-' + r).textContent = `+${Math.round(g.income[r] * 3600)}/時`;   // 1時間あたりの収入
     }
-    $('r-units').textContent = `${g.myUnits()}`;
+    $('r-units').textContent = `${g.myUnits()}` + (g.stats && g.stats.myKills ? `・撃破${g.stats.myKills}` : '');
     const c = g.counts[me], d = c - this.map.initCounts[me];
     $('h-cells').textContent = fmt(c);
     const dEl = $('h-delta');
