@@ -132,6 +132,8 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
 #abilrow button { flex: 1; min-width: 0; padding: 5px 4px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #abilrow button.cool { opacity: .5; }
 #abilrow button.on { background: linear-gradient(#8c2f1c, #5a1a0d); border-color: #ffb08a; color: #ffe0cf; }
+.b-gen { flex: 0 0 auto; }
+.b-gen.on { background: linear-gradient(#7a5a12, #4a3608); border-color: #ffe08a; color: #fff3cf; }
 .b-flag.on { background: linear-gradient(#2f6a2a, #1b3f17); border-color: #b8f0a0; color: #e8ffd8; }
 .b-rally.on { background: linear-gradient(#8c2f1c, #5a1a0d); border-color: #ffb08a; color: #ffe0cf; }
 .b-cancel { flex: none; background: #5a2a1a !important; }

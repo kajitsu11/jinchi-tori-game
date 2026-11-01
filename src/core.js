@@ -55,6 +55,7 @@ const CONFIG = {
   FLAG_SIZE: 20,                 // 正方形の一辺（マス。細かい地図では3倍）
   FLAG_DECAY: 100 / 600,         // 正方形の中に自分の兵がいないと、体力が毎秒この%ずつ減る（10分で消える）
   FLAG_PER_PART: 0.12,
+  PLAYER_GENERAL: 600,           // あなたの大将：やられたらこの秒数で県庁に復活（0で大将なし）
   FINAL_PHASE: 0.75,             // シーズンの最後の1/4は「決戦」：旗が FINAL_RATE 倍の速さで取れる（終盤に逆転が起きやすく）
   FINAL_RATE: 2,
   WAR_TIME: 12 * 3600,
@@ -150,6 +151,7 @@ const UNITS = {
   cannon: { name: '大砲隊', hp: 120, spd: 0.5, dps: 3.5, range: 9, dom: 'land', hits: 'land,sea', vsB: 3, splash: 2.5 },
   ship: { name: '軍艦', hp: 400, spd: 1.5, dps: 4, range: 11, dom: 'sea', hits: 'land,sea,air', vsB: 2, splash: 2 },
   fighter: { name: '戦闘機', hp: 150, spd: 6, dps: 3, range: 5, dom: 'air', hits: 'air,land', vsB: 0.3, fuel: 400 },
+  general: { name: '大将', hp: 450, spd: 1.4, dps: 4, range: 3, dom: 'land', hits: 'land', vsB: 1.5 },
   bomber: { name: '爆撃機', hp: 220, spd: 4.5, dps: 0, range: 0, dom: 'air', hits: '', vsB: 0, fuel: 300, bomb: { r: 3.5, dmg: 45, every: 5 } },
 };
 const WASTE = 48;             // 焦土（持ち主なし）を表す持ち主ID

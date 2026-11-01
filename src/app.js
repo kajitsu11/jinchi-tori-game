@@ -67,7 +67,8 @@ const App = {
         if (TRIAL.perPref) { CONFIG.FIXED_PARTICIPANTS = TRIAL.perPref; CONFIG.UNIT_CAP_PER_PARTICIPANT = 1.6; CONFIG.MAX_BUILDINGS_PER_PARTICIPANT = 30; CONFIG.FREE_AI = true; }
         else CONFIG.PARTICIPANTS_PER_MILLION *= TRIAL.mul;
         if (TRIAL.fast) applyFastMode();
-        CONFIG.PLAYER_START_UNITS = 15;   // 最初からあなたの部隊がいる（旗の指示をすぐ試せるように）
+        CONFIG.PLAYER_START_UNITS = 15;
+        CONFIG.PLAYER_GENERAL = 60;   // 大将（やられたら60秒で県庁に復活）   // 最初からあなたの部隊がいる（旗の指示をすぐ試せるように）
       }
       progress(0.5, '3D描画を準備中…'); await nextFrame();
       this.renderer = new Renderer($('gl'), this.map);
@@ -248,6 +249,18 @@ const App = {
       else this.banner('使えません', 'ng', r.why === 'nounits' ? '画面の中にあなたの兵がいません' : '');
       this.updateHud(true);
     }, { signal });
+    $('btn-gen').classList.toggle('hidden', !g.moveGeneral);
+    $('btn-gen').addEventListener('click', () => {
+      if (!g.general || !g.general.alive) { this.banner('大将はいま県庁で立て直し中', 'ng', `あと${this.fmtDur(Math.max(0, (g.generalAt || 0) - g.time))}で復活`); return; }
+      if (this.mode && this.mode.kind === 'gen') { this.setMode(null); return; }
+      this.cam.flyTo(g.general.x, g.general.y, Math.min(this.cam.dist, 160), 0.5);
+      this.setMode({ kind: 'gen' });
+      this.banner('大将をどこへ？', 'def', '地図をタップすると大将が向かい、あなたの兵がついて行きます');
+    }, { signal });
+    g.on('general', (s) => {
+      if (s === 'down') { this.banner('大将がやられた！', 'ng', `${this.fmtDur(CONFIG.PLAYER_GENERAL)}後に県庁で復活`); this.log('⚠ あなたの大将がやられました', 'bad', -1); }
+      else this.log('🐎 大将が県庁で復活しました', 'good', -1);
+    });
     $('btn-flag').addEventListener('click', () => {
       if (this.game.flagOrder && !(this.mode && this.mode.kind === 'flag')) { this.game.setFlagOrder(null); this.banner('旗の指示を取り消しました', 'def', '兵士は県の作戦に戻ります'); this.updateHud(true); return; }
       this.setMode(this.mode && this.mode.kind === 'flag' ? null : { kind: 'flag' });
@@ -300,6 +313,7 @@ const App = {
     for (const b of document.querySelectorAll('.bcard')) b.classList.toggle('on', !!(m && m.kind === 'place' && b.dataset.b === m.type));
     $('btn-rally').classList.toggle('on', !!(m && m.kind === 'rally'));
     $('btn-flag').classList.toggle('on', !!(m && m.kind === 'flag'));
+    $('btn-gen').classList.toggle('on', !!(m && m.kind === 'gen'));
     for (const b of document.querySelectorAll('#abilrow [data-ab]')) b.classList.toggle('on', !!(m && m.kind === 'abil' && m.ab === b.dataset.ab));
     $('btn-cancel').classList.toggle('hidden', !m);
     const hint = $('hint');
@@ -995,13 +1009,14 @@ const App = {
         V('box', 0, A + 0.27 * k2, 0.08 * k2, 0.02, 0.1 * k2, 0.42 * k2, dark);                     // 風防の枠
         continue;
       }
-      if (type === 'cavalry') {   // 騎馬隊：馬の上に兵
+      if (type === 'cavalry' || type === 'general') {   // 騎馬隊・大将：馬の上に兵（大将は金色の旗）
         veh(x, 0, z, s.yaw);
         const step2 = Math.sin(s.phase * 2) * 0.05;
         V('boxW', 0, 0.42 + step2, 0, 0.26, 0.3, 0.75, [0.36, 0.24, 0.16]); V('boxW', 0, 0.62 + step2, 0.42, 0.14, 0.26, 0.3, [0.36, 0.24, 0.16]);
         for (const [a, b] of [[-0.1, 0.25], [0.1, 0.25], [-0.1, -0.25], [0.1, -0.25]]) V('cylW', a, 0, b, 0.05, 0.45, 0.05, [0.3, 0.2, 0.13]);
         I.shadow.push(x + 0.12 * H, 0.02, z - 0.14 * H, 0.6 * H, 0.01, 0.8 * H, [0, 0, 0], vr);
-        put(x, z, s.yaw, 3, e || u.hitB ? P_ATK : P_IDLE, c0, 0.45 * H);
+        put(x, z, s.yaw, 3, e || u.hitB ? P_ATK : P_IDLE, type === 'general' ? [0.95, 0.78, 0.25] : c0, 0.45 * H);
+        if (type === 'general') { V('cylW', -0.2, 0.5, -0.2, 0.03, 1.6, 0.03, C.woodDk); V('box', -0.05, 1.7, -0.2, 0.3, 0.42, 0.02, c0); }
         continue;
       }
       if (type === 'cannon') {   // 大砲隊：車輪のついた大砲と砲手
@@ -1319,6 +1334,21 @@ const App = {
         ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(20,40,10,.9)'; ctx.strokeText('🚩 ここに旗', v[0], v[1] - 12); ctx.fillStyle = '#e8ffd8'; ctx.fillText('🚩 ここに旗', v[0], v[1] - 12);
       }
     }
+    // 大将：金色の輪と名前・向かう場所
+    if (g && g.general && g.general.alive) {
+      const u = g.general, a2 = clamp(g.acc / CONFIG.TICK, 0, 1);
+      if (cam.project(u.px + (u.x - u.px) * a2, 0.05, u.py + (u.y - u.py) * a2, v) && onScreen()) {
+        const r = clamp(cpx * 0.8, 7, 20);
+        ctx.lineWidth = 2.5; ctx.strokeStyle = '#ffd34d'; ctx.beginPath(); ctx.ellipse(v[0], v[1], r, r * 0.5, 0, 0, 7); ctx.stroke();
+        ctx.font = '700 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(30,18,6,.9)'; ctx.strokeText('大将', v[0], v[1] + r * 0.5 + 2); ctx.fillStyle = '#ffe9a8'; ctx.fillText('大将', v[0], v[1] + r * 0.5 + 2);
+      }
+      const o = g.genOrder;
+      if (o && Math.hypot(o.x - u.x, o.y - u.y) > 3 && cam.project(o.x, 0, o.y, v) && onScreen()) {
+        const pulse = 6 + 3 * Math.sin(this.clock * 5);
+        ctx.strokeStyle = 'rgba(255,211,77,.9)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(v[0], v[1], pulse * 1.6, pulse * 0.8, 0, 0, 7); ctx.stroke();
+      }
+    }
     // あなたの兵（と加勢中の仲間）の足元に白い輪
     if (g && cpx > 1.0) {
       const a = clamp(g.acc / CONFIG.TICK, 0, 1);
@@ -1464,6 +1494,11 @@ const App = {
     for (const n of g.nodes) { const d = Math.hypot(n.x - p.x, n.y - p.z); if (d < bd) { bd = d; best = { n }; } }
     for (const f of g.flags || []) { const d = Math.hypot(f.x - p.x, f.y - p.z); if (d < bd) { bd = d; best = { f }; } }
     g.buildingsNear(p.x, p.z, reach, (b, d) => { if (d < bd) { bd = d; best = { b }; } });
+    if (this.mode && this.mode.kind === 'gen') {
+      if (g.moveGeneral(p.x, p.z)) { this.marker = { x: p.x, z: p.z, t: this.clock, ok: true }; this.banner('大将、出陣！', 'ok', 'あなたの兵がついて行きます'); }
+      this.setMode(null);
+      return;
+    }
     if (this.mode && this.mode.kind === 'abil') {
       const r = g.useAbility(0, this.mode.ab, p.x, p.z);
       if (r.ok) { this.banner('砲撃開始！', 'ok', '砲弾8発が降りそそぎます'); this.marker = { x: p.x, z: p.z, t: this.clock, ok: true }; }

@@ -385,6 +385,7 @@ class Sim {
     this.incomeT += dt;
     if (this.incomeT >= 1) { const s = Math.floor(this.incomeT); this.incomeT -= s; this.produce(s); }   // 刻みが1秒より長くても収入を取りこぼさない
     this.runPending();
+    this.updateGeneral();
     this.buildHash();
     this.planAll();
     this.aiBuildAll();
@@ -867,6 +868,12 @@ class Sim {
       if (e && u.type !== 'bomber') { u.chase = e.id; return; }
     }
     u.chase = -1;
+    // 大将：あなたがタップした場所へ向かう（近くの敵とは戦う）
+    if (u.isGeneral) {
+      const o = this.genOrder;
+      if (o && Math.hypot(o.x - u.x, o.y - u.y) > 2 && (u.goalNode !== -3 || !u.dest)) { if (this.setDest(u, o.x, o.y)) u.goalNode = -3; else u.thinkAt = this.time + 0.3; }
+      return;
+    }
     // プレイヤーの「ここに旗を立てろ」：あなたの兵（と呼び寄せた仲間）はその場所へ行き、旗を立てて守る
     const fo = u.bit === 1 ? (u.fromPlayer ? this.flagOrderOf(u.hw) : u.follow !== undefined ? this.flagOrderOf(u.follow) : null) : null;
     if (fo) {
@@ -886,6 +893,13 @@ class Sim {
       return;
     }
     if (u.goalNode === -2) { u.goalNode = -1; u.dest = null; u.path = null; }
+    // 指示のないあなたの兵は大将について行く（攻撃目標を指定しているときは別）
+    const gen = u.fromPlayer && u.hw === 0 && this.general && this.general.alive && this.rally < 0 ? this.general : null;
+    if (gen && u.bit === 1) {
+      if (Math.hypot(gen.x - u.x, gen.y - u.y) > 7) { if (this.setDest(u, gen.x + u.offX * 0.5, gen.y + u.offY * 0.5)) u.goalNode = -4; else u.thinkAt = this.time + 0.3; }
+      else { u.dest = null; u.path = null; u.thinkAt = this.time + 1; }
+      return;
+    }
     if (u.follow !== undefined) delete u.follow;
     const pl = this.plans[u.pref];
     let node = -1;
@@ -1357,6 +1371,26 @@ class Sim {
       if (p.kind === 'shell') this.boom(p.x, p.y, 2.5 * Math.max(1, this.S * 0.7), 95, p.P, 110, 0, p.ox, p.oy, { hw: p.w });
     }
     this.pending = keep;
+  }
+  /** 大将：いなければ（やられたら）県庁で復活させる */
+  updateGeneral() {
+    if (!CONFIG.PLAYER_GENERAL || !this.me || this.over || !this.nodeCount[this.me]) return;
+    if (this.general && this.general.alive) return;
+    if (this.general && this.time < (this.generalAt || 0)) return;
+    if (this.general && !this.generalAt) { this.generalAt = this.time + CONFIG.PLAYER_GENERAL; this.emit('general', 'down'); return; }
+    const cap = this.nodes[this.capNode[this.me]] && this.nodes[this.capNode[this.me]].owner === this.me ? this.nodes[this.capNode[this.me]] : this.nodes.find((n) => n.owner === this.me);
+    if (!cap) return;
+    const g = this.spawnUnit(this.me, cap.x, cap.y, 2, 0, 'general');
+    g.isGeneral = true; g.role = 'atk';
+    if (this.general) this.emit('general', 'up');
+    this.general = g; this.generalAt = 0; this.genOrder = null;
+  }
+  /** 大将を動かす（あなたがタップした場所へ） */
+  moveGeneral(x, y) {
+    if (!this.general || !this.general.alive) return false;
+    this.genOrder = { x, y };
+    this.general.thinkAt = this.time; this.general.goalNode = -1;
+    return true;
   }
   rallyOf(w) { if (w === 0) return this.rally; const h = this.humans.get(w); return h ? h.rally : -1; }
   setRally(nodeId, w = 0) {
