@@ -43,6 +43,22 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     }
   }
 
+  // 自県の領土で、ある建物を建てられるマスを探す（県庁の近くから順に）
+  const findSite = (type, P) => ev(({ type, P }) => {
+    const g = window.__jinchi.game, W = g.map.W;
+    const me = P || g.me;
+    const nodes = g.nodes.filter((n) => n.owner === me).sort((a, b) => (b.type === 'capital') - (a.type === 'capital'));
+    for (const n of nodes) {
+      for (let r = 3; r < 40; r += 1.5) for (let a = 0; a < 6.28; a += 0.4) {
+        const c = g.cellAt(n.x + Math.cos(a) * r, n.y + Math.sin(a) * r);
+        if (!g.canBuild(type, me, c, me === g.me && !P ? 0 : me)) return c;
+      }
+    }
+    return -1;
+  }, { type, P });
+  const cellXY = (c) => ev((c) => { const W = window.__jinchi.App.map.W; return [c % W + 0.5, ((c / W) | 0) + 0.5]; }, c);
+  const richPlayer = () => ev(() => { const g = window.__jinchi.game; for (const r of ['food', 'wood', 'gold']) g.res[r][0] = 20000; });
+
   await test('読み込み → TITLE 状態になる', async () => {
     const t0 = Date.now();
     await page.goto(URL);
@@ -52,12 +68,12 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     const info = await ev(() => {
       const m = window.__jinchi.App.map;
       return { W: m.W, H: m.H, land: m.landCells, prefs: m.prefs.filter(Boolean).length, de: m.raw.minNeighborDeltaE,
-        towns: m.raw.towns.length, src: document.querySelector('.credit').textContent };
+        towns: m.raw.towns.length, elev: m.elev.length, src: document.querySelector('.credit').textContent };
     });
     assert(info.W === 2400 && info.H === 2510, 'grid size');
     assert(info.land > 550000 && info.land < 680000, 'land cells ' + info.land);
     assert(info.prefs === 47 && info.de >= 70, 'prefs / deltaE');
-    assert(info.towns > 400, 'towns ' + info.towns);
+    assert(info.towns > 400 && info.elev === 1200 * 1255, 'towns/elev');
     assert(info.src.includes('地球地図日本（国土地理院）'), '出典表示');
     await page.waitForTimeout(800);
     await shot('01_title');
@@ -70,21 +86,19 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     assert((await ev(() => window.__jinchi.App.titleSel)) === 1, 'titleSel');
   });
 
-  await test('出陣 → 約1000部隊・560拠点、自分の部隊が県庁の近くにいる', async () => {
+  await test('出陣 → 資源・建築メニュー・初期の兵士', async () => {
     await page.click('.pbtn[data-p="20"]');
     await page.click('#btn-start');
     await page.waitForFunction(() => window.__jinchi.App.state === 'PLAYING');
     const s = await ev(() => {
-      const g = window.__jinchi.game, cap = g.nodes[g.me - 1], u = g.player;
-      return { units: g.units.length, nodes: g.nodes.length, mine: g.units.filter((q) => q.pref === g.me).length,
-        tottori: g.units.filter((q) => q.pref === 31).length, d: Math.hypot(u.x - cap.x, u.y - cap.y), alive: u.alive,
-        pref: document.getElementById('h-pref').textContent };
+      const g = window.__jinchi.game;
+      return { parts: g.parts[g.me], nodes: g.nodes.length, units: g.units.length, mineU: g.unitCount(g.me),
+        food: g.res.food[0], wood: g.res.wood[0], cards: document.querySelectorAll('.bcard').length, pref: document.getElementById('h-pref').textContent };
     });
-    assert(s.units > 950 && s.units < 1100, 'units ' + s.units);
-    assert(s.nodes > 500, 'nodes ' + s.nodes);
-    assert(s.mine === Math.max(3, Math.round(204.8 / 100 * 8)) && s.tottori === Math.max(3, Math.round(55.3 / 100 * 8)), 'participants');
-    assert(s.alive && s.d < 25 && s.pref === '長野県', JSON.stringify(s));
-    await page.waitForTimeout(1200);
+    assert(s.parts === Math.max(3, Math.round(204.8 / 100 * 8)), 'participants');
+    assert(s.nodes > 500 && s.units > 400 && s.mineU === Math.round(s.parts * 0.5), JSON.stringify(s));
+    assert(s.food > 0 && s.wood > 0 && s.cards === 7 && s.pref === '長野県', JSON.stringify(s));
+    await page.waitForTimeout(1500);
     await shot('02_playing');
   });
 
@@ -105,146 +119,170 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     assert(Math.abs(r.ll[0] - 127.68) < 0.05 && Math.abs(r.ll[1] - 26.21) < 0.05, '経緯度 ' + r.ll);
   });
 
-  await test('地図をタップ → 自分の部隊がそこへ向かう', async () => {
-    const u0 = await ev(() => { const u = window.__jinchi.game.player; return [u.x, u.y]; });
-    const tx = u0[0] + 25, tz = u0[1] + 10;
-    const v = await toScreen(tx, tz, 90);
+  await test('建設: 農場カード → 自県の領土をタップで建つ・資源が減る', async () => {
+    await ev(() => { window.__jinchi.game.aiBuildAt.fill(1e9); });   // AIの建築を止めて、置き場所を確実にする
+    const site = await findSite('farm');
+    assert(site >= 0, 'site');
+    const [x, z] = await cellXY(site);
+    const before = await ev(() => { const g = window.__jinchi.game; return { wood: g.res.wood[0], n: g.buildings.length }; });
+    await page.click('.bcard[data-b="farm"]');
+    assert(await page.isVisible('#hint'), 'hint visible');
+    assert((await ev(() => window.__jinchi.App.mode && window.__jinchi.App.mode.type)) === 'farm', 'place mode');
+    const v = await toScreen(x, z, 70);
     await page.mouse.click(v[0], v[1]);
-    const st = await ev(() => { const u = window.__jinchi.game.player; return { dest: u.dest, text: document.getElementById('u-status').textContent }; });
-    assert(st.dest && Math.hypot(st.dest[0] - tx, st.dest[1] - tz) < 2, 'dest ' + JSON.stringify(st));
-    const d0 = Math.hypot(u0[0] - tx, u0[1] - tz);
-    await advance(3);
-    const u1 = await ev(() => { const u = window.__jinchi.game.player; return [u.x, u.y]; });
-    const d1 = Math.hypot(u1[0] - tx, u1[1] - tz);
-    assert(d1 < d0 - 8, `近づいた ${d0.toFixed(1)} → ${d1.toFixed(1)}`);
+    const after = await ev(() => { const g = window.__jinchi.game; const b = g.buildings[g.buildings.length - 1]; return { wood: g.res.wood[0], n: g.buildings.length, type: b && b.type, wallet: b && b.wallet }; });
+    assert(after.n === before.n + 1 && after.type === 'farm' && after.wallet === 0, JSON.stringify(after));
+    // タップするまでの間にも木材の収入（+1.2/秒）が入るので、建設費60から少し小さくてもよい
+    assert(before.wood - after.wood >= 50, 'paid ' + (before.wood - after.wood));
+    assert((await page.textContent('#log')).includes('農場を建てました'), 'log');
+    await page.keyboard.press('Escape');
+    assert((await ev(() => window.__jinchi.App.mode)) === null, 'esc cancels');
     await page.waitForTimeout(300);
-    await shot('03_move');
+    await shot('03_farm');
   });
 
-  await test('海をタップすると移動しない', async () => {
-    const sea = await ev(() => { const m = window.__jinchi.App.map; const u = window.__jinchi.game.player; window.__jinchi.game.player.dest = null; for (let x = u.x | 0; x > 0; x--) { const i = (u.y | 0) * m.W + x; if (!m.initPref[i]) return [x + 0.5 - 30, u.y]; } return [5, 5]; });
-    const v = await toScreen(sea[0], sea[1], 120);
+  await test('建設できない場所（他県・海）では建たない', async () => {
+    const enemy = await ev(() => { const g = window.__jinchi.game; window.__jinchi.App.setMode(null); const n = g.nodes.find((q) => q.owner !== g.me && q.owner === 15); return [n.x + 3, n.y + 3]; });
+    await page.click('.bcard[data-b="farm"]');
+    const v = await toScreen(enemy[0], enemy[1], 70);
+    const n0 = await ev(() => window.__jinchi.game.buildings.length);
     await page.mouse.click(v[0], v[1]);
-    const st = await ev(() => ({ dest: window.__jinchi.game.player.dest, banner: document.getElementById('banner').textContent }));
-    assert(!st.dest && st.banner.includes('海'), JSON.stringify(st));
+    assert((await ev(() => window.__jinchi.game.buildings.length)) === n0, 'not built');
+    assert((await page.textContent('#banner')).includes('建設できません'), 'banner');
+    await page.keyboard.press('Escape');
   });
 
-  await test('拠点をタップすると情報パネルが出る', async () => {
-    const n = await ev(() => { const g = window.__jinchi.game; const n = g.nodes[g.me - 1]; return [n.x, n.y, n.name]; });
-    const v = await toScreen(n[0], n[1], 80);
+  await test('製材所は森の近くだけ・木材の収入が増える', async () => {
+    await richPlayer();
+    const r = await ev(() => {
+      const g = window.__jinchi.game, W = g.map.W;
+      // 森の少ないマスでは建てられない
+      let bad = -1;
+      for (const i of g.landIdx) if (g.owner[i] === g.me && g.forestNear(i, 6) === 0 && !g.canBuild('farm', g.me, i, 0)) { bad = i; break; }
+      const why = bad >= 0 ? g.canBuild('lumber', g.me, bad, 0) : 'noforest';
+      return { why };
+    });
+    assert(r.why === 'noforest', 'noforest ' + r.why);
+    const site = await findSite('lumber');
+    const s = await ev((site) => {
+      const g = window.__jinchi.game;
+      g.produce(1); const w0 = g.income.wood;
+      const res = g.playerBuild('lumber', site);
+      g.produce(1);
+      return { ok: res.ok, w0, w1: g.income.wood, forest: res.building && res.building.forest };
+    }, site);
+    assert(s.ok && s.w1 > s.w0 && s.forest >= 8, JSON.stringify(s));
+  });
+
+  await test('兵舎: 食料を使ってあなたの兵士を訓練する', async () => {
+    await richPlayer();
+    const site = await findSite('barracks');
+    const s = await ev((site) => {
+      const g = window.__jinchi.game;
+      const r = g.playerBuild('barracks', site);
+      const u0 = g.myUnits(), f0 = g.res.food[0];
+      for (let k = 0; k < 200; k++) g.step(0.1);
+      return { ok: r.ok, u0, u1: g.myUnits(), spent: f0 - g.res.food[0] };
+    }, site);
+    assert(s.ok && s.u1 > s.u0, JSON.stringify(s));
+  });
+
+  await test('町: 建てると国境が広がり、自分の拠点になる', async () => {
+    await richPlayer();
+    const site = await findSite('town');
+    assert(site >= 0, 'town site');
+    const s = await ev((site) => {
+      const g = window.__jinchi.game, me = g.me;
+      const c0 = g.counts[me], n0 = g.nodeCount[me];
+      const r = g.playerBuild('town', site);
+      return { ok: r.ok, c0, c1: g.counts[me], n0, n1: g.nodeCount[me], byPlayer: r.node && r.node.byPlayer, type: r.node && r.node.type };
+    }, site);
+    assert(s.ok && s.n1 === s.n0 + 1 && s.byPlayer && s.type === 'town' && s.c1 >= s.c0, JSON.stringify(s));
+    const [x, z] = await cellXY(site);
+    await toScreen(x, z, 80);
+    await page.waitForTimeout(400);
+    await shot('04_town');
+  });
+
+  await test('見張り塔: 近くの敵兵を撃つ', async () => {
+    await richPlayer();
+    const site = await findSite('tower');
+    const s = await ev((site) => {
+      const g = window.__jinchi.game;
+      const r = g.playerBuild('tower', site);
+      const b = r.building;
+      const e = g.units.find((u) => u.pref !== g.me);
+      e.x = e.px = b.x + 4; e.y = e.py = b.y; e.hp = 100; e.thinkAt = 1e9; e.path = null; e.dest = null;
+      for (const u of g.units) if (u !== e && Math.hypot(u.x - b.x, u.y - b.y) < 12) { u.x = u.px = u.x + 300; }
+      let minHp = 100;
+      for (let k = 0; k < 20; k++) { e.x = b.x + 4; e.y = b.y; g.step(0.1); if (!e.alive) { minHp = 0; break; } minHp = Math.min(minHp, e.hp); }
+      return { ok: r.ok, hp: minHp };
+    }, site);
+    assert(s.ok && s.hp < 100, JSON.stringify(s));
+  });
+
+  await test('敵兵は守りのない建物を壊す', async () => {
+    const s = await ev(() => {
+      const g = window.__jinchi.game;
+      const b = g.buildings.find((q) => q.wallet === 0 && q.type === 'farm');
+      const ens = g.units.filter((u) => u.pref !== g.me).slice(0, 4);
+      for (const u of g.units) if (u.pref === g.me && Math.hypot(u.x - b.x, u.y - b.y) < 15) { u.x = u.px = u.x + 300; }
+      let destroyed = false;
+      g.on('destroyed', (q) => { if (q === b) destroyed = true; });
+      for (let k = 0; k < 400 && !destroyed; k++) {
+        for (const e of ens) { if (!e.alive) continue; e.x = e.px = b.x + 1.5; e.y = e.py = b.y; e.hp = 100; e.thinkAt = 1e9; }
+        g.step(0.1);
+      }
+      for (const e of ens) e.thinkAt = 0;
+      return { destroyed, inList: g.buildings.includes(b) };
+    });
+    assert(s.destroyed && !s.inList, JSON.stringify(s));
+  });
+
+  await test('占領されると、その拠点の領土にある建物は相手のものになる', async () => {
+    await richPlayer();
+    const s = await ev(() => {
+      const g = window.__jinchi.game, me = g.me;
+      // あなたの建物がある自県の拠点
+      const b = g.buildings.find((q) => q.wallet === 0);
+      const n = g.nodes[g.nodeOf[b.cell]];
+      const enemy = me === 15 ? 21 : 15;
+      g.capture(n, enemy);
+      return { owner: b.owner, wallet: b.wallet, enemy, cell: g.owner[b.cell] };
+    });
+    assert(s.owner === s.enemy && s.wallet === s.enemy && s.cell === s.enemy, JSON.stringify(s));
+  });
+
+  await test('攻撃目標: 敵の拠点を指定すると、あなたの兵士がそこへ向かう', async () => {
+    const tgt = await ev(() => {
+      const g = window.__jinchi.game, me = g.me;
+      for (const n of g.nodes) if (n.owner === me) for (const a of g.nodeAdj[n.id]) { const e = g.nodes[a]; if (e.owner !== me) return [e.id, e.x, e.y]; }
+      return null;
+    });
+    assert(tgt, 'target');
+    await page.click('#btn-rally');
+    assert((await ev(() => window.__jinchi.App.mode && window.__jinchi.App.mode.kind)) === 'rally', 'rally mode');
+    const v = await toScreen(tgt[1], tgt[2], 80);
+    await page.mouse.click(v[0], v[1]);
+    const s = await ev((id) => {
+      const g = window.__jinchi.game;
+      for (let k = 0; k < 40; k++) g.step(0.1);
+      const mine = g.units.filter((u) => u.fromPlayer);
+      return { rally: g.rally, n: mine.length, going: mine.filter((u) => u.goalNode === id || u.chase >= 0 || u.engaged >= 0).length };
+    }, tgt[0]);
+    assert(s.rally === tgt[0], 'rally set ' + JSON.stringify(s));
+    assert(s.n === 0 || s.going > 0, 'units going ' + JSON.stringify(s));
+    assert((await page.textContent('#btn-rally')).includes('目標'), 'label');
+  });
+
+  await test('建物をタップすると情報パネルが出る', async () => {
+    const b = await ev(() => { const g = window.__jinchi.game; const b = g.buildings.find((q) => q.owner === g.me); return [b.x, b.y, b.type]; });
+    const v = await toScreen(b[0], b[1], 50);
     await page.mouse.click(v[0], v[1]);
     await page.waitForSelector('#cellpanel:not(.hidden)');
-    assert((await page.textContent('#cp-name')) === n[2], 'node name');
-    assert((await page.textContent('#cp-owner')).includes('長野県'), 'owner');
+    const name = await page.textContent('#cp-name');
+    assert(name.length > 1, name);
     await page.click('#cp-close');
-  });
-
-  await test('戦闘: 敵の部隊と近づくと自動で戦いHPが減る', async () => {
-    const r = await ev(() => {
-      const g = window.__jinchi.game, u = g.player;
-      const e = g.units.find((q) => q.pref !== g.me && q.alive);
-      // 周りのほかの部隊はどけて、1対1にする
-      for (const q of g.units) if (q !== u && q !== e && Math.hypot(q.x - u.x, q.y - u.y) < 15) { q.x = q.px = q.x + 100; }
-      e.path = null; e.dest = null; e.chase = -1; e.thinkAt = 1e9; u.dest = null;
-      u.hp = 100; e.hp = 100;
-      let engagedSeen = false;
-      for (let k = 0; k < 20; k++) { e.x = e.px = u.x + 1.2; e.y = e.py = u.y; g.step(0.1); if (u.engaged === e.id && e.engaged === u.id) engagedSeen = true; }
-      e.thinkAt = 0;
-      return { uhp: u.hp, ehp: e.hp, engaged: engagedSeen };
-    });
-    assert(r.uhp < 100 && r.ehp < 100 && r.engaged, JSON.stringify(r));
-  });
-
-  await test('占領: 敵の拠点に部隊で居座ると占領でき、周りの領土が自県になる', async () => {
-    const r = await ev(() => {
-      const J = window.__jinchi, g = J.game, me = g.me;
-      // 自県に隣接する敵の町
-      let target = null;
-      for (const n of g.nodes) if (n.owner === me) for (const a of g.nodeAdj[n.id]) { const e = g.nodes[a]; if (e.owner !== me && e.type === 'town') { target = e; break; } }
-      const before = { owner: target.owner, mine: g.counts[me], cells: g.nodeCells[target.id].length };
-      // 周りの敵部隊をどけて、自分と味方を集める
-      for (const q of g.units) {
-        const d = Math.hypot(q.x - target.x, q.y - target.y);
-        if (q.pref !== me && d < 20) { q.x = q.px = q.x + 200; }
-      }
-      const team = g.units.filter((q) => q.pref === me && q.alive).slice(0, 6);
-      for (const q of team) { q.x = q.px = target.x + (Math.random() - 0.5) * 3; q.y = q.py = target.y + (Math.random() - 0.5) * 3; q.dest = null; q.path = null; q.thinkAt = 1e9; q.hp = 100; }
-      let t = 0;
-      // 守備に戻ってくる敵部隊も毎回どける（テストでは占領の仕組みだけを確かめる）
-      while (target.owner !== me && t < 300) {
-        for (const q of g.units) if (q.pref !== me && q.alive && Math.hypot(q.x - target.x, q.y - target.y) < 15) { q.x = q.px = q.x + 200; }
-        g.step(0.1); t++;
-        for (const q of team) if (q.alive) { q.x = target.x; q.y = target.y; }
-      }
-      for (const q of team) q.thinkAt = 0;
-      const owners = new Set(); for (const i of g.nodeCells[target.id]) owners.add(g.owner[i]);
-      return { name: target.name, steps: t, owner: target.owner, me, before, after: g.counts[me], owners: [...owners] };
-    });
-    assert(r.owner === r.me, '占領できていない ' + JSON.stringify(r));
-    assert(r.after > r.before.mine && r.owners.length === 1 && r.owners[0] === r.me, '領土 ' + JSON.stringify(r));
-    await page.waitForTimeout(200);
-    const log = await page.textContent('#log');
-    assert(log.includes('占領しました'), 'log ' + log);
-    await shot('04_capture');
-  });
-
-  await test('砦: 自県の領土で砦を建てると国境が押し出される', async () => {
-    const r = await ev(() => {
-      const J = window.__jinchi, g = J.game, me = g.me, W = g.map.W;
-      g.gold[me] = 5000;
-      // 自県の領土で、拠点から十分離れていて、他県に近いマスを探す
-      let site = -1;
-      for (const n of g.nodes) {
-        if (n.owner !== me) continue;
-        for (const a of g.nodeAdj[n.id]) {
-          const e = g.nodes[a]; if (e.owner === me) continue;
-          for (const f of [0.5, 0.4, 0.6, 0.3]) {
-            const c = g.cellAt(n.x + (e.x - n.x) * f, n.y + (e.y - n.y) * f);
-            if (!g.canBuildFort(me, c)) { site = c; break; }
-          }
-          if (site >= 0) break;
-        }
-        if (site >= 0) break;
-      }
-      const u = g.player; u.alive = true; u.hp = 100;
-      u.x = u.px = (site % W) + 0.5; u.y = u.py = ((site / W) | 0) + 0.5; u.dest = null;
-      window.__fort0 = { nodes: g.nodes.length, gold: g.gold[me], cells: g.counts[me] };
-      J.App.updateHud(true);
-      return site;
-    });
-    assert(r >= 0, 'site');
-    assert(!(await page.isDisabled('#btn-fort')), 'fort button enabled');
-    await page.click('#btn-fort');
-    const s = await ev(() => { const g = window.__jinchi.game, me = g.me; const n = g.nodes[g.nodes.length - 1]; return { ...window.__fort0, n2: g.nodes.length, gold2: g.gold[me], cells2: g.counts[me], type: n.type, owner: n.owner, me }; });
-    assert(s.n2 === s.nodes + 1 && s.type === 'fort' && s.owner === s.me, JSON.stringify(s));
-    // ボタンを押すまでの間にも収入が入るので、建設費400億から少し小さくてもよい
-    assert(s.gold - s.gold2 >= 330 && s.cells2 >= s.cells, 'cost/cells ' + JSON.stringify(s));
-    assert((await page.textContent('#banner')).includes('砦'), 'banner');
-    await page.waitForTimeout(300);
-    await shot('05_fort');
-  });
-
-  await test('倒されると近くの自県の拠点で復活する', async () => {
-    const r = await ev(() => {
-      const g = window.__jinchi.game, u = g.player;
-      g.kill(u);
-      const dead = !u.alive;
-      for (let k = 0; k < 90; k++) g.step(0.1);
-      let near = 1e9; for (const n of g.nodes) if (n.owner === g.me) near = Math.min(near, Math.hypot(n.x - u.x, n.y - u.y));
-      return { dead, alive: u.alive, hp: u.hp, near };
-    });
-    assert(r.dead && r.alive && r.hp === 100 && r.near < 5, JSON.stringify(r));
-  });
-
-  await test('おまかせ: ONにするとAIと同じように自分の部隊が動く', async () => {
-    await page.click('#btn-auto');
-    assert((await ev(() => window.__jinchi.game.auto)) === true, 'auto on');
-    assert((await page.textContent('#btn-auto')).includes('ON'), 'label');
-    await advance(6);
-    const r = await ev(() => { const u = window.__jinchi.game.player; return { dest: !!u.dest, goal: u.goalNode, chase: u.chase }; });
-    assert(r.dest || r.goal >= 0 || r.chase >= 0, JSON.stringify(r));
-    await page.click('#btn-auto');
-    assert((await ev(() => window.__jinchi.game.auto)) === false, 'auto off');
   });
 
   await test('真上ビューと戻る', async () => {
@@ -256,10 +294,10 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     await shot('06_topview');
     await page.click('[data-act=top]');
     await page.waitForTimeout(900);
-    assert(Math.abs((await ev(() => window.__jinchi.App.cam.pitch)) - 55) < 0.5, 'tilt');
+    assert(Math.abs((await ev(() => window.__jinchi.App.cam.pitch)) - (await ev(() => window.__jinchi.CONFIG.CAMERA_PITCH))) < 0.5, 'tilt');
   });
 
-  await test('カメラ: ドラッグ移動・ホイール拡大縮小・キーボード・ミニマップ・自県へ・部隊へ', async () => {
+  await test('カメラ: ドラッグ移動・ホイール拡大縮小・キーボード・ミニマップ・自県へ', async () => {
     await ev(() => { const c = window.__jinchi.App.cam; c.goal = null; c.dist = 300; });
     const c0 = await ev(() => { const c = window.__jinchi.App.cam; return [c.tx, c.tz]; });
     await page.mouse.move(200, 500); await page.mouse.down(); await page.mouse.move(260, 560, { steps: 5 }); await page.mouse.up();
@@ -279,10 +317,10 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     const goal = await ev(() => window.__jinchi.App.cam.goal);
     assert(goal && goal.x > 1700, 'minimap ' + JSON.stringify(goal));
     await page.waitForTimeout(800);
-    await page.click('#btn-unit');
+    await page.click('[data-act=home]');
     await page.waitForTimeout(900);
-    const du = await ev(() => { const { App } = window.__jinchi, u = App.game.player; return Math.hypot(App.cam.tx - u.x, App.cam.tz - u.y); });
-    assert(du < 150, 'unit focus ' + du);
+    const du = await ev(() => { const { App } = window.__jinchi, n = App.game.nodes.find((q) => q.owner === App.me); return Math.hypot(App.cam.tx - n.x, App.cam.tz - n.y); });
+    assert(du < 400, 'home focus ' + du);
   });
 
   await test('タッチ: 2本指ピンチで拡大縮小・1本指ドラッグで移動', async () => {
@@ -312,6 +350,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
   });
 
   await test(`${MINUTES}分間進めてもエラーなし・整合性OK`, async () => {
+    await ev(() => { const g = window.__jinchi.game; for (let p = 1; p <= 47; p++) g.aiBuildAt[p] = g.time + Math.random() * 3; });
     const r = await ev((min) => {
       const g = window.__jinchi.game, m = g.map;
       const t = performance.now();
@@ -319,35 +358,38 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
       let worst = 0;
       for (let k = 0; k < steps && !g.over; k++) { const s = performance.now(); g.step(0.1); worst = Math.max(worst, performance.now() - s); }
       const ms = performance.now() - t;
-      // 整合性
       let sum = 0; for (let p = 1; p <= 47; p++) sum += g.counts[p];
       const cnt = new Int32Array(49), nc = new Int32Array(49);
-      let badOwner = 0, badPos = 0;
+      let badOwner = 0, badPos = 0, badB = 0, badRes = 0;
       for (const i of g.landIdx) { cnt[g.owner[i]]++; if (g.owner[i] !== g.nodes[g.nodeOf[i]].owner) badOwner++; }
       for (const n of g.nodes) nc[n.owner]++;
       let badCnt = 0; for (let p = 1; p <= 47; p++) { if (cnt[p] !== g.counts[p]) badCnt++; if (nc[p] !== g.nodeCount[p]) badCnt++; }
       for (const u of g.units) if (!Number.isFinite(u.x) || !Number.isFinite(u.y) || u.x < 0 || u.y < 0 || u.x > m.W || u.y > m.H) badPos++;
-      return { sum, land: m.landCells, badOwner, badCnt, badPos, ms: Math.round(ms), perStep: +(ms / steps).toFixed(2), worst: +worst.toFixed(1),
-        stats: g.stats, time: Math.round(g.time), elim: g.eliminated.size, over: g.over, nodes: g.nodes.length };
+      for (const b of g.buildings) if (b.owner !== g.owner[b.cell] || b.hp <= 0) badB++;
+      for (const r of ['food', 'wood', 'gold']) for (let w = 0; w <= 47; w++) if (!Number.isFinite(g.res[r][w]) || g.res[r][w] < -1e-6) badRes++;
+      return { sum, land: m.landCells, badOwner, badCnt, badPos, badB, badRes, perStep: +(ms / steps).toFixed(2), worst: +worst.toFixed(1),
+        stats: g.stats, units: g.units.length, buildings: g.buildings.length, nodes: g.nodes.length, time: Math.round(g.time), over: g.over };
     }, MINUTES);
     console.log(`      ${JSON.stringify(r)}`);
     assert(r.sum === r.land, 'sum');
-    assert(!r.badOwner && !r.badCnt && !r.badPos, 'consistency ' + JSON.stringify(r));
-    assert(r.stats.captures > 50 && r.stats.kills > 100, 'activity');
-    assert(r.perStep < 15 && r.worst < 40, 'performance ' + r.perStep + ' worst ' + r.worst);
-    await ev(() => { const { App } = window.__jinchi; App.cam.goal = null; App.cam.dist = 2600; App.updateHud(true); });
+    assert(!r.badOwner && !r.badCnt && !r.badPos && !r.badB && !r.badRes, 'consistency ' + JSON.stringify(r));
+    assert(r.stats.captures > 30 && r.stats.built > 500 && r.stats.trained > 500, 'activity');
+    assert(r.perStep < 15, 'performance ' + r.perStep);
+    await ev(() => { const { App } = window.__jinchi; App.cam.goal = null; App.cam.dist = 900; App.updateHud(true); });
     await page.waitForTimeout(600);
     await shot('09_after_minutes');
+    await ev(() => { const { App } = window.__jinchi; App.goHome(70); });
+    await page.waitForTimeout(1200);
+    await shot('10_close');
   });
 
-  await test('脱落: 全ての拠点を失った県は脱落し、部隊も復活しない', async () => {
+  await test('脱落: 全ての拠点を失った県は脱落し、兵士もいなくなる', async () => {
     const r = await ev(() => {
       const g = window.__jinchi.game, victim = g.me === 31 ? 30 : 31, by = victim === 31 ? 32 : 29;
       for (const n of g.nodes) if (n.owner === victim) g.capture(n, by);
-      const units = g.units.filter((u) => u.pref === victim);
+      const log = [...document.querySelectorAll('#log div')].some((d) => d.textContent.includes('脱落'));
       for (let k = 0; k < 100; k++) g.step(0.1);
-      return { elim: g.eliminated.has(victim), nodes: g.nodeCount[victim], cells: g.counts[victim], alive: units.filter((u) => u.alive).length,
-        log: [...document.querySelectorAll('#log div')].some((d) => d.textContent.includes('脱落')) };
+      return { elim: g.eliminated.has(victim), nodes: g.nodeCount[victim], cells: g.counts[victim], alive: g.units.filter((u) => u.pref === victim).length, log };
     });
     assert(r.elim && r.nodes === 0 && r.cells === 0 && r.alive === 0 && r.log, JSON.stringify(r));
   });

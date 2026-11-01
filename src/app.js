@@ -137,30 +137,34 @@ const App = {
     const g = this.game, map = this.map;
     $('hud').classList.remove('hidden');
     $('log').innerHTML = '';
-    this.sel = -1; this.paused = false; this.topView = false; this.marker = null; this.hudT = 0;
+    this.sel = null; this.paused = false; this.topView = false; this.hudT = 0; this.mode = null; this.treeKey = '';
     this.cam.pitchGoal = CONFIG.CAMERA_PITCH;
     $('btn-top').classList.remove('on'); $('toplabel').classList.add('hidden');
     this.hidePanel();
     const pr = map.prefs[this.me];
     $('h-chip').style.background = pr.color;
     $('h-pref').textContent = pr.name;
-    this.goUnit(140);
+    this.buildMenu();
+    this.goHome(260);
     // シミュレーションのイベント
     g.on('cells', (cells) => { for (const i of cells) this.renderer.cellChanged(i); this.minimapDirty = true; });
     g.on('capture', (e) => this.onCapture(e));
-    g.on('death', (u) => { if (u.player) this.log(`💀 あなたの部隊がやられました。${CONFIG.RESPAWN}秒後に近くの拠点で復活します`, 'bad', -1); });
-    g.on('respawn', (u) => { if (u.player) this.log('🪖 部隊が復活しました', 'good', -1); });
-    g.on('fort', (e) => {
-      if (e.by !== this.me) return;
-      if (e.byPlayer) { this.banner('砦を建設！', 'def', `国境が広がりました（+${fmt(e.cells)}マス）`); this.log(`🏰 砦を建てました（+${fmt(e.cells)}マス）`, 'good', e.node.cell); }
-      else this.log(`🏰 味方が${e.node.name}を建てました`, 'good', e.node.cell);
+    g.on('built', (e) => {
+      if (!e.byPlayer) return;
+      const def = BUILDINGS[e.type];
+      this.log(`${def.icon} ${def.name}を建てました`, 'good', (e.building || e.node).cell);
     });
+    g.on('destroyed', (b) => { if (b.owner === this.me) this.log(`🔥 ${BUILDINGS[b.type].name}が壊されました`, 'bad', b.cell); if (this.sel && this.sel.b === b) this.hidePanel(); });
+    g.on('flipped', (e) => { if (e.from === this.me) this.log(`⚠ ${BUILDINGS[e.building.type].name}を${map.prefs[e.to].name}に奪われました`, 'bad', e.building.cell); });
     g.on('eliminated', (p) => { if (p !== this.me) this.log(`${map.prefs[p].name}が全ての拠点を失い、脱落しました`, 'bad', -1); });
     g.on('over', () => setTimeout(() => { if (this.state === STATE.PLAYING) this.setState(STATE.GAMEOVER); }, 900));
     // UI イベント
-    $('btn-unit').addEventListener('click', () => this.goUnit(), { signal });
-    $('btn-fort').addEventListener('click', () => this.onFort(), { signal });
-    $('btn-auto').addEventListener('click', () => { g.auto = !g.auto; if (!g.auto) { g.player.dest = null; g.player.path = null; g.player.chase = -1; } this.updateHud(true); }, { signal });
+    $('buildmenu').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-b]');
+      if (b) this.startPlace(b.dataset.b);
+    }, { signal });
+    $('btn-rally').addEventListener('click', () => this.toggleRallyMode(), { signal });
+    $('btn-cancel').addEventListener('click', () => this.setMode(null), { signal });
     $('cp-close').addEventListener('click', () => this.hidePanel(), { signal });
     $('sidebtns').addEventListener('click', (e) => {
       const b = e.target.closest('button');
@@ -176,41 +180,56 @@ const App = {
       if (d && +d.dataset.cell >= 0) this.focusCell(+d.dataset.cell);
     }, { signal });
     $('minimap').addEventListener('pointerdown', (e) => this.onMinimap(e), { signal });
-    signal.addEventListener('abort', () => { this.hidePanel(); });
+    signal.addEventListener('abort', () => { this.hidePanel(); this.setMode(null); });
     this.updateHud(true);
-    this.log(`出陣！ ${pr.name}の参加者${g.participantCount(this.me)}人（あなた＋AI）。地図をタップして部隊を動かそう`, 'good', -1);
+    this.log(`出陣！ ${pr.name}の参加者${g.parts[this.me]}人（あなた＋AI）。下のメニューから建物を建てよう`, 'good', -1);
   },
+  /** 下の建築メニュー（カード） */
+  buildMenu() {
+    let html = '';
+    for (const k of BUILD_ORDER) {
+      const d = BUILDINGS[k];
+      const cost = RES_KEYS.filter((r) => d.cost[r]).map((r) => `<span data-r="${r}">${RES_ICON[r]}${d.cost[r]}</span>`).join('');
+      html += `<button class="bcard" data-b="${k}" title="${escapeHtml(d.desc)}"><i>${d.icon}</i><b>${d.name}</b><small>${cost}</small></button>`;
+    }
+    $('buildmenu').innerHTML = html;
+  },
+  startPlace(type) {
+    const g = this.game;
+    if (!g.canAfford(0, BUILDINGS[type].cost)) { this.banner('資源が足りません', 'ng', this.costText(BUILDINGS[type].cost)); return; }
+    this.setMode(this.mode && this.mode.type === type ? null : { kind: 'place', type });
+  },
+  toggleRallyMode() { this.setMode(this.mode && this.mode.kind === 'rally' ? null : { kind: 'rally' }); },
+  setMode(m) {
+    this.mode = m;
+    for (const b of document.querySelectorAll('.bcard')) b.classList.toggle('on', !!(m && m.kind === 'place' && b.dataset.b === m.type));
+    $('btn-rally').classList.toggle('on', !!(m && m.kind === 'rally'));
+    $('btn-cancel').classList.toggle('hidden', !m);
+    const hint = $('hint');
+    if (!m) { hint.classList.add('hidden'); return; }
+    hint.classList.remove('hidden');
+    if (m.kind === 'place') {
+      const d = BUILDINGS[m.type];
+      hint.textContent = `${d.icon} ${d.name}：自県の領土（明るいところ）をタップして建てる — ${d.desc}`;
+    } else hint.textContent = '⚔ 攻撃目標：あなたの兵舎の兵士を向かわせる敵の拠点をタップ（自県の拠点をタップで解除）';
+  },
+  costText(cost) { return RES_KEYS.filter((r) => cost[r]).map((r) => `${RES_NAME[r]}${cost[r]}`).join('・'); },
   onCapture(e) {
-    const map = this.map, me = this.me, n = e.node, u = this.game.player;
-    const near = u.alive && Math.hypot(u.x - n.x, u.y - n.y) <= CONFIG.CAPTURE_RADIUS + 1;
+    const map = this.map, me = this.me, n = e.node;
     if (e.from === me) {
       this.log(`⚠ ${n.name}を${map.prefs[e.by].name}に奪われました（−${fmt(e.cells)}マス）`, 'bad', n.cell);
       if (n.type === 'capital') this.banner('県庁を奪われた！', 'ng', `${map.prefs[e.by].name}に占領されました`);
     } else if (e.by === me) {
       this.log(`🚩 ${n.name}を占領しました（+${fmt(e.cells)}マス）`, 'good', n.cell);
-      if (near || n.type === 'capital') this.banner(n.type === 'capital' ? `${map.prefs[n.pref].short}県庁を占領！` : '占領成功！', 'ok', `${n.name}（+${fmt(e.cells)}マス）`);
+      if (n.id === this.game.rally || n.type === 'capital') this.banner(n.type === 'capital' ? `${map.prefs[n.pref].short}県庁を占領！` : '占領成功！', 'ok', `${n.name}（+${fmt(e.cells)}マス）`);
+      if (n.id === this.game.rally) this.game.setRally(-1);
     }
-    if (this.sel === n.id) this.updatePanel();
+    if (this.sel && this.sel.n === n) this.updatePanel();
   },
-  onFort() {
-    const g = this.game;
-    if (!g || this.paused) return;
-    const r = g.commandFort();
-    if (!r.ok) {
-      const msg = { dead: '部隊が倒れています', sea: '海の上には建てられません', notown: '自県の領土の中で建ててください', near: `ほかの拠点から${CONFIG.FORT_MIN_DIST}マス以上離してください`, gold: '軍資金が足りません' }[r.why] || '建てられません';
-      this.banner('建設できません', 'ng', msg);
-    }
-    this.updateHud(true);
-  },
-  goUnit(dist) {
-    const u = this.game && this.game.player;
-    if (!u) return;
-    this.cam.flyTo(u.x, u.y, dist || Math.min(this.cam.dist, 200), 0.45);
-  },
-  goHome() {
+  goHome(dist) {
     const g = this.game, cap = g.nodes[this.me - 1];
-    let n = cap.owner === this.me ? cap : g.nodes.find((q) => q.owner === this.me);
-    if (n) this.cam.flyTo(n.x, n.y, 300, 0.45);
+    const n = cap.owner === this.me ? cap : g.nodes.find((q) => q.owner === this.me);
+    if (n) this.cam.flyTo(n.x, n.y, dist || 300, 0.42);
   },
   toggleTop() {
     this.topView = !this.topView;
@@ -229,12 +248,12 @@ const App = {
   // ------------------------------------------------ GAMEOVER
   enterGAMEOVER(signal) {
     const g = this.game, map = this.map, o = g.over;
-    this.hidePanel();
+    this.hidePanel(); this.setMode(null);
     let head, cls, detail;
     if (o.win) { head = '天下統一！'; cls = 'win'; detail = `${map.prefs[this.me].name}が全国の${Math.round(CONFIG.WIN_RATIO * 100)}%を支配しました。`; }
     else if (o.reason === 'rival') { head = '敗北…'; cls = 'lose'; detail = `${map.prefs[o.rival].name}が全国の${Math.round(CONFIG.WIN_RATIO * 100)}%を支配しました。`; }
     else { head = '敗北…'; cls = 'lose'; detail = `${map.prefs[this.me].name}は全ての拠点を失いました。`; }
-    const body = `<div class="result-big ${cls}">${head}</div><p style="text-align:center">${detail}<br>経過 ${this.fmtTime(o.time)}・最終領土 ${fmt(g.counts[this.me])}マス・${g.rankOf(this.me)}位<br>あなたの部隊の撃破数 ${g.player.kills}</p>`;
+    const body = `<div class="result-big ${cls}">${head}</div><p style="text-align:center">${detail}<br>経過 ${this.fmtTime(o.time)}・最終領土 ${fmt(g.counts[this.me])}マス・${g.rankOf(this.me)}位<br>あなたが建てた建物 ${g.myBuildings()}</p>`;
     this.openModal('ゲーム終了', body, [{ label: 'タイトルへ', cls: 'primary', fn: () => this.setState(STATE.TITLE) }]);
     signal.addEventListener('abort', () => { this.closeModal(); $('hud').classList.add('hidden'); });
   },
@@ -245,126 +264,190 @@ const App = {
     if (!g) return;
     if (!force && this.clock - (this.hudT || 0) < CONFIG.HUD_REFRESH) return;
     this.hudT = this.clock;
-    const me = this.me, u = g.player;
+    const me = this.me;
     $('h-time').textContent = '⏱ ' + this.fmtTime(g.time);
+    $('h-rank').textContent = g.rankOf(me) + '位';
+    for (const r of RES_KEYS) {
+      $('r-' + r).textContent = fmt(Math.floor(g.res[r][0]));
+      $('ri-' + r).textContent = `+${g.income[r].toFixed(1)}`;
+    }
+    $('r-units').textContent = `${g.myUnits()}`;
     const c = g.counts[me], d = c - this.map.initCounts[me];
     $('h-cells').textContent = fmt(c);
     const dEl = $('h-delta');
     dEl.textContent = `(${d > 0 ? '+' : d < 0 ? '−' : '±'}${fmt(Math.abs(d))})`;
     dEl.className = d > 0 ? 'up' : d < 0 ? 'down' : '';
-    $('h-rank').textContent = g.rankOf(me) + '位';
-    $('h-gold').textContent = fmt(Math.floor(g.gold[me]));
-    $('h-income').textContent = `(+${g.income(me).toFixed(1)}/秒)`;
-    $('h-today').textContent = `拠点 ${g.nodeCount[me]}・部隊 ${g.aliveUnits(me)}/${g.participantCount(me)}・全国の占領 ${fmt(g.stats.captures)}回`;
-    // 自分の部隊
-    let st;
-    if (!u.alive) st = `💀 やられた — 復活まで ${Math.max(0, Math.ceil(u.respawnAt - g.time))}秒`;
-    else if (u.engaged >= 0) st = `⚔ 戦闘中（${this.map.prefs[g.units[u.engaged].pref].short}の部隊と）`;
-    else {
-      const n = g.nodes.find((q) => q.capBy === me && Math.hypot(q.x - u.x, q.y - u.y) <= CONFIG.CAPTURE_RADIUS);
-      if (n) st = `🚩 ${n.name}を占領中 ${Math.floor(n.progress / g.needFor(n) * 100)}%`;
-      else if (u.dest) st = g.auto ? '🤖 おまかせで移動中' : '🚶 移動中';
-      else if (g.auto) st = '🤖 おまかせ中';
-      else st = '待機中 — 地図をタップすると部隊が向かいます';
-    }
-    $('u-status').textContent = st;
-    $('u-hp').style.width = (u.hp / CONFIG.UNIT_HP * 100).toFixed(0) + '%';
-    const why = u.alive ? g.canBuildFort(me, g.cellAt(u.x, u.y)) : 'dead';
-    const fb = $('btn-fort');
-    fb.disabled = !!why;
-    fb.querySelector('small').textContent = why ? ({ dead: '部隊が倒れています', sea: '海の上', notown: '自県の領土で', near: '拠点に近すぎ', gold: '資金不足' }[why] || '') : `${fmt(CONFIG.FORT_COST)}億`;
-    $('btn-auto').textContent = g.auto ? '🤖 おまかせ ON' : '🤖 おまかせ OFF';
-    $('btn-auto').classList.toggle('on', g.auto);
-    if (this.sel >= 0) this.updatePanel();
+    $('h-today').textContent = `拠点 ${g.nodeCount[me]}・兵士 ${g.unitCount(me)}/${g.unitCap(me)}・あなたの建物 ${g.myBuildings()}`;
+    // 建築カード：資源が足りないものは暗く
+    for (const b of document.querySelectorAll('.bcard')) b.classList.toggle('poor', !g.canAfford(0, BUILDINGS[b.dataset.b].cost));
+    const rn = g.rally >= 0 ? g.nodes[g.rally] : null;
+    $('btn-rally').innerHTML = rn ? `⚔ 目標：${escapeHtml(rn.name)}` : '⚔ 攻撃目標';
+    if (this.sel) this.updatePanel();
   },
-  /** 拠点の情報パネル */
-  selectNode(id) {
-    this.sel = id;
-    $('cellpanel').classList.remove('hidden');
-    this.updatePanel();
-  },
-  hidePanel() { this.sel = -1; $('cellpanel').classList.add('hidden'); },
+  hidePanel() { this.sel = null; $('cellpanel').classList.add('hidden'); },
+  select(sel) { this.sel = sel; $('cellpanel').classList.remove('hidden'); this.updatePanel(); },
   updatePanel() {
-    const g = this.game, map = this.map, n = g && g.nodes[this.sel];
-    if (!n) return;
-    $('cp-name').textContent = n.name;
-    $('cp-chip').style.background = map.prefs[n.owner].color;
-    $('cp-owner').textContent = `持ち主：${map.prefs[n.owner].name}${n.owner === this.me ? '（自県）' : ''}・${NODE_TYPE_NAME[n.type]}`;
-    $('cp-meta').textContent = `領土 ${fmt(g.cellsOf(n.id).length)}マス・守備 ${n.defenders}部隊・攻撃 ${n.attackers}部隊${n.pref !== n.owner ? `・元は${map.prefs[n.pref].name}` : ''}`;
-    const need = g.needFor(n);
-    let note = '';
-    if (n.capBy) note = `🚩 ${map.prefs[n.capBy].name}が占領中 ${Math.floor(n.progress / need * 100)}%`;
-    else if (n.attackers && n.defenders) note = '⚔ 交戦中（守備側がいる間は占領が進みません）';
-    else if (n.owner !== this.me) note = `部隊で近づくと占領できます（必要ポイント ${need}）`;
-    $('cp-note').textContent = note;
+    const g = this.game, map = this.map, s = this.sel;
+    if (!g || !s) return;
+    if (s.n) {
+      const n = s.n;
+      $('cp-name').textContent = n.name;
+      $('cp-chip').style.background = map.prefs[n.owner].color;
+      $('cp-owner').textContent = `持ち主：${map.prefs[n.owner].name}${n.owner === this.me ? '（自県）' : ''}・${NODE_TYPE_NAME[n.type]}${n.byPlayer && n.owner === this.me ? '（あなたが建設）' : ''}`;
+      $('cp-meta').textContent = `領土 ${fmt(g.cellsOf(n.id).length)}マス・守備 ${n.defenders}・攻撃 ${n.attackers}${n.pref !== n.owner ? `・元は${map.prefs[n.pref].name}` : ''}`;
+      let note = '';
+      if (n.capBy) note = `🚩 ${map.prefs[n.capBy].name}が占領中 ${Math.floor(n.progress / g.needFor(n) * 100)}%`;
+      else if (n.attackers && n.defenders) note = '⚔ 交戦中';
+      else if (n.owner !== this.me) note = '「⚔ 攻撃目標」でここを指定すると、あなたの兵舎の兵士が攻めに行きます';
+      $('cp-note').textContent = note;
+    } else if (s.b) {
+      const b = s.b, d = BUILDINGS[b.type];
+      $('cp-name').textContent = `${d.icon} ${d.name}`;
+      $('cp-chip').style.background = map.prefs[b.owner].color;
+      $('cp-owner').textContent = `持ち主：${map.prefs[b.owner].name}${b.wallet === 0 ? '（あなた）' : ''}`;
+      $('cp-meta').textContent = `耐久 ${Math.max(0, Math.ceil(b.hp))}/${b.maxHp}・${d.desc}`;
+      let note = '';
+      if (b.type === 'barracks') note = `訓練 ${Math.min(100, Math.floor(b.t / d.train * 100))}%（食料${d.trainFood}）`;
+      if (b.type === 'farm' && b.mul < 1) note = '森を切り開いた農場（収穫は半分）';
+      if (b.type === 'lumber') note = `周りの森 ${b.forest}か所 → 木材 +${Math.min(CONFIG.LUMBER_MAX, b.forest * CONFIG.LUMBER_PER_FOREST).toFixed(1)}/秒`;
+      $('cp-note').textContent = note;
+    }
   },
-  focusCell(i) {
-    this.cam.flyTo((i % this.map.W) + 0.5, ((i / this.map.W) | 0) + 0.5, Math.min(this.cam.dist, 120), 0.4);
-  },
+  focusCell(i) { this.cam.flyTo((i % this.map.W) + 0.5, ((i / this.map.W) | 0) + 0.5, Math.min(this.cam.dist, 160), 0.42); },
   showRanking() {
     const g = this.game, map = this.map;
     const rows = g.ranking().map((p, k) => {
       const c = g.counts[p], d = c - map.initCounts[p];
       const cls = (p === this.me ? ' me' : '') + (g.nodeCount[p] === 0 ? ' dead' : '');
       return `<div class="rank-row${cls}"><span class="no">${k + 1}</span><span class="chip" style="background:${map.prefs[p].color}"></span>` +
-        `<span class="nm">${map.prefs[p].name}${g.nodeCount[p] === 0 ? '（脱落）' : ''}<small class="sub">拠点${g.nodeCount[p]}・部隊${g.aliveUnits(p)}</small></span>` +
+        `<span class="nm">${map.prefs[p].name}${g.nodeCount[p] === 0 ? '（脱落）' : ''}<small class="sub">拠点${g.nodeCount[p]}・兵士${g.unitCount(p)}・建物${g.buildings.filter((b) => b.owner === p).length}</small></span>` +
         `<span class="ct">${fmt(c)}<small class="${d >= 0 ? 'plus' : 'minus'}"> ${d >= 0 ? '+' : '−'}${fmt(Math.abs(d))}</small></span>` +
         `<span class="pc">${(c / map.landCells * 100).toFixed(2)}%</span></div>`;
     }).join('');
     this.openModal(`戦況（${this.fmtTime(g.time)}）`, rows, [{ label: '閉じる', fn: () => this.closeModal() }]);
   },
 
-  // ------------------------------------------------ 建物・部隊の3D（インスタンス）
-  buildBoxes() {
+  // ------------------------------------------------ 3D：建物・兵士・木
+  buildScene() {
     const g = this.game, map = this.map, cam = this.cam;
-    const need = (g ? g.units.length * 2 + g.nodes.length * 3 : 47 * 3) + 16;
-    if (!this.boxData || this.boxData.length < need * 9) this.boxData = new Float32Array(need * 9 * 1.5 | 0);
-    const d = this.boxData;
-    let k = 0;
-    const put = (x, y, z, sx, sy, sz, c) => {
-      const o = k * 9;
-      d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = sx; d[o + 4] = sy; d[o + 5] = sz; d[o + 6] = c[0]; d[o + 7] = c[1]; d[o + 8] = c[2];
-      k++;
-    };
-    const v = [0, 0], m = 80;
+    if (!this.inst) this.inst = { box: new InstanceList(), roof: new InstanceList(), cone: new InstanceList(), cyl: new InstanceList() };
+    const I = this.inst;
+    for (const k in I) I[k].clear();
+    const v = [0, 0], m = 60;
     const visible = (x, z) => cam.project(x, 0, z, v) && v[0] > -m && v[0] < this.w + m && v[1] > -m && v[1] < this.h + m;
     if (!this.colCache) this.colCache = map.prefs.map((p) => (p ? hexToRgb(p.color).map((q) => q / 255) : [0, 0, 0]));
     const col = this.colCache;
-    const sN = clamp(cam.dist * 0.0065, 0.9, 32), WHITE = [0.92, 0.92, 0.9], DARK = [0.25, 0.25, 0.3], STONE = [0.55, 0.56, 0.58];
-    const nodes = g ? g.nodes : map.prefs.filter(Boolean).map((p) => ({ x: (p.capital % map.W) + 0.5, y: ((p.capital / map.W) | 0) + 0.5, owner: p.id, type: 'capital' }));
     const cpx = cam.cellPx();
+    // 引いているときは建物を大きめに（見つけやすく）
+    const big = clamp(cam.dist * 0.0022, 0.9, 7);
+    const WALL = [0.86, 0.8, 0.68], WALL2 = [0.72, 0.62, 0.5], ROOF = [0.55, 0.22, 0.16], ROOF2 = [0.36, 0.26, 0.2], STONE = [0.62, 0.6, 0.56],
+      WOOD = [0.5, 0.35, 0.2], FIELD = [0.78, 0.66, 0.3], DARK = [0.25, 0.23, 0.22], GREEN = [0.2, 0.42, 0.18];
+    const house = (x, z, s, rot, roofCol, wall) => {
+      I.box.push(x, 0, z, s, s * 0.7, s * 0.8, wall || WALL, rot);
+      I.roof.push(x, s * 0.7, z, s * 1.08, s * 0.5, s * 0.9, roofCol || ROOF, rot);
+    };
+    // 拠点
+    const nodes = g ? g.nodes : map.prefs.filter(Boolean).map((p) => ({ x: (p.capital % map.W) + 0.5, y: ((p.capital / map.W) | 0) + 0.5, owner: p.id, type: 'capital' }));
     for (const n of nodes) {
       if (!visible(n.x, n.y)) continue;
-      const c = col[n.owner];
+      const c = col[n.owner], s = big;
       if (n.type === 'capital') {
-        put(n.x, 0, n.y, sN * 1.6, sN * 0.5, sN * 1.2, WHITE);
-        put(n.x, sN * 0.5, n.y, sN * 0.7, sN * 1.5, sN * 0.7, c);
-        put(n.x, sN * 2.0, n.y, sN * 0.95, sN * 0.18, sN * 0.95, DARK);
-      } else if (cpx > 0.12) {
-        const s = sN * 0.62;
-        if (n.type === 'town') {
-          put(n.x, 0, n.y, s * 1.1, s * 0.6, s * 1.1, c);
-          put(n.x, s * 0.6, n.y, s * 1.25, s * 0.22, s * 1.25, DARK);
-        } else {
-          put(n.x, 0, n.y, s * 1.3, s * 0.4, s * 1.3, STONE);
-          put(n.x, s * 0.4, n.y, s * 0.12, s * 1.3, s * 0.12, WHITE);
-          put(n.x + s * 0.3, s * 1.35, n.y, s * 0.55, s * 0.32, s * 0.06, c);
+        // 城：石垣・天守・旗
+        I.box.push(n.x, 0, n.y, s * 3.2, s * 0.6, s * 3.2, STONE, 0);
+        I.box.push(n.x, s * 0.6, n.y, s * 1.8, s * 1.0, s * 1.6, WALL, 0);
+        I.roof.push(n.x, s * 1.6, n.y, s * 2.1, s * 0.6, s * 1.9, DARK, 0);
+        I.box.push(n.x, s * 2.2, n.y, s * 1.0, s * 0.7, s * 0.9, WALL, 0);
+        I.roof.push(n.x, s * 2.9, n.y, s * 1.3, s * 0.5, s * 1.1, DARK, 0);
+        I.cyl.push(n.x + s * 1.3, s * 0.6, n.y + s * 1.3, s * 0.08, s * 2.6, s * 0.08, WOOD, 0);
+        I.box.push(n.x + s * 1.6, s * 2.8, n.y + s * 1.3, s * 0.7, s * 0.45, s * 0.04, c, 0);
+        for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + 0.6; house(n.x + Math.cos(a) * s * 2.6, n.y + Math.sin(a) * s * 2.6, s * 0.8, a, ROOF2); }
+      } else if (n.type === 'town') {
+        for (let k = 0; k < 5; k++) { const a = k * 1.26 + n.x; house(n.x + Math.cos(a) * s * 1.1 * (k ? 1 : 0), n.y + Math.sin(a) * s * 1.1 * (k ? 1 : 0), s * (k ? 0.75 : 1.0), a, k % 2 ? ROOF : ROOF2); }
+        I.cyl.push(n.x, 0, n.y, s * 0.06, s * 2.2, s * 0.06, WOOD, 0);
+        I.box.push(n.x + s * 0.3, s * 1.9, n.y, s * 0.55, s * 0.35, s * 0.04, c, 0);
+      } else {
+        // 砦：石壁の四角と角の塔
+        for (let k = 0; k < 4; k++) {
+          const a = k * Math.PI / 2, ox = Math.cos(a) * s * 1.2, oz = Math.sin(a) * s * 1.2;
+          I.box.push(n.x + ox, 0, n.y + oz, (k % 2 ? 0.3 : 2.6) * s, s * 0.7, (k % 2 ? 2.6 : 0.3) * s, STONE, 0);
+          const tx = n.x + (k < 2 ? 1 : -1) * s * 1.2, tz = n.y + (k % 3 ? 1 : -1) * s * 1.2;
+          I.cyl.push(tx, 0, tz, s * 0.6, s * 1.1, s * 0.6, STONE, 0);
+          I.cone.push(tx, s * 1.1, tz, s * 0.75, s * 0.6, s * 0.75, c, 0);
         }
+        I.box.push(n.x, 0, n.y, s * 1.0, s * 1.3, s * 1.0, WALL2, 0);
       }
     }
     if (g) {
-      const sU = clamp(cam.dist * 0.008, 1.4, 26), a = clamp(g.acc / CONFIG.TICK, 0, 1);
-      const SKIN = [0.95, 0.82, 0.68], GOLD = [1, 0.82, 0.2];
+      // 建物
+      for (const b of g.buildings) {
+        if (cpx < 0.35 || !visible(b.x, b.y)) continue;   // 日本全体を見ているときは拠点だけ
+        const s = big * 0.85, c = col[b.owner], r = b.rot;
+        switch (b.type) {
+          case 'farm':
+            I.box.push(b.x, 0, b.y, s * 2.6, s * 0.06, s * 2.0, FIELD, r);
+            house(b.x + s * 0.9, b.y - s * 0.7, s * 0.7, r, ROOF2);
+            I.box.push(b.x - s * 0.6, s * 0.06, b.y + s * 0.3, s * 1.0, s * 0.05, s * 0.8, GREEN, r);
+            break;
+          case 'lumber':
+            house(b.x, b.y, s * 0.9, r, ROOF2, WALL2);
+            for (let k = 0; k < 3; k++) I.cyl.push(b.x + s * 0.9, s * 0.12 * (k + 0.5), b.y - s * 0.4 + k * s * 0.25, s * 0.2, s * 0.9, s * 0.2, WOOD, Math.PI / 2);
+            break;
+          case 'market':
+            house(b.x, b.y, s * 1.0, r, [0.75, 0.55, 0.2]);
+            I.box.push(b.x + s * 0.9, 0, b.y + s * 0.6, s * 0.7, s * 0.35, s * 0.7, [0.85, 0.75, 0.4], r);
+            break;
+          case 'barracks':
+            I.box.push(b.x, 0, b.y, s * 2.0, s * 0.8, s * 1.1, WALL2, r);
+            I.roof.push(b.x, s * 0.8, b.y, s * 2.15, s * 0.5, s * 1.25, c, r);
+            I.cyl.push(b.x + s * 1.2, 0, b.y + s * 0.8, s * 0.05, s * 1.8, s * 0.05, WOOD, 0);
+            I.box.push(b.x + s * 1.45, s * 1.55, b.y + s * 0.8, s * 0.45, s * 0.3, s * 0.03, c, 0);
+            break;
+          case 'tower':
+            I.cyl.push(b.x, 0, b.y, s * 0.8, s * 2.4, s * 0.8, STONE, 0);
+            I.cone.push(b.x, s * 2.4, b.y, s * 1.05, s * 0.9, s * 1.05, c, 0);
+            break;
+        }
+      }
+      // 兵士（引きのときは大きめの印）
+      const sU = clamp(cam.dist * 0.0028, 0.5, 14), a = clamp(g.acc / CONFIG.TICK, 0, 1);
+      const SKIN = [0.92, 0.78, 0.62];
       for (const u of g.units) {
-        if (!u.alive) continue;
         const x = u.px + (u.x - u.px) * a, z = u.py + (u.y - u.py) * a;
         if (!visible(x, z)) continue;
-        const s = u.player ? sU * 1.7 : sU;
-        put(x, 0, z, s * 0.55, s * 1.0, s * 0.55, col[u.pref]);
-        put(x, s * 1.0, z, s * 0.4, s * 0.4, s * 0.4, u.player ? GOLD : SKIN);
+        I.box.push(x, 0, z, sU * 0.45, sU * 0.85, sU * 0.35, col[u.pref], 0);
+        I.box.push(x, sU * 0.85, z, sU * 0.3, sU * 0.3, sU * 0.3, u.fromPlayer ? [1, 0.84, 0.25] : SKIN, 0);
       }
     }
-    return { data: d, count: k };
+    // 木（拡大したときだけ。森のマスに、場所から決まる乱数で並べる）
+    if (cpx > 1.6) this.addTrees(I.cone, I.cyl);
+    return I;
+  },
+  addTrees(cone, cyl) {
+    const map = this.map, cam = this.cam, W = map.W, t = map.terrain;
+    const pts = [[0, 0], [this.w, 0], [0, this.h], [this.w, this.h]].map(([x, y]) => cam.groundAt(x, y)).filter(Boolean);
+    if (pts.length < 4) return;
+    const x0 = Math.max(0, Math.floor(Math.min(...pts.map((p) => p.x)))), x1 = Math.min(W - 1, Math.ceil(Math.max(...pts.map((p) => p.x))));
+    const y0 = Math.max(0, Math.floor(Math.min(...pts.map((p) => p.z)))), y1 = Math.min(map.H - 1, Math.ceil(Math.max(...pts.map((p) => p.z))));
+    const area = (x1 - x0 + 1) * (y1 - y0 + 1);
+    const step = Math.max(1, Math.ceil(Math.sqrt(area / 60000)));
+    const s = clamp(cam.dist * 0.0028, 0.55, 3) * 1.15;
+    const v = [0, 0];
+    let n = 0;
+    for (let y = y0; y <= y1; y += step) {
+      for (let x = x0; x <= x1; x += step) {
+        const i = y * W + x, k = t[i] & 7;
+        if (k !== 2 && k !== 1) continue;
+        const h = ((i * 2654435761) >>> 0) / 4294967296;
+        if (k === 1 ? h > 0.012 : h > 0.55) continue;
+        const h2 = ((i * 40503 + 7) % 997) / 997, h3 = ((i * 69069 + 3) % 991) / 991;
+        const px = x + h2, pz = y + h3;
+        if (!cam.project(px, 0, pz, v) || v[0] < -20 || v[0] > this.w + 20 || v[1] < -40 || v[1] > this.h + 20) continue;
+        const sz = s * (0.8 + h2 * 0.5), snow = t[i] & 8;
+        cyl.push(px, 0, pz, sz * 0.15, sz * 0.5, sz * 0.15, [0.35, 0.24, 0.14], 0);
+        cone.push(px, sz * 0.35, pz, sz * 0.95, sz * 1.5, sz * 0.95, snow ? [0.75, 0.82, 0.8] : [0.13 + h3 * 0.08, 0.32 + h2 * 0.1, 0.14], 0);
+        if (++n >= CONFIG.TREE_MAX) return;
+      }
+    }
   },
 
   // ------------------------------------------------ ラベル・演出（2Dオーバーレイ）
@@ -378,71 +461,77 @@ const App = {
     const v = [0, 0], w = [0, 0];
     const onScreen = () => v[0] > -40 && v[0] < this.w + 40 && v[1] > -40 && v[1] < this.h + 40;
     ctx.lineJoin = 'round';
-    const a = g ? clamp(g.acc / CONFIG.TICK, 0, 1) : 0;
-    const upos = (u) => [u.px + (u.x - u.px) * a, u.py + (u.y - u.py) * a];
-    // 交戦の線
-    if (g && cpx > 0.6) {
-      ctx.strokeStyle = 'rgba(255,230,120,.75)'; ctx.lineWidth = 1.2;
+    // 交戦・射撃の線
+    if (g && cpx > 0.5) {
+      const a = clamp(g.acc / CONFIG.TICK, 0, 1);
+      ctx.strokeStyle = 'rgba(255,230,140,.7)'; ctx.lineWidth = 1;
       ctx.beginPath();
       let n = 0;
-      for (const u of g.units) {
-        if (!u.alive || u.engaged < 0 || n > 500) continue;
-        const [x, z] = upos(u), e = g.units[u.engaged], [ex, ez] = upos(e);
-        if (!cam.project(x, 0.6, z, v) || !onScreen() || !cam.project(ex, 0.6, ez, w)) continue;
+      const idx = g.unitIndex;
+      if (idx) for (const u of g.units) {
+        if (u.engaged < 0 || n > 400) continue;
+        const e = idx.get(u.engaged);
+        if (!e) continue;
+        if (!cam.project(u.px + (u.x - u.px) * a, 0.5, u.py + (u.y - u.py) * a, v) || !onScreen() || !cam.project(e.x, 0.5, e.y, w)) continue;
         ctx.moveTo(v[0], v[1]); ctx.lineTo(w[0], w[1]); n++;
       }
       ctx.stroke();
+      if (g.shots && g.shots.length) {
+        ctx.strokeStyle = 'rgba(255,150,80,.85)'; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (const [x0, y0, x1, y1] of g.shots) {
+          if (!cam.project(x0, clamp(cam.dist * 0.0022, 0.9, 7) * 2, y0, v) || !onScreen() || !cam.project(x1, 0.5, y1, w)) continue;
+          ctx.moveTo(v[0], v[1]); ctx.lineTo(w[0], w[1]);
+        }
+        ctx.stroke();
+      }
     }
-    // HP バー（拡大時）
-    if (g && cpx > 2.2) {
-      for (const u of g.units) {
-        if (!u.alive || u.hp >= CONFIG.UNIT_HP) continue;
-        const [x, z] = upos(u);
-        if (!cam.project(x, clamp(cam.dist * 0.008, 1.4, 26) * 1.6, z, v) || !onScreen()) continue;
-        ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(v[0] - 8, v[1] - 6, 16, 3);
-        ctx.fillStyle = u.hp > 50 ? '#4ddc7a' : u.hp > 25 ? '#ffcf3f' : '#ff4a3d';
-        ctx.fillRect(v[0] - 8, v[1] - 6, 16 * u.hp / CONFIG.UNIT_HP, 3);
+    // 攻撃を受けている建物の耐久ゲージ（拡大時、攻撃を受けてから3秒）
+    if (g && cpx > 1.5) {
+      for (const b of g.buildings) {
+        if (b.hp >= b.maxHp || !(g.time - (b.hitAt || -99) < 3)) continue;
+        if (!cam.project(b.x, clamp(cam.dist * 0.0022, 0.9, 7) * 2.4, b.y, v) || !onScreen()) continue;
+        ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(v[0] - 12, v[1] - 6, 24, 4);
+        ctx.fillStyle = b.hp / b.maxHp > 0.5 ? '#ffcf3f' : '#ff4a3d';
+        ctx.fillRect(v[0] - 12, v[1] - 6, 24 * Math.max(0, b.hp) / b.maxHp, 4);
       }
     }
     // 拠点の名前と占領ゲージ
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     const fs = clamp(9 + Math.log2(cpx + 1) * 3, 9, 16);
-    const bh = clamp(cam.dist * 0.0065, 0.9, 32) * 2.3;
+    const bh = clamp(cam.dist * 0.0022, 0.9, 7) * 3.4;
     const placed = [];
-    const nodes = g ? g.nodes : null;
     const order = [];
-    if (nodes) {
-      for (const n of nodes) if (n.type === 'capital' || cpx > 1.3 || n.progress > 0) order.push(n);
+    if (g) {
+      for (const n of g.nodes) if (n.type === 'capital' || cpx > 2.4 || (n.progress > 0 && cpx > 0.6) || n.id === g.rally) order.push(n);
     } else {
       for (let p = 1; p <= 47; p++) order.push({ type: 'capital', pref: p, owner: p, x: (map.capitalCell[p] % map.W) + 0.5, y: ((map.capitalCell[p] / map.W) | 0) + 0.5 });
     }
     const pri = this.state === STATE.TITLE ? this.titleSel : this.me;
-    const score = (n) => (n.pref === pri && n.type === 'capital' ? 1e6 : 0) + (n.type === 'capital' ? 1e4 + map.prefs[n.pref].pop : n.type === 'fort' ? 10 : 0);
+    const score = (n) => (g && n.id === g.rally ? 2e6 : 0) + (n.pref === pri && n.type === 'capital' ? 1e6 : 0) + (n.type === 'capital' ? 1e4 + map.prefs[n.pref].pop : n.type === 'fort' ? 10 : 0);
     order.sort((p, q) => score(q) - score(p));
     for (const n of order) {
-      if (!cam.project(n.x, n.type === 'capital' ? bh : bh * 0.4, n.y, v) || !onScreen()) continue;
-      // 占領ゲージ
+      if (!cam.project(n.x, n.type === 'capital' ? bh : bh * 0.6, n.y, v) || !onScreen()) continue;
       if (g && n.progress > 0) {
         const r = 11, f = n.progress / g.needFor(n);
         ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,.6)';
         ctx.beginPath(); ctx.arc(v[0], v[1] - r - 2, r, 0, Math.PI * 2); ctx.stroke();
         ctx.strokeStyle = map.prefs[n.capBy].color; ctx.lineWidth = 3;
         ctx.beginPath(); ctx.arc(v[0], v[1] - r - 2, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * f); ctx.stroke();
-      } else if (g && n.attackers && n.defenders && cpx > 0.3) {
-        ctx.font = `700 ${fs}px sans-serif`; ctx.fillStyle = '#ffe27a'; ctx.fillText('⚔', v[0], v[1] - 4);
       }
       const isCap = n.type === 'capital';
-      const label = isCap ? map.prefs[n.pref].short + (cpx > 2 ? `（${map.prefs[n.pref].capName}）` : '') : n.name;
+      let label = isCap ? map.prefs[n.pref].short + (cpx > 2 ? `（${map.prefs[n.pref].capName}）` : '') : n.name;
+      if (g && n.id === g.rally) label = '⚔ ' + label;
       const size = isCap ? fs : clamp(fs - 3, 9, 12);
-      ctx.font = `${isCap ? 700 : 600} ${size}px sans-serif`;
+      ctx.font = `${isCap ? 700 : 600} ${size}px "Hiragino Mincho ProN","Yu Mincho",serif`;
       const tw = ctx.measureText(label).width;
       const ly = v[1] - (g && n.progress > 0 ? 26 : 2);
       const rect = [v[0] - tw / 2 - 2, ly - size - 2, v[0] + tw / 2 + 2, ly];
       if (placed.some((q) => q[0] < rect[2] && rect[0] < q[2] && q[1] < rect[3] && rect[1] < q[3])) continue;
       placed.push(rect);
-      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.75)';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(30,18,6,.85)';
       ctx.strokeText(label, v[0], ly);
-      ctx.fillStyle = n.owner === n.pref ? '#fff' : '#ffb3a8';
+      ctx.fillStyle = g && n.id === g.rally ? '#ff9b6b' : n.owner === n.pref ? '#fff5dc' : '#ffb3a8';
       ctx.fillText(label, v[0], ly);
       if (this.state === STATE.TITLE && isCap && n.pref === this.titleSel) { ctx.fillStyle = '#ffcf3f'; ctx.fillText('▼', v[0], ly - size - 2); }
     }
@@ -456,53 +545,35 @@ const App = {
         seen.add(l.name);
         const ax = l.a % map.W, ay = (l.a / map.W) | 0, bx = l.b % map.W, by = (l.b / map.W) | 0;
         if (!cam.project((ax + bx) / 2 + 0.5, 0, (ay + by) / 2 + 0.5, v)) continue;
-        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.strokeText(l.name, v[0], v[1] - 4);
-        ctx.fillStyle = '#ffe27a'; ctx.fillText(l.name, v[0], v[1] - 4);
+        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(30,18,6,.7)'; ctx.strokeText(l.name, v[0], v[1] - 4);
+        ctx.fillStyle = '#ffe9a8'; ctx.fillText(l.name, v[0], v[1] - 4);
       }
     }
     ctx.font = '600 11px sans-serif';
     for (const s of this.renderer.linkStubs) {
       if (!cam.project(s.x, 0, s.y, v)) continue;
-      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.strokeText(s.name, v[0], v[1] - 3);
-      ctx.fillStyle = '#ffe27a'; ctx.fillText(s.name, v[0], v[1] - 3);
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(30,18,6,.7)'; ctx.strokeText(s.name, v[0], v[1] - 3);
+      ctx.fillStyle = '#ffe9a8'; ctx.fillText(s.name, v[0], v[1] - 3);
     }
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     for (const r of map.raw.insets) {
       if (!cam.project(r.poly[2] + 4, 0, r.poly[3] + 4, v)) continue;
-      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.strokeText(r.label, v[0], v[1]);
-      ctx.fillStyle = '#fff'; ctx.fillText(r.label, v[0], v[1]);
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(30,18,6,.7)'; ctx.strokeText(r.label, v[0], v[1]);
+      ctx.fillStyle = '#fff5dc'; ctx.fillText(r.label, v[0], v[1]);
     }
-    if (!g || this.state !== STATE.PLAYING) return;
-    // 自分の部隊：行き先までの線、旗、目印
-    const u = g.player;
-    if (u.alive && u.dest) {
-      const [x, z] = upos(u);
-      ctx.setLineDash([6, 5]); ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 2;
-      ctx.beginPath();
-      let started = false;
-      const pts = [[x, z]];
-      if (u.path) for (let k = u.pi; k < u.path.length; k++) pts.push(u.path[k]);
-      pts.push(u.dest);
-      for (const [px, pz] of pts) { if (!cam.project(px, 0.3, pz, v)) continue; started ? ctx.lineTo(v[0], v[1]) : ctx.moveTo(v[0], v[1]); started = true; }
-      ctx.stroke(); ctx.setLineDash([]);
-      if (cam.project(u.dest[0], 0, u.dest[1], v)) { ctx.font = '18px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText('🚩', v[0] - 3, v[1]); }
+    // 選択中のもの
+    if (this.sel) {
+      const o = this.sel.n || this.sel.b;
+      if (o && cam.project(o.x, 0, o.y, v)) {
+        ctx.strokeStyle = '#ffe14d'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(v[0], v[1], 18, 9, 0, 0, Math.PI * 2); ctx.stroke();
+      }
     }
     if (this.marker && this.clock - this.marker.t < 0.8) {
       const k = (this.clock - this.marker.t) / 0.8;
       if (cam.project(this.marker.x, 0, this.marker.z, v)) {
-        ctx.strokeStyle = `rgba(255,255,255,${1 - k})`; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(v[0], v[1], 6 + 18 * k, 0, Math.PI * 2); ctx.stroke();
-      }
-    }
-    {
-      const [x, z] = upos(u);
-      const sU = clamp(cam.dist * 0.008, 1.4, 26) * 1.7;
-      if (cam.project(x, sU * 1.6, z, v)) {
-        ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-        ctx.font = '800 12px sans-serif';
-        const t = u.alive ? '▼あなた' : '💀';
-        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.8)'; ctx.strokeText(t, v[0], v[1] - 4);
-        ctx.fillStyle = '#ffcf3f'; ctx.fillText(t, v[0], v[1] - 4);
+        ctx.strokeStyle = this.marker.ok ? `rgba(160,255,140,${1 - k})` : `rgba(255,90,70,${1 - k})`; ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.ellipse(v[0], v[1], 8 + 20 * k, 4 + 10 * k, 0, 0, Math.PI * 2); ctx.stroke();
       }
     }
   },
@@ -514,15 +585,36 @@ const App = {
     }
     if (this.state !== STATE.PLAYING || this.paused || i < 0) return;
     const g = this.game, p = this.cam.groundAt(sx, sy);
-    // 近くの拠点をタップしたら情報を出す
-    let near = -1, bd = Math.max(3, 14 / this.cam.cellPx());
-    for (const n of g.nodes) { const d = Math.hypot(n.x - p.x, n.y - p.z); if (d < bd) { bd = d; near = n.id; } }
-    if (near >= 0) this.selectNode(near); else this.hidePanel();
-    if (!this.map.isLand(i)) { this.banner('海には行けません', 'ng', '陸地か、連絡マスの先をタップしてください'); return; }
-    if (g.auto) { g.auto = false; }
-    if (g.commandMove(p.x, p.z)) this.marker = { x: p.x, z: p.z, t: this.clock };
-    else this.banner('部隊が倒れています', 'ng', '復活するまで待ってください');
-    this.updateHud(true);
+    const reach = Math.max(2.5, 16 / this.cam.cellPx());
+    if (this.mode && this.mode.kind === 'place') {
+      const type = this.mode.type;
+      const r = g.playerBuild(type, i);
+      this.marker = { x: p.x, z: p.z, t: this.clock, ok: r.ok };
+      if (r.ok) {
+        if (!g.canAfford(0, BUILDINGS[type].cost)) this.setMode(null);   // 資源が尽きたら建設モード終了
+      } else {
+        const msg = { sea: '海には建てられません', notown: '自県の領土の中に建ててください', crowded: 'ほかの建物に近すぎます',
+          nearnode: `町・砦はほかの拠点から${CONFIG.NODE_MIN_DIST}マス以上離してください`, terrain: '農場は山には建てられません',
+          noforest: '製材所は森の近くに建ててください', cost: '資源が足りません' }[r.why] || '建てられません';
+        this.banner('建設できません', 'ng', msg);
+      }
+      this.updateHud(true);
+      return;
+    }
+    // 近くの拠点・建物
+    let best = null, bd = reach;
+    for (const n of g.nodes) { const d = Math.hypot(n.x - p.x, n.y - p.z); if (d < bd) { bd = d; best = { n }; } }
+    g.buildingsNear(p.x, p.z, reach, (b, d) => { if (d < bd) { bd = d; best = { b }; } });
+    if (this.mode && this.mode.kind === 'rally') {
+      if (best && best.n) {
+        if (best.n.owner === this.me) { g.setRally(-1); this.banner('攻撃目標を解除', 'def', '兵士は県の作戦に従います'); }
+        else { g.setRally(best.n.id); this.banner('攻撃目標を指定！', 'ok', `あなたの兵士が ${best.n.name} へ向かいます`); }
+        this.setMode(null);
+        this.updateHud(true);
+      } else this.banner('拠点をタップしてください', 'ng', '県庁・町・砦が目標になります');
+      return;
+    }
+    if (best) this.select(best); else this.hidePanel();
   },
   frame(now) {
     const dt = Math.min(0.1, Math.max(0, (now - this.lastT) / 1000));
@@ -537,8 +629,9 @@ const App = {
       }
       const mixT = clamp((this.cam.pitch - CONFIG.CAMERA_PITCH) / (CONFIG.TOP_PITCH - CONFIG.CAMERA_PITCH), 0, 1);
       this.renderer.render(this.cam, {
-        mix: CONFIG.OWNER_MIX + (CONFIG.OWNER_MIX_TOP - CONFIG.OWNER_MIX) * mixT,
-        blink: 0, sel: -1, top: this.cam.pitch > 80, boxes: this.buildBoxes(),
+        fill: CONFIG.FILL + (CONFIG.FILL_TOP - CONFIG.FILL) * mixT,
+        place: this.state === STATE.PLAYING && this.mode && this.mode.kind === 'place',
+        time: this.clock, meshes: this.buildScene(),
       });
       this.drawOverlay();
       if (this.state === STATE.PLAYING || this.state === STATE.GAMEOVER) {
@@ -641,10 +734,10 @@ const App = {
       ctx.closePath(); ctx.stroke();
       ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 1; ctx.stroke();
     }
-    const u = g && g.player;
-    if (u && u.alive) {
-      ctx.fillStyle = '#ffcf3f'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(u.x / map.W * mw, u.y / map.H * mh, 3.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    const rn = g && g.rally >= 0 ? g.nodes[g.rally] : null;   // 攻撃目標
+    if (rn) {
+      ctx.fillStyle = '#ff6b3d'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(rn.x / map.W * mw, rn.y / map.H * mh, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
   },
   onMinimap(e) {
@@ -721,13 +814,14 @@ const App = {
     else if (k === 'Escape') {
       // モーダルは「既定のボタン」と同じ動きにする（日報なら翌日へ進む）
       if (!$('modal').classList.contains('hidden')) { if (this.state === STATE.PLAYING && this.modalEsc) this.modalEsc(); }
+      else if (this.mode) this.setMode(null);
       else this.hidePanel();
     }
     if (this.state !== STATE.PLAYING || this.paused) return;
     if (k === 't' || k === 'T') this.toggleTop();
     else if (k === 'h' || k === 'H') this.goHome();
-    else if (k === 'u' || k === 'U' || k === ' ') this.goUnit();
-    else if (k === 'f' || k === 'F') this.onFort();
+    else if (k === 'r' || k === 'R') this.toggleRallyMode();
+    else if (k >= '1' && k <= '7') this.startPlace(BUILD_ORDER[+k - 1]);
   },
   keyPan(dt) {
     if (!this.keys || !this.keys.size) return;

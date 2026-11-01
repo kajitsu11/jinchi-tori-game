@@ -166,7 +166,7 @@ class Sim {
     this.landIdx = new Int32Array(map.landCells);
     for (let i = 0, k = 0; i < N; i++) if (map.initPref[i]) this.landIdx[k++] = i;
     this.offs = [-W - 1, -W, -W + 1, -1, 1, W - 1, W, W + 1];
-    // ---- 拠点
+    // ---- 拠点（県庁・町・砦）
     this.nodes = [];
     for (let p = 1; p <= 47; p++) {
       this.addNode({ cell: map.capitalCell[p], pref: p, type: 'capital', name: `${map.prefs[p].name}庁（${map.prefs[p].capName}）` });
@@ -183,47 +183,46 @@ class Sim {
     for (const n of this.nodes) this.nodeCount[n.owner]++;
     this.rebuildNodeCells();
     this.computeNodeAdj();
-    // ---- 部隊（参加者1人＝1部隊）
     this.nav = map.nav || (map.nav = new NavGrid(map));
+    // ---- 参加者と財布（0 = プレイヤー、1..47 = 各県のAI参加者たち）
+    this.parts = new Int32Array(49);
+    for (let p = 1; p <= 47; p++) this.parts[p] = this.participantCount(p);
+    this.res = { food: new Float64Array(48), wood: new Float64Array(48), gold: new Float64Array(48) };
+    for (let w = 0; w <= 47; w++) {
+      const k = w === 0 ? 1 : (w === me ? this.parts[w] - 1 : this.parts[w]);
+      for (const r of RES_KEYS) this.res[r][w] = CONFIG.START_RES[r] * Math.max(1, k * 0.25);
+    }
+    // ---- 建物
+    this.buildings = [];
+    this.bseq = 0;
+    this.bgs = 8;                                   // 建物用の格子（8マス）
+    this.bgw = Math.ceil(W / this.bgs);
+    this.bgrid = new Map();                         // 格子 → 建物の配列
+    this.aiBuildAt = new Float64Array(48);
+    for (let p = 1; p <= 47; p++) this.aiBuildAt[p] = this.rng() * 3;
+    // ---- 兵士
     this.units = [];
+    this.useq = 0;
     for (let p = 1; p <= 47; p++) {
-      const n = this.participantCount(p);
-      for (let k = 0; k < n; k++) {
-        const isPlayer = p === me && k === 0;
-        const c = this.randomCellNear(map.capitalCell[p], 14, p);
-        const u = {
-          id: this.units.length, pref: p, player: isPlayer,
-          role: isPlayer ? 'player' : (this.rng() < CONFIG.AI_DEFENDER_RATIO ? 'def' : 'atk'),
-          x: (c % W) + this.rng(), y: ((c / W) | 0) + this.rng(), px: 0, py: 0,
-          hp: CONFIG.UNIT_HP, alive: true, respawnAt: 0,
-          path: null, pi: 0, dest: null, goalNode: -1, chase: -1, engaged: -1,
-          thinkAt: this.rng() * 2, offX: (this.rng() - 0.5) * CONFIG.CAPTURE_RADIUS * 1.2, offY: (this.rng() - 0.5) * CONFIG.CAPTURE_RADIUS * 1.2,
-          lastHitBy: 0, kills: 0,
-        };
-        u.px = u.x; u.py = u.y;
-        this.units.push(u);
-      }
+      const n = Math.round(this.parts[p] * CONFIG.START_UNITS_RATIO);
+      for (let k = 0; k < n; k++) this.spawnUnit(p, this.nodes[p - 1].x, this.nodes[p - 1].y, 14, false);
     }
-    this.player = this.units.find((u) => u.player);
-    this.auto = false;                 // プレイヤーの部隊をAIにまかせるか
-    this.gold = new Float64Array(49);
-    for (let p = 1; p <= 47; p++) this.gold[p] = CONFIG.START_GOLD;
+    this.rally = -1;                                // プレイヤーの兵士の攻撃目標（拠点）
     this.plans = [];
-    for (let p = 0; p <= 47; p++) {
-      this.plans.push({ target: -1, since: 0, defend: -1, next: this.rng() * CONFIG.AI_PLAN_INTERVAL, lastFort: -this.rng() * CONFIG.AI_FORT_INTERVAL });
-    }
-    // ---- 空間ハッシュ（16マス四方のバケツ）
+    for (let p = 0; p <= 47; p++) this.plans.push({ target: -1, since: 0, defend: -1, next: this.rng() * CONFIG.AI_PLAN_INTERVAL });
     this.hs = 16;
     this.hw = Math.ceil(W / this.hs); this.hh = Math.ceil(map.H / this.hs);
     this.head = new Int32Array(this.hw * this.hh);
-    this.next = new Int32Array(this.units.length);
-    this.dmg = new Float32Array(this.units.length);
+    this.next = new Int32Array(64);
     this.cnt = new Int32Array(49);
     this.eliminated = new Set();
     this.over = null;
-    this.recent = [];                  // 最近占領された拠点（斜線表示用）
-    this.stats = { captures: 0, kills: 0, forts: 0, paths: 0 };
+    this.recent = [];
+    this.stats = { captures: 0, kills: 0, built: 0, destroyed: 0, trained: 0, paths: 0 };
     this.pathBudget = 0;
+    this.income = { food: 0, wood: 0, gold: 0 };   // プレイヤーの直近の収入/秒
+    this.shots = [];                                // 塔・砦の射撃（描画用）
+    this.tickNo = 0;
   }
   participantCount(p) {
     return Math.max(CONFIG.MIN_PARTICIPANTS, Math.round(this.map.prefs[p].pop / 100 * CONFIG.PARTICIPANTS_PER_MILLION));
@@ -243,20 +242,11 @@ class Sim {
   addNode(o) {
     const W = this.map.W;
     const n = { id: this.nodes.length, cell: o.cell, x: (o.cell % W) + 0.5, y: ((o.cell / W) | 0) + 0.5, pref: o.pref,
-      owner: o.owner || o.pref, type: o.type, name: o.name, progress: 0, capBy: 0, capturedAt: -999, attackers: 0, defenders: 0 };
+      owner: o.owner || o.pref, type: o.type, name: o.name, progress: 0, capBy: 0, capturedAt: -999, attackers: 0, defenders: 0,
+      byPlayer: !!o.byPlayer };
     this.nodes.push(n);
     return n;
   }
-  randomCellNear(c, r, P) {
-    const W = this.map.W, cx = c % W, cy = (c / W) | 0;
-    for (let k = 0; k < 40; k++) {
-      const x = Math.round(cx + (this.rng() * 2 - 1) * r), y = Math.round(cy + (this.rng() * 2 - 1) * r);
-      const i = y * W + x;
-      if (i >= 0 && i < this.map.N && this.owner[i] === P) return i;
-    }
-    return c;
-  }
-  /** 各マスを「同じ県の中で一番近い拠点」に割り当てる（陸地をたどる距離） */
   assignTerritory() {
     const ip = this.map.initPref, nodeOf = this.nodeOf, dist = this.nodeDist, W = this.map.W;
     const q = new Int32Array(this.map.landCells + this.nodes.length);
@@ -264,11 +254,8 @@ class Sim {
     for (const n of this.nodes) { nodeOf[n.cell] = n.id; dist[n.cell] = 0; q[qt++] = n.cell; }
     while (qh < qt) {
       const i = q[qh++], nid = nodeOf[i], P = this.nodes[nid].pref, d = dist[i] + 1;
-      this.forNeighbors(i, (j) => {
-        if (nodeOf[j] === -1 && ip[j] === P) { nodeOf[j] = nid; dist[j] = d; q[qt++] = j; }
-      });
+      this.forNeighbors(i, (j) => { if (nodeOf[j] === -1 && ip[j] === P) { nodeOf[j] = nid; dist[j] = d; q[qt++] = j; } });
     }
-    // 他県を経由しないと届かない小島など：同じ県の一番近い拠点へ
     for (const i of this.landIdx) {
       if (nodeOf[i] !== -1) continue;
       let best = -1, bd = 1e9;
@@ -305,7 +292,6 @@ class Sim {
     this.nodeAdj = adj.map((s) => [...s]);
   }
   needFor(n) { return CONFIG.CAPTURE_NEED[n.type]; }
-  /** 今その拠点に属しているマス（砦に取られたマスは除く） */
   cellsOf(id) {
     const list = this.nodeCells[id], nodeOf = this.nodeOf;
     let stale = 0;
@@ -313,7 +299,7 @@ class Sim {
     if (!stale) return list;
     const out = new Int32Array(list.length - stale);
     for (let k = 0, j = 0; k < list.length; k++) if (nodeOf[list[k]] === id) out[j++] = list[k];
-    this.nodeCells[id] = out;   // 詰め直しておく
+    this.nodeCells[id] = out;
     return out;
   }
   isRecent(i) { const n = this.nodes[this.nodeOf[i]]; return n && this.time - n.capturedAt < CONFIG.RECENT_HATCH; }
@@ -324,37 +310,207 @@ class Sim {
     this.acc += dt;
     let steps = 0;
     while (this.acc >= CONFIG.TICK && steps < 5 && !this.over) { this.step(CONFIG.TICK); this.acc -= CONFIG.TICK; steps++; }
-    if (steps >= 5) this.acc = 0;   // 処理が追いつかないときは時間を捨てる
+    if (steps >= 5) this.acc = 0;
   }
   step(dt) {
     this.time += dt;
     this.pathBudget = CONFIG.PATH_BUDGET;
     this.incomeT += dt;
-    if (this.incomeT >= 1) {
-      this.incomeT -= 1;
-      for (let p = 1; p <= 47; p++) this.gold[p] += this.income(p);
-    }
+    if (this.incomeT >= 1) { this.incomeT -= 1; this.produce(1); }
     this.buildHash();
     this.planAll();
+    this.aiBuildAll();
+    this.trainAll(dt);
     this.thinkAll();
     this.combat(dt);
     this.moveAll(dt);
     this.updateNodes(dt);
     this.updateRecent();
+    // 倒れた兵士は片付ける（兵舎から補充される）。空間ハッシュの番号がずれないよう、刻みの最後に行う
+    if (this.units.some((u) => !u.alive)) this.units = this.units.filter((u) => u.alive);
   }
-  income(p) {
-    const c = this.counts[p];
-    if (!c) return 0;
-    return CONFIG.INCOME_LAND * Math.sqrt(c / 100) + CONFIG.INCOME_NODE * this.nodeCount[p];
+
+  // ---------------------------------------------------------- 資源
+  walletOf(P, byPlayer) { return byPlayer && P === this.me ? 0 : P; }
+  canAfford(w, cost) { for (const r of RES_KEYS) if ((cost[r] || 0) > this.res[r][w]) return false; return true; }
+  pay(w, cost) { for (const r of RES_KEYS) this.res[r][w] -= cost[r] || 0; }
+  forestNear(c, r) {
+    const W = this.map.W, x0 = c % W, y0 = (c / W) | 0, t = this.map.terrain;
+    let n = 0;
+    for (let dy = -r; dy <= r; dy += 2) for (let dx = -r; dx <= r; dx += 2) {
+      const i = (y0 + dy) * W + x0 + dx;
+      if (i >= 0 && i < this.map.N && (t[i] & 7) === 2) n++;
+    }
+    return n;
+  }
+  /** 毎秒：基本収入（参加者数ぶん）＋拠点＋建物 */
+  produce(sec) {
+    const add = (w, r, v) => { this.res[r][w] += v * sec; };
+    const me = this.me;
+    const pinc = { food: 0, wood: 0, gold: 0 };
+    for (let p = 1; p <= 47; p++) {
+      if (!this.nodeCount[p]) continue;
+      const k = p === me ? this.parts[p] - 1 : this.parts[p];
+      for (const r of RES_KEYS) add(p, r, CONFIG.BASE_INCOME[r] * k);
+    }
+    if (this.nodeCount[me]) for (const r of RES_KEYS) { add(0, r, CONFIG.BASE_INCOME[r]); pinc[r] += CONFIG.BASE_INCOME[r]; }
+    for (const n of this.nodes) {
+      const mk = n.type === 'capital' ? CONFIG.CAPITAL_MAKE : n.type === 'town' ? BUILDINGS.town.make : null;
+      if (!mk) continue;
+      const w = n.byPlayer && n.owner === me ? 0 : n.owner;
+      for (const r in mk) { add(w, r, mk[r]); if (!w) pinc[r] += mk[r]; }
+    }
+    for (const b of this.buildings) {
+      const def = BUILDINGS[b.type];
+      if (def.make) for (const r in def.make) { const v = def.make[r] * b.mul; add(b.wallet, r, v); if (!b.wallet) pinc[r] += v; }
+      if (def.forest) { const v = Math.min(CONFIG.LUMBER_MAX, b.forest * CONFIG.LUMBER_PER_FOREST); add(b.wallet, 'wood', v); if (!b.wallet) pinc.wood += v; }
+    }
+    this.income = pinc;
+  }
+
+  // ---------------------------------------------------------- 建物
+  bkey(x, y) { return ((y / this.bgs) | 0) * this.bgw + ((x / this.bgs) | 0); }
+  buildingsNear(x, y, r, fn) {
+    const g = this.bgs;
+    for (let by = ((y - r) / g) | 0; by <= ((y + r) / g) | 0; by++) for (let bx = ((x - r) / g) | 0; bx <= ((x + r) / g) | 0; bx++) {
+      const list = this.bgrid.get(by * this.bgw + bx);
+      if (list) for (const b of list) { const d = Math.hypot(b.x - x, b.y - y); if (d <= r) fn(b, d); }
+    }
+  }
+  /** 建てられるか（null なら可。理由の文字列を返す） */
+  canBuild(type, P, c, w) {
+    const def = BUILDINGS[type], map = this.map, W = map.W;
+    if (c < 0 || c >= map.N || !map.initPref[c]) return 'sea';
+    if (this.owner[c] !== P) return 'notown';
+    const x = c % W + 0.5, y = ((c / W) | 0) + 0.5, t = map.terrain[c] & 7;
+    let blocked = false;
+    this.buildingsNear(x, y, CONFIG.BUILD_GAP, () => { blocked = true; });
+    if (blocked) return 'crowded';
+    for (const n of this.nodes) {
+      const d = Math.hypot(n.x - x, n.y - y);
+      if (d < (def.node ? CONFIG.NODE_MIN_DIST : CONFIG.BUILD_GAP + 1)) return def.node ? 'nearnode' : 'crowded';
+    }
+    if (type === 'farm' && t === 3) return 'terrain';
+    if (type === 'lumber' && this.forestNear(c, 6) < CONFIG.LUMBER_MIN_FOREST) return 'noforest';
+    if (!this.canAfford(w, def.cost)) return 'cost';
+    return null;
+  }
+  build(type, P, c, byPlayer) {
+    const w = this.walletOf(P, byPlayer);
+    const why = this.canBuild(type, P, c, w);
+    if (why) return { ok: false, why };
+    const def = BUILDINGS[type], W = this.map.W;
+    this.pay(w, def.cost);
+    this.stats.built++;
+    if (def.node) {
+      const n = this.buildNode(P, c, type, byPlayer);
+      this.emit('built', { node: n, type, by: P, byPlayer });
+      return { ok: true, node: n };
+    }
+    const b = { id: ++this.bseq, type, cell: c, x: c % W + 0.5, y: ((c / W) | 0) + 0.5, owner: P, wallet: w, byPlayer: !!byPlayer,
+      hp: def.hp, maxHp: def.hp, t: 0, rot: (this.rng() * 4 | 0) * Math.PI / 2, forest: def.forest ? this.forestNear(c, 6) : 0,
+      mul: type === 'farm' && (this.map.terrain[c] & 7) === 2 ? 0.5 : 1 };   // 森を切り開いた農場は収穫が半分
+    this.buildings.push(b);
+    const k = this.bkey(b.x, b.y);
+    if (!this.bgrid.has(k)) this.bgrid.set(k, []);
+    this.bgrid.get(k).push(b);
+    this.emit('built', { building: b, type, by: P, byPlayer });
+    return { ok: true, building: b };
+  }
+  removeBuilding(b) {
+    const k = this.bkey(b.x, b.y), list = this.bgrid.get(k);
+    if (list) { const i = list.indexOf(b); if (i >= 0) list.splice(i, 1); }
+    const i = this.buildings.indexOf(b);
+    if (i >= 0) this.buildings.splice(i, 1);
+    b.dead = true;
+    this.stats.destroyed++;
+    this.emit('destroyed', b);
+  }
+  /** 町・砦：周りのマスのうち、今の持ち主の拠点より近いマスを自分の領土にする（国境を押し出す） */
+  buildNode(P, c, type, byPlayer) {
+    const k = this.nodes.filter((n) => n.type === type && n.pref === P).length + 1;
+    const n = this.addNode({ cell: c, pref: P, owner: P, type, name: `${this.map.prefs[P].short}の${BUILDINGS[type].name}${k}`, byPlayer });
+    this.nodeCount[P]++;
+    const nodeOf = this.nodeOf, dist = this.nodeDist;
+    const changed = [], claimed = [];
+    const q = [c], d = new Map([[c, 0]]);
+    const take = (i, di) => {
+      nodeOf[i] = n.id; dist[i] = di; claimed.push(i);
+      if (this.owner[i] !== P) { this.counts[this.owner[i]]--; this.counts[P]++; this.owner[i] = P; changed.push(i); }
+    };
+    take(c, 0);
+    for (let qh = 0; qh < q.length; qh++) {
+      const i = q[qh], di = d.get(i) + 1;
+      if (di > CONFIG.NODE_RADIUS) continue;
+      this.forNeighbors(i, (j) => {
+        if (d.has(j) || dist[j] === 0 || di >= dist[j]) return;
+        d.set(j, di); q.push(j); take(j, di);
+      });
+    }
+    this.nodeCells.push(Int32Array.from(claimed));
+    this.nodeAdj.push([]);
+    const adj = new Set();
+    for (const i of claimed) this.forNeighbors(i, (j) => { const b = nodeOf[j]; if (b !== n.id) adj.add(b); });
+    for (const b of adj) { this.nodeAdj[n.id].push(b); if (!this.nodeAdj[b].includes(n.id)) this.nodeAdj[b].push(n.id); }
+    this.flipBuildings(changed, P);
+    this.emit('cells', changed);
+    this.checkEnd();
+    return n;
+  }
+  /** 持ち主が変わったマスにある建物は、新しい持ち主のものになる */
+  flipBuildings(cells, P) {
+    if (!cells.length || !this.buildings.length) return;
+    for (const b of this.buildings) {
+      if (b.owner === P || this.owner[b.cell] !== P) continue;
+      const old = b.owner;
+      b.owner = P; b.wallet = P; b.byPlayer = false; b.t = 0;
+      this.emit('flipped', { building: b, from: old, to: P });
+    }
+  }
+
+  // ---------------------------------------------------------- 兵士
+  spawnUnit(P, x, y, r, fromPlayer) {
+    const W = this.map.W;
+    let px = x, py = y;
+    for (let k = 0; k < 12; k++) {
+      const tx = x + (this.rng() * 2 - 1) * r, ty = y + (this.rng() * 2 - 1) * r;
+      const i = this.cellAt(tx, ty);
+      if (i >= 0 && i < this.map.N && this.owner[i] === P) { px = tx; py = ty; break; }
+    }
+    const u = { id: this.useq++, pref: P, fromPlayer, role: this.rng() < CONFIG.AI_DEFENDER_RATIO ? 'def' : 'atk',
+      x: px, y: py, px, py, hp: CONFIG.UNIT_HP, alive: true, path: null, pi: 0, dest: null, goalNode: -1, chase: -1, engaged: -1, hitB: null,
+      thinkAt: this.time + this.rng(), offX: (this.rng() - 0.5) * CONFIG.CAPTURE_RADIUS * 1.2, offY: (this.rng() - 0.5) * CONFIG.CAPTURE_RADIUS * 1.2 };
+    if (fromPlayer) u.role = 'atk';
+    this.units.push(u);
+    return u;
+  }
+  unitCap(P) { return this.parts[P] * CONFIG.UNIT_CAP_PER_PARTICIPANT + this.nodeCount[P] * CONFIG.UNIT_CAP_PER_NODE; }
+  unitCount(P) { let n = 0; for (const u of this.units) if (u.pref === P) n++; return n; }
+  trainAll(dt) {
+    const cnt = new Int32Array(49);
+    for (const u of this.units) cnt[u.pref]++;
+    for (const b of this.buildings) {
+      if (b.type !== 'barracks') continue;
+      const def = BUILDINGS.barracks;
+      b.t += dt;
+      if (b.t < def.train) continue;
+      if (cnt[b.owner] >= this.unitCap(b.owner) || this.res.food[b.wallet] < def.trainFood) { b.t = def.train; continue; }
+      b.t = 0;
+      this.res.food[b.wallet] -= def.trainFood;
+      this.spawnUnit(b.owner, b.x, b.y, 2.5, b.wallet === 0);
+      cnt[b.owner]++;
+      this.stats.trained++;
+    }
   }
   buildHash() {
     this.head.fill(-1);
+    if (this.next.length < this.units.length) this.next = new Int32Array(this.units.length * 2);
     const hs = this.hs, hw = this.hw;
-    for (const u of this.units) {
-      if (!u.alive) continue;
+    for (let k = 0; k < this.units.length; k++) {
+      const u = this.units[k];
       const b = ((u.y / hs) | 0) * hw + ((u.x / hs) | 0);
-      this.next[u.id] = this.head[b];
-      this.head[b] = u.id;
+      this.next[k] = this.head[b];
+      this.head[b] = k;
     }
   }
   forUnitsNear(x, y, r, fn) {
@@ -363,18 +519,20 @@ class Sim {
     const by0 = Math.max(0, ((y - r) / hs) | 0), by1 = Math.min(this.hh - 1, ((y + r) / hs) | 0);
     for (let by = by0; by <= by1; by++) for (let bx = bx0; bx <= bx1; bx++) {
       for (let k = this.head[by * this.hw + bx]; k >= 0; k = this.next[k]) {
-        const v = this.units[k], dx = v.x - x, dy = v.y - y, d2 = dx * dx + dy * dy;
+        const v = this.units[k];
+        if (!v || !v.alive) continue;
+        const dx = v.x - x, dy = v.y - y, d2 = dx * dx + dy * dy;
         if (d2 <= r2) fn(v, d2);
       }
     }
   }
-  nearestEnemy(u, r) {
+  nearestEnemy(x, y, P, r) {
     let best = null, bd = 1e9;
-    this.forUnitsNear(u.x, u.y, r, (v, d2) => { if (v.pref !== u.pref && d2 < bd) { bd = d2; best = v; } });
+    this.forUnitsNear(x, y, r, (v, d2) => { if (v.pref !== P && d2 < bd) { bd = d2; best = v; } });
     return best;
   }
 
-  // ---------------------------------------------------------- AI（県ごとの作戦）
+  // ---------------------------------------------------------- AI（県ごとの作戦・建築）
   planAll() {
     for (let p = 1; p <= 47; p++) {
       const pl = this.plans[p];
@@ -384,7 +542,6 @@ class Sim {
     }
   }
   plan(P, pl) {
-    // 守る：敵に囲まれている自県の拠点
     let defend = -1, ds = 0;
     for (const n of this.nodes) {
       if (n.owner !== P || !n.attackers) continue;
@@ -392,12 +549,10 @@ class Sim {
       if (s > ds) { ds = s; defend = n.id; }
     }
     pl.defend = defend;
-    // 攻める：自県の拠点に隣接する敵の拠点
     const cur = this.nodes[pl.target];
     if (!cur || cur.owner === P || this.time - pl.since > CONFIG.AI_TARGET_TIMEOUT) {
-      // 部隊の重心
       let sx = 0, sy = 0, k = 0;
-      for (const u of this.units) if (u.pref === P && u.alive) { sx += u.x; sy += u.y; k++; }
+      for (const u of this.units) if (u.pref === P) { sx += u.x; sy += u.y; k++; }
       const cap = this.nodes[P - 1];
       const cx = k ? sx / k : cap.x, cy = k ? sy / k : cap.y;
       let best = -1, bs = -1e9;
@@ -415,40 +570,74 @@ class Sim {
       }
       pl.target = best; pl.since = this.time;
     }
-    // 砦：資金があれば、攻め先の手前に建てて国境を押し出す
-    if (this.gold[P] - (P === this.me ? CONFIG.FORT_COST : 0) >= CONFIG.FORT_COST
-      && this.time - pl.lastFort >= CONFIG.AI_FORT_INTERVAL && pl.target >= 0 && this.rng() < 0.6) {
-      const e = this.nodes[pl.target];
-      let own = null, bd = 1e9;
-      for (const a of this.nodeAdj[e.id]) { const n = this.nodes[a]; if (n.owner === P) { const d = Math.hypot(n.x - e.x, n.y - e.y); if (d < bd) { bd = d; own = n; } } }
-      if (own) {
-        for (const f of [0.55, 0.45, 0.65, 0.35]) {
-          const c = this.cellAt(own.x + (e.x - own.x) * f, own.y + (e.y - own.y) * f);
-          if (!this.canBuildFort(P, c)) { this.buildFort(P, c, false); pl.lastFort = this.time; break; }
-        }
-      }
+  }
+  /** 県のAI参加者たちの建築。参加者が多いほど頻繁に建てる */
+  aiBuildAll() {
+    for (let p = 1; p <= 47; p++) {
+      if (this.time < this.aiBuildAt[p] || !this.nodeCount[p]) continue;
+      const k = Math.max(1, p === this.me ? this.parts[p] - 1 : this.parts[p]);
+      this.aiBuildAt[p] = this.time + CONFIG.AI_BUILD_INTERVAL * 10 / k * (0.6 + this.rng() * 0.8);
+      this.aiBuild(p, k);
     }
+  }
+  aiBuild(P, k) {
+    const mine = { farm: 0, lumber: 0, market: 0, barracks: 0, tower: 0 };
+    let total = 0;
+    for (const b of this.buildings) if (b.owner === P && b.wallet === P) { mine[b.type]++; total++; }
+    if (total >= k * CONFIG.MAX_BUILDINGS_PER_PARTICIPANT) return;
+    const nodes = this.nodeCount[P];
+    const want = [];
+    if (mine.farm < 2 + nodes * 1.5) want.push('farm');
+    if (mine.lumber < 1 + nodes) want.push('lumber');
+    if (mine.barracks < 1 + nodes / 3) want.push('barracks');
+    if (mine.market < nodes / 2) want.push('market');
+    if (mine.tower < nodes / 2) want.push('tower');
+    // 町・砦（国境を広げる）はときどき。県の参加者数に応じた上限まで
+    if (nodes < 6 + k * 0.5 && this.rng() < 0.1) want.push(this.rng() < 0.6 ? 'town' : 'fort');
+    if (!want.length) want.push(['farm', 'barracks', 'tower', 'market'][(this.rng() * 4) | 0]);
+    const type = want[(this.rng() * want.length) | 0];
+    if (!this.canAfford(P, BUILDINGS[type].cost)) return;
+    const c = this.findSite(type, P, P);
+    if (c >= 0) this.build(type, P, c, false);
+  }
+  /** 建てる場所を探す：自県の拠点の周り（塔・砦・町は敵に近い拠点の周り） */
+  findSite(type, P, w) {
+    const own = this.nodes.filter((n) => n.owner === P);
+    if (!own.length) return -1;
+    const front = (type === 'tower' || BUILDINGS[type].node)
+      ? own.filter((n) => this.nodeAdj[n.id].some((a) => this.nodes[a].owner !== P)) : own;
+    const list = front.length ? front : own;
+    const W = this.map.W;
+    for (let tries = 0; tries < 14; tries++) {
+      const n = list[(this.rng() * list.length) | 0];
+      const r = BUILDINGS[type].node ? CONFIG.NODE_MIN_DIST + this.rng() * 10 : 3 + this.rng() * 12;
+      const a = this.rng() * Math.PI * 2;
+      let x = n.x + Math.cos(a) * r, y = n.y + Math.sin(a) * r;
+      if (BUILDINGS[type].node && pl0(this, P)) {
+        // 攻め先の方向へ寄せる
+        const t = this.nodes[this.plans[P].target];
+        if (t) { const L = Math.hypot(t.x - n.x, t.y - n.y) || 1; x = n.x + (t.x - n.x) / L * r; y = n.y + (t.y - n.y) / L * r; }
+      }
+      const c = this.cellAt(x, y);
+      if (!this.canBuild(type, P, c, w)) return c;
+    }
+    return -1;
   }
   thinkAll() {
     for (const u of this.units) {
-      if (!u.alive) {
-        if (this.time >= u.respawnAt) this.respawn(u);
-        continue;
-      }
-      if (this.time < u.thinkAt) continue;
-      if (u.player && !this.auto) { u.thinkAt = this.time + 1; continue; }
+      if (!u.alive || this.time < u.thinkAt) continue;
       u.thinkAt = this.time + 0.8 + this.rng() * 0.6;
       this.think(u);
     }
   }
   think(u) {
-    // 近くに敵の部隊がいれば向かっていく
-    const e = this.nearestEnemy(u, CONFIG.AGGRO_RANGE);
+    const e = this.nearestEnemy(u.x, u.y, u.pref, CONFIG.AGGRO_RANGE);
     if (e) { u.chase = e.id; return; }
     u.chase = -1;
     const pl = this.plans[u.pref];
     let node = -1;
-    if (u.role === 'def') node = pl.defend >= 0 ? pl.defend : this.homeNode(u);
+    if (u.fromPlayer && this.rally >= 0 && this.nodes[this.rally].owner !== u.pref) node = this.rally;
+    else if (u.role === 'def') node = pl.defend >= 0 ? pl.defend : this.homeNode(u);
     else node = pl.target >= 0 ? pl.target : (pl.defend >= 0 ? pl.defend : -1);
     if (node < 0) return;
     if (u.goalNode === node && (u.path || u.dest)) return;
@@ -456,7 +645,6 @@ class Sim {
     if (!this.setDest(u, n.x + u.offX, n.y + u.offY)) { u.thinkAt = this.time + 0.3; return; }
     u.goalNode = node;
   }
-  /** 守備担当の持ち場：敵に接している自県の拠点のうち、自分に近いもの */
   homeNode(u) {
     let best = -1, bd = 1e9;
     for (const n of this.nodes) {
@@ -467,9 +655,8 @@ class Sim {
     }
     return best;
   }
-  /** 目的地を設定（経路探索）。今回の刻みの探索予算を使い切っていたら false */
   setDest(u, x, y) {
-    if (this.pathBudget <= 0 && !u.player) return false;
+    if (this.pathBudget <= 0) return false;
     this.pathBudget--;
     this.stats.paths++;
     const path = this.nav.find(u.x, u.y, x, y);
@@ -478,79 +665,73 @@ class Sim {
     u.dest = [x, y];
     return true;
   }
+  unitById(id) { return this.unitIndex ? this.unitIndex.get(id) : null; }
 
   // ---------------------------------------------------------- 戦闘・移動
   combat(dt) {
+    this.unitIndex = new Map();
+    const U = this.units;
+    if (!this.dmg || this.dmg.length < U.length) this.dmg = new Float32Array(U.length * 2);
     const dmg = this.dmg;
-    dmg.fill(0);
+    for (let k = 0; k < U.length; k++) { U[k].k = k; dmg[k] = 0; this.unitIndex.set(U[k].id, U[k]); }
+    const hit = (v, a) => { dmg[v.k] += a; };
     for (const u of this.units) {
       if (!u.alive) continue;
-      const e = this.nearestEnemy(u, CONFIG.ATTACK_RANGE);
+      const e = this.nearestEnemy(u.x, u.y, u.pref, CONFIG.ATTACK_RANGE);
       u.engaged = e ? e.id : -1;
-      if (!e) continue;
+      u.hitB = null;
       const mult = this.owner[this.cellAt(u.x, u.y)] === u.pref ? CONFIG.HOME_BONUS : 1;
-      dmg[e.id] += CONFIG.UNIT_DPS * dt * mult;
-      e.lastHitBy = u.pref;
+      if (e) { hit(e, CONFIG.UNIT_DPS * dt * mult); continue; }
+      // 敵兵がいなければ、近くの敵の建物を壊す
+      let tb = null, bd = 1e9;
+      this.buildingsNear(u.x, u.y, CONFIG.ATTACK_RANGE + 1.2, (b, d) => { if (b.owner !== u.pref && d < bd) { bd = d; tb = b; } });
+      if (tb) { tb.hp -= CONFIG.UNIT_DPS * CONFIG.BUILDING_DPS_MULT * dt; tb.hitAt = this.time; u.hitB = tb; }
+    }
+    // 塔・砦・県庁が近くの敵兵を撃つ（重くならないよう、それぞれ0.5秒に1回まとめて撃つ）
+    this.tickNo = (this.tickNo || 0) + 1;
+    if (this.tickNo % 5 === 0) this.shots = [];
+    const slot = this.tickNo % 5, sdt = dt * 5;
+    const shoot = (id, x, y, P, range, dps) => {
+      if (id % 5 !== slot) return;
+      const e = this.nearestEnemy(x, y, P, range);
+      if (e) { hit(e, dps * sdt); if (this.shots.length < 300) this.shots.push([x, y, e.x, e.y]); }
+    };
+    for (const b of this.buildings) if (b.type === 'tower') shoot(b.id, b.x, b.y, b.owner, BUILDINGS.tower.range, BUILDINGS.tower.dps);
+    for (const n of this.nodes) {
+      if (n.type === 'fort') shoot(n.id, n.x, n.y, n.owner, BUILDINGS.fort.range, BUILDINGS.fort.dps);
+      else if (n.type === 'capital') shoot(n.id, n.x, n.y, n.owner, CONFIG.CAPITAL_RANGE, CONFIG.CAPITAL_DPS);
     }
     for (const u of this.units) {
       if (!u.alive) continue;
-      u.hp -= dmg[u.id];
+      const got = dmg[u.k];
+      u.hp -= got;
       const own = this.owner[this.cellAt(u.x, u.y)];
       if (own && own !== u.pref) u.hp -= CONFIG.ATTRITION * dt;
-      else if (u.engaged < 0 && !dmg[u.id]) u.hp = Math.min(CONFIG.UNIT_HP, u.hp + CONFIG.REGEN * dt);
-      if (u.hp <= 0) this.kill(u);
+      else if (u.engaged < 0 && !got) u.hp = Math.min(CONFIG.UNIT_HP, u.hp + CONFIG.REGEN * dt);
+      if (u.hp <= 0) { u.alive = false; this.stats.kills++; this.emit('death', u); }
     }
-  }
-  kill(u) {
-    u.alive = false; u.hp = 0;
-    u.respawnAt = this.eliminated.has(u.pref) ? Infinity : this.time + CONFIG.RESPAWN;
-    u.path = null; u.dest = null; u.goalNode = -1; u.chase = -1; u.engaged = -1;
-    this.stats.kills++;
-    for (const v of this.units) if (v.alive && v.pref === u.lastHitBy && Math.hypot(v.x - u.x, v.y - u.y) < CONFIG.ATTACK_RANGE + 1) { v.kills++; break; }
-    this.emit('death', u);
-  }
-  respawn(u) {
-    if (this.eliminated.has(u.pref)) { u.respawnAt = Infinity; return; }
-    // 倒れた場所に一番近い自県の拠点で復活
-    let best = null, bd = 1e9;
-    for (const n of this.nodes) {
-      if (n.owner !== u.pref) continue;
-      const d = Math.hypot(n.x - u.x, n.y - u.y);
-      if (d < bd) { bd = d; best = n; }
-    }
-    if (!best) { u.respawnAt = Infinity; return; }
-    u.x = u.px = best.x + (this.rng() - 0.5) * 3;
-    u.y = u.py = best.y + (this.rng() - 0.5) * 3;
-    u.hp = CONFIG.UNIT_HP; u.alive = true; u.thinkAt = this.time + this.rng();
-    this.emit('respawn', u);
+    for (const b of this.buildings.slice()) if (b.hp <= 0) this.removeBuilding(b);
   }
   moveAll(dt) {
     const sp = CONFIG.UNIT_SPEED * dt;
     for (const u of this.units) {
       u.px = u.x; u.py = u.y;
-      if (!u.alive) continue;
-      const commanded = u.player && !this.auto && u.dest;
-      if (u.engaged >= 0 && !commanded) continue;          // 戦闘中は止まる（プレイヤーの移動命令中は退却できる）
+      if (u.engaged >= 0 || u.hitB) continue;
       let tx, ty, stopAt = 0;
-      if (u.chase >= 0 && !commanded) {
-        const e = this.units[u.chase];
-        if (!e.alive || Math.hypot(e.x - u.x, e.y - u.y) > CONFIG.AGGRO_RANGE * 1.6) { u.chase = -1; u.thinkAt = 0; continue; }
+      if (u.chase >= 0) {
+        const e = this.unitIndex.get(u.chase);
+        if (!e || !e.alive || Math.hypot(e.x - u.x, e.y - u.y) > CONFIG.AGGRO_RANGE * 1.6) { u.chase = -1; u.thinkAt = 0; continue; }
         tx = e.x; ty = e.y; stopAt = CONFIG.ATTACK_RANGE * 0.7;
       } else if (u.dest) {
-        if (u.path && u.pi < u.path.length) { [tx, ty] = u.path[u.pi]; }
-        else { [tx, ty] = u.dest; }
+        if (u.path && u.pi < u.path.length) [tx, ty] = u.path[u.pi];
+        else [tx, ty] = u.dest;
       } else continue;
       const dx = tx - u.x, dy = ty - u.y, d = Math.hypot(dx, dy);
       if (d <= stopAt) continue;
       if (d - stopAt <= sp) {
         u.x = tx - (stopAt ? dx / d * stopAt : 0); u.y = ty - (stopAt ? dy / d * stopAt : 0);
-        if (u.chase < 0 || commanded) {
-          if (u.path && u.pi < u.path.length) u.pi++;
-          else { u.dest = null; u.path = null; if (u.player) this.emit('arrived', u); }
-        }
-      } else {
-        u.x += dx / d * sp; u.y += dy / d * sp;
-      }
+        if (u.chase < 0) { if (u.path && u.pi < u.path.length) u.pi++; else { u.dest = null; u.path = null; } }
+      } else { u.x += dx / d * sp; u.y += dy / d * sp; }
     }
   }
 
@@ -573,17 +754,20 @@ class Sim {
   }
   capture(n, A) {
     const old = n.owner;
-    n.owner = A; n.progress = 0; n.capBy = 0; n.capturedAt = this.time;
+    n.owner = A; n.progress = 0; n.capBy = 0; n.capturedAt = this.time; n.byPlayer = false;
     this.nodeCount[old]--; this.nodeCount[A]++;
     const cells = this.cellsOf(n.id);
     let moved = 0;
+    const changed = [];
     for (const i of cells) {
       const o = this.owner[i];
       if (o === A) continue;
       this.counts[o]--; this.counts[A]++;
       this.owner[i] = A;
+      changed.push(i);
       moved++;
     }
+    this.flipBuildings(changed, A);
     this.stats.captures++;
     this.recent.push({ node: n.id, until: this.time + CONFIG.RECENT_HATCH });
     this.emit('cells', cells);
@@ -596,14 +780,14 @@ class Sim {
     const keep = [];
     for (const r of this.recent) {
       if (r.until > this.time) keep.push(r);
-      else this.emit('cells', this.cellsOf(r.node));    // 斜線を消す
+      else this.emit('cells', this.cellsOf(r.node));
     }
     this.recent = keep;
   }
   eliminate(p) {
     if (this.eliminated.has(p)) return;
     this.eliminated.add(p);
-    for (const u of this.units) if (u.pref === p) { u.alive = false; u.respawnAt = Infinity; }
+    this.units = this.units.filter((u) => u.pref !== p);
     this.emit('eliminated', p);
   }
   checkEnd() {
@@ -615,66 +799,11 @@ class Sim {
     if (this.over) { this.over.time = this.time; this.emit('over', this.over); }
   }
 
-  // ---------------------------------------------------------- 砦
-  canBuildFort(P, c) {
-    if (c < 0 || c >= this.map.N || !this.map.initPref[c]) return 'sea';
-    if (this.owner[c] !== P) return 'notown';
-    const W = this.map.W, x = c % W + 0.5, y = ((c / W) | 0) + 0.5;
-    for (const n of this.nodes) if (Math.hypot(n.x - x, n.y - y) < CONFIG.FORT_MIN_DIST) return 'near';
-    if (this.gold[P] < CONFIG.FORT_COST) return 'gold';
-    return null;
-  }
-  /** 砦：周りのマスのうち、今の持ち主の拠点より砦のほうが近いマスを自分の領土にする（国境を押し出す） */
-  buildFort(P, c, byPlayer) {
-    const why = this.canBuildFort(P, c);
-    if (why) return { ok: false, why };
-    this.gold[P] -= CONFIG.FORT_COST;
-    const k = this.nodes.filter((n) => n.type === 'fort' && n.pref === P).length + 1;
-    const n = this.addNode({ cell: c, pref: P, owner: P, type: 'fort', name: `${this.map.prefs[P].short}の砦${k}` });
-    this.nodeCount[P]++;
-    const nodeOf = this.nodeOf, dist = this.nodeDist;
-    const changed = [], claimed = [];
-    const q = [c], d = new Map([[c, 0]]);
-    const take = (i, di) => {
-      nodeOf[i] = n.id; dist[i] = di; claimed.push(i);
-      if (this.owner[i] !== P) { this.counts[this.owner[i]]--; this.counts[P]++; this.owner[i] = P; changed.push(i); }
-    };
-    take(c, 0);
-    for (let qh = 0; qh < q.length; qh++) {
-      const i = q[qh], di = d.get(i) + 1;
-      if (di > CONFIG.FORT_RADIUS) continue;
-      this.forNeighbors(i, (j) => {
-        if (d.has(j) || dist[j] === 0 || di >= dist[j]) return;
-        d.set(j, di); q.push(j); take(j, di);
-      });
-    }
-    // 全国を数え直すと一瞬止まるので、砦の周りだけ更新する
-    // （元の拠点の nodeCells には古いマスが残るが、使うときに nodeOf で確かめる）
-    this.nodeCells.push(Int32Array.from(claimed));
-    this.nodeAdj.push([]);
-    const adj = new Set();
-    for (const i of claimed) this.forNeighbors(i, (j) => { const b = nodeOf[j]; if (b !== n.id) adj.add(b); });
-    for (const b of adj) { this.nodeAdj[n.id].push(b); if (!this.nodeAdj[b].includes(n.id)) this.nodeAdj[b].push(n.id); }
-    this.stats.forts++;
-    this.emit('cells', changed);
-    this.emit('fort', { node: n, by: P, byPlayer, cells: changed.length });
-    // 砦に押し出されて拠点を失った県はない（拠点のマスは奪わない）
-    this.checkEnd();
-    return { ok: true, node: n };
-  }
-
   // ---------------------------------------------------------- プレイヤーの命令
-  commandMove(x, y) {
-    const u = this.player;
-    if (!u || !u.alive) return false;
-    u.chase = -1; u.goalNode = -1;
-    this.setDest(u, x, y);
-    return true;
-  }
-  commandFort() {
-    const u = this.player;
-    if (!u || !u.alive) return { ok: false, why: 'dead' };
-    return this.buildFort(this.me, this.cellAt(u.x, u.y), true);
+  playerBuild(type, c) { return this.build(type, this.me, c, true); }
+  setRally(nodeId) {
+    this.rally = nodeId;
+    for (const u of this.units) if (u.fromPlayer) { u.goalNode = -1; u.thinkAt = this.time; }
   }
   ranking() {
     const arr = [];
@@ -683,5 +812,7 @@ class Sim {
     return arr;
   }
   rankOf(p) { return this.ranking().indexOf(p) + 1; }
-  aliveUnits(p) { let n = 0; for (const u of this.units) if (u.pref === p && u.alive) n++; return n; }
+  myBuildings() { return this.buildings.filter((b) => b.wallet === 0).length + this.nodes.filter((n) => n.byPlayer && n.owner === this.me).length; }
+  myUnits() { let n = 0; for (const u of this.units) if (u.fromPlayer) n++; return n; }
 }
+function pl0(sim, P) { return sim.plans[P] && sim.plans[P].target >= 0; }

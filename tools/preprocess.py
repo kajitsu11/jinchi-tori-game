@@ -624,6 +624,18 @@ def place_towns(pref, terr, capitals):
     return towns
 
 
+def encode_elevation(elev):
+    """標高を半分の解像度・8bit（平方根スケール）のPNGにして base64 で返す（山の陰影用）"""
+    h2, w2 = H // 2, W // 2
+    e = elev[:h2 * 2, :w2 * 2].reshape(h2, 2, w2, 2).mean(axis=(1, 3))
+    v = np.clip(np.sqrt(np.maximum(e, 0) / 3800.0) * 255, 0, 255).astype(np.uint8)
+    buf = io.BytesIO()
+    Image.fromarray(v).save(buf, format="PNG", optimize=True)
+    data = base64.b64encode(buf.getvalue()).decode("ascii")
+    print(f"  elevation PNG {w2}x{h2}: {len(data) // 1024}KB")
+    return {"w": int(w2), "h": int(h2), "png": data}
+
+
 # ---------------------------------------------------------------- main
 def main():
     t0 = time.time()
@@ -713,6 +725,7 @@ def main():
         "insets": insets,
         "shiftRects": shift_rects,
         "towns": towns,
+        "elev": encode_elevation(elev),
     }
     with open(os.path.join(DATA, "mapdata.json"), "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, separators=(",", ":"))

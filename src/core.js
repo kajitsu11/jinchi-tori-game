@@ -7,47 +7,71 @@
 // CONFIG（調整値）
 // =====================================================================
 const CONFIG = {
-  // ---- 参加者（1人＝地図上の1部隊。全国で約1000部隊）
-  PARTICIPANTS_PER_MILLION: 8,   // 人口100万人あたりの参加者数
+  // ---- 参加者（全国で約1000人。今はプレイヤー以外をAIが担当）
+  PARTICIPANTS_PER_MILLION: 8,
   MIN_PARTICIPANTS: 3,
   // ---- 進行
   TICK: 0.1,                     // シミュレーションの固定刻み（秒）
-  WIN_RATIO: 0.5,                // 全国の陸地のこの割合を支配すれば勝利
-  PATH_BUDGET: 30,               // 1刻みあたりの経路探索の上限（AI）
-  // ---- 部隊
+  WIN_RATIO: 0.5,
+  PATH_BUDGET: 20,               // 1刻みあたりの経路探索の上限
+  // ---- 資源（1人あたり）
+  START_RES: { food: 300, wood: 400, gold: 200 },
+  BASE_INCOME: { food: 1, wood: 1.2, gold: 0.6 },    // 毎秒の基本収入
+  CAPITAL_MAKE: { food: 1, wood: 1, gold: 1 },       // 県庁の収入（県のAIへ）
+  LUMBER_PER_FOREST: 0.06,       // 製材所：周りの森1か所あたりの木材/秒
+  LUMBER_MAX: 2,
+  LUMBER_MIN_FOREST: 8,
+  // ---- 兵士
   UNIT_HP: 100,
-  UNIT_SPEED: 5,                 // マス/秒
-  UNIT_DPS: 12,                  // 1秒あたりの攻撃力
-  ATTACK_RANGE: 2.5,             // 攻撃が届く距離（マス）
-  AGGRO_RANGE: 9,                // AIはこの距離の敵部隊に向かっていく
-  HOME_BONUS: 1.25,              // 自県の領土で戦うと攻撃力アップ
-  ATTRITION: 0.6,                // 敵の領土にいると毎秒減るHP
-  REGEN: 3,                      // 自県の領土で戦っていないと毎秒回復するHP
-  RESPAWN: 8,                    // 倒されてから近くの自県の拠点で復活するまでの秒数
-  // ---- 拠点（県庁・町・砦）。拠点の周りが領土になる
-  CAPTURE_RADIUS: 6,             // この距離にいる部隊が占領・守備に参加する
-  CAPTURE_NEED: { capital: 150, town: 60, fort: 40 },   // 占領に必要なポイント（毎秒、攻撃側の部隊数ぶん増える）
-  CAPTURE_MAX_RATE: 20,          // 1秒に増えるポイントの上限
-  CAPTURE_DECAY: 15,             // 守備側がいる・誰もいないと毎秒減るポイント
-  RECENT_HATCH: 15,              // 占領されてからこの秒数は斜線で表示
-  // ---- 軍資金・砦
-  START_GOLD: 300,               // 単位は「億」
-  INCOME_LAND: 0.6,              // 毎秒の収入：0.6 × √(領土マス/100)
-  INCOME_NODE: 0.15,             //           ＋ 拠点1つあたり
-  FORT_COST: 400,
-  FORT_RADIUS: 24,               // 砦が国境を押し出す距離（マス）
-  FORT_MIN_DIST: 16,             // ほかの拠点からこれ以上離して建てる
+  UNIT_SPEED: 5,
+  UNIT_DPS: 12,
+  ATTACK_RANGE: 2.5,
+  AGGRO_RANGE: 9,
+  HOME_BONUS: 1.25,
+  ATTRITION: 0.6,
+  REGEN: 3,
+  BUILDING_DPS_MULT: 0.6,        // 兵士が建物を壊すときの攻撃力の倍率
+  START_UNITS_RATIO: 0.5,        // 開始時の兵士＝参加者数×これ
+  UNIT_CAP_PER_PARTICIPANT: 2,   // 兵士の上限＝参加者×2＋拠点×1
+  UNIT_CAP_PER_NODE: 1,
+  CAPITAL_RANGE: 10, CAPITAL_DPS: 18,
+  // ---- 拠点（県庁・町・砦）
+  CAPTURE_RADIUS: 6,
+  CAPTURE_NEED: { capital: 150, town: 60, fort: 80 },
+  CAPTURE_MAX_RATE: 20,
+  CAPTURE_DECAY: 15,
+  RECENT_HATCH: 15,
+  NODE_RADIUS: 24,               // 町・砦が国境を押し出す距離
+  NODE_MIN_DIST: 16,             // 町・砦はほかの拠点からこれ以上離す
+  // ---- 建物
+  BUILD_GAP: 2.2,                // 建物どうしの最小間隔（マス）
+  MAX_BUILDINGS_PER_PARTICIPANT: 5,
   // ---- AI
-  AI_PLAN_INTERVAL: 4,           // 県の作戦を見直す間隔（秒）
-  AI_TARGET_TIMEOUT: 120,        // 攻め先をあきらめるまでの秒数
-  AI_FORT_INTERVAL: 60,          // 県が砦を建てる最短間隔（秒）
-  AI_DEFENDER_RATIO: 0.25,       // 守備担当の部隊の割合
+  AI_BUILD_INTERVAL: 3,          // 県のAI参加者10人で、この秒数に1回建てる
+  AI_PLAN_INTERVAL: 4,
+  AI_TARGET_TIMEOUT: 120,
+  AI_DEFENDER_RATIO: 0.25,
   // ---- 画面
-  CAMERA_PITCH: 55, TOP_PITCH: 90, TITLE_PITCH: 80, FOV: 45,
+  CAMERA_PITCH: 52, TOP_PITCH: 90, TITLE_PITCH: 75, FOV: 40,
   ZOOM_MIN: 5, ZOOM_MAX: 9000,
-  OWNER_MIX: 0.52, OWNER_MIX_TOP: 0.88,
+  FILL: 0.1, FILL_TOP: 0.78,      // 領土の塗りの濃さ（斜め／真上）
+  TREE_MAX: 7000,
   LOG_MAX: 4, BANNER_MS: 1800, MINIMAP_REFRESH: 1.0, MAX_DPR: 2, HUD_REFRESH: 0.25,
 };
+const RES_KEYS = ['food', 'wood', 'gold'];
+const RES_ICON = { food: '🌾', wood: '🪵', gold: '💰' };
+const RES_NAME = { food: '食料', wood: '木材', gold: '金' };
+/** 建物の種類 */
+const BUILDINGS = {
+  farm: { name: '農場', icon: '🌾', cost: { wood: 60 }, hp: 150, desc: '食料 +1.2/秒（森を切り開くと半分・山には建てられない）', make: { food: 1.2 } },
+  lumber: { name: '製材所', icon: '🪓', cost: { wood: 40, gold: 20 }, hp: 150, desc: '周りの森から木材（最大 +2/秒）', forest: true },
+  market: { name: '市場', icon: '🏪', cost: { wood: 120 }, hp: 200, desc: '金 +1/秒', make: { gold: 1 } },
+  barracks: { name: '兵舎', icon: '⚔️', cost: { wood: 150, gold: 50 }, hp: 350, desc: '食料30で兵士を訓練（8秒ごと）', train: 8, trainFood: 30 },
+  tower: { name: '見張り塔', icon: '🗼', cost: { wood: 80, gold: 60 }, hp: 450, desc: '近くの敵兵を撃つ', range: 9, dps: 14 },
+  town: { name: '町', icon: '🏘️', cost: { wood: 250, gold: 150 }, desc: '国境を広げる・金 +0.8/秒', node: true, make: { gold: 0.8 } },
+  fort: { name: '砦', icon: '🏰', cost: { wood: 150, gold: 300 }, desc: '国境を広げ、近くの敵兵を撃つ', node: true, range: 10, dps: 22 },
+};
+const BUILD_ORDER = ['farm', 'lumber', 'market', 'barracks', 'tower', 'town', 'fort'];
 const WASTE = 48;             // 焦土（持ち主なし）を表す持ち主ID
 const WASTE_COLOR = '#4a4038';
 
@@ -108,9 +132,10 @@ function decodeLines(list) {
 }
 
 const TERRAIN_NAMES = ['海', '平地', '森', '山', '市街地'];
+// 自然な色（草原・森・岩・街は草原寄り、雪）
 const TERRAIN_COLORS = {
-  1: [164, 196, 112], 2: [80, 130, 72], 3: [132, 114, 94], 4: [180, 178, 188],
-  9: [232, 238, 242], 10: [198, 214, 216], 11: [246, 248, 251], 12: [210, 212, 220],
+  1: [130, 168, 78], 2: [70, 110, 52], 3: [132, 120, 96], 4: [140, 160, 90],
+  9: [226, 231, 233], 10: [176, 196, 190], 11: [240, 242, 245], 12: [216, 222, 222],
 };
 
 class MapData {
@@ -127,8 +152,19 @@ class MapData {
     this.initPref = rleDecode(this.raw.pref, N);
     progress(0.25, '地形を展開中…'); await nextFrame();
     this.terrain = rleDecode(this.raw.terrain, N);
-    this.coast = decodeLines(this.raw.coast);
-    this.border = decodeLines(this.raw.border);
+    progress(0.35, '標高を展開中…');
+    // 標高（PNG・半分の解像度）：ブラウザの画像デコーダで読み、明るさを取り出す
+    const ev = this.raw.elev;
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('標高データを読めません')); img.src = 'data:image/png;base64,' + ev.png; });
+    const cv = document.createElement('canvas');
+    cv.width = ev.w; cv.height = ev.h;
+    const cx = cv.getContext('2d');
+    cx.drawImage(img, 0, 0);
+    const px = cx.getImageData(0, 0, ev.w, ev.h).data;
+    this.elev = new Uint8Array(ev.w * ev.h);
+    for (let k = 0; k < this.elev.length; k++) this.elev[k] = px[k * 4];
+    this.elevW = ev.w; this.elevH = ev.h;
     // 連絡マス（隣接扱い）
     this.linkMap = new Map();
     const addLink = (a, b) => {
@@ -295,84 +331,83 @@ uniform mat4 uVP;
 varying vec2 vWorld;
 void main(){ vWorld = aPos; gl_Position = uVP * vec4(aPos.x, 0.0, aPos.y, 1.0); }`;
 
+// 地面：なめらかな地形の色 × 標高の陰影 × 細かいゆらぎ。海は岸に近いほど浅い色。
+// 領土は「うっすら塗り」＋「国境線」（真上ビューでは濃く塗る）。
 const GROUND_FS = `
 #ifdef HAS_DERIV
 #extension GL_OES_standard_derivatives : enable
 #endif
 precision highp float;
-uniform sampler2D uTerrain;
-uniform sampler2D uOwner;
+uniform sampler2D uTerrain;   // RGB=地形の色, A=陸(1)/海(0)
+uniform sampler2D uElev;      // L=標高, A=陸地への近さ（浅瀬用）
+uniform sampler2D uOwner;     // R=持ち主, G=最近占領された
 uniform sampler2D uPalette;
 uniform vec2 uGrid;
-uniform float uMix;
+uniform float uFill;
 uniform float uMe;
-uniform float uBlink;
+uniform float uPlace;
+uniform float uTime;
 uniform float uCpp;
-uniform vec2 uSel;
 varying vec2 vWorld;
-float ownerAt(vec2 c){ return floor(texture2D(uOwner, (c + 0.5) / uGrid).r * 255.0 + 0.5); }
-// となりの自県マス（毒ガスで汚染されたマスからは攻撃できないので除く）
-float isMe(vec2 c){
-  vec4 t = texture2D(uOwner, (c + 0.5) / uGrid);
-  float gas = step(31.5, mod(floor(t.g * 255.0 + 0.5), 64.0));
-  return (1.0 - step(0.5, abs(floor(t.r * 255.0 + 0.5) - uMe))) * (1.0 - gas);
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p){
+  vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
 }
+float ownerAt(vec2 w){ return floor(texture2D(uOwner, (floor(w) + 0.5) / uGrid).r * 255.0 + 0.5); }
 void main(){
-  vec3 sea = vec3(0.12, 0.24, 0.39);
-  vec2 cell = floor(vWorld);
 #ifdef HAS_DERIV
   vec2 fw = fwidth(vWorld);
   float cpp = max(max(fw.x, fw.y), 1e-4);
 #else
   float cpp = uCpp;
 #endif
-  if (cell.x < 0.0 || cell.y < 0.0 || cell.x >= uGrid.x || cell.y >= uGrid.y) { gl_FragColor = vec4(0.124, 0.241, 0.390, 1.0); return; }
-  vec2 uv = (cell + 0.5) / uGrid;
-  vec4 o = texture2D(uOwner, uv);
-  float id = floor(o.r * 255.0 + 0.5);
-  vec3 terr = texture2D(uTerrain, uv).rgb;
-  vec3 col = terr;
-  if (id > 0.5) {
-    vec3 pc = texture2D(uPalette, vec2((id + 0.5) / 64.0, 0.5)).rgb;
-    float l = dot(terr, vec3(0.299, 0.587, 0.114));
-    vec3 tint = pc * (0.6 + 0.52 * l);
-    col = mix(terr, tint, uMix);
-    // G: 128=今日変わった, 64=放射能で立ち入り不可, 32=毒ガス
-    float gv = floor(o.g * 255.0 + 0.5);
-    float changed = step(127.5, gv);
-    float fallout = step(63.5, mod(gv, 128.0));
-    float gas = step(31.5, mod(gv, 64.0));
-    if (id > 47.5) col = mix(terr * 0.35, vec3(0.30, 0.25, 0.21), 0.75);   // 焦土
-    if (fallout > 0.5) col = mix(col, vec3(0.62, 0.86, 0.12), 0.3);
-    if (gas > 0.5) col = mix(col, vec3(0.62, 0.32, 0.95), 0.42);
-    // その日に持ち主が変わったマス：斜線
-    if (changed > 0.5) {
-      float s = step(0.5, fract((gl_FragCoord.x + gl_FragCoord.y) / 10.0));
-      col = mix(col, vec3(1.0), s * 0.45);
+  vec2 uv = vWorld / uGrid;
+  vec3 deep = vec3(0.09, 0.25, 0.40);
+  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { gl_FragColor = vec4(deep, 1.0); return; }
+  vec4 t = texture2D(uTerrain, uv);
+  vec4 e = texture2D(uElev, uv);
+  // 標高から陰影（北西から光）
+  vec2 px = 2.0 / uGrid;
+  float hL = texture2D(uElev, uv - vec2(px.x, 0.0)).r, hR = texture2D(uElev, uv + vec2(px.x, 0.0)).r;
+  float hU = texture2D(uElev, uv - vec2(0.0, px.y)).r, hD = texture2D(uElev, uv + vec2(0.0, px.y)).r;
+  vec3 n = normalize(vec3((hL - hR) * 9.0, 1.0, (hU - hD) * 9.0));
+  float shade = clamp(0.55 + 0.6 * dot(n, normalize(vec3(-0.55, 0.75, -0.45))), 0.45, 1.25);
+  // 草原らしい細かいゆらぎ（拡大すると見える）
+  float nz = noise(vWorld * 0.35) * 0.45 + noise(vWorld * 1.6) * 0.35 + noise(vWorld * 6.0) * 0.2 * clamp(1.5 - cpp * 2.0, 0.0, 1.0);
+  vec3 land = t.rgb * (0.8 + 0.38 * nz) * shade;
+  // 海：岸に近いほど浅い色、さざ波
+  float near = e.a;
+  vec3 shallow = vec3(0.24, 0.52, 0.58);
+  vec3 water = mix(deep, shallow, near * near);
+  water += (noise(vWorld * 0.8 + vec2(uTime * 0.15, uTime * 0.07)) - 0.5) * 0.04;
+  float isLand = smoothstep(0.42, 0.58, t.a);
+  float foam = smoothstep(0.25, 0.45, t.a) * (1.0 - isLand);
+  vec3 col = mix(water + foam * 0.25, land, isLand);
+  // 領土
+  if (isLand > 0.01) {
+    float id = ownerAt(vWorld);
+    if (id > 0.5) {
+      vec3 pc = texture2D(uPalette, vec2((id + 0.5) / 64.0, 0.5)).rgb;
+      col = mix(col, pc, uFill * isLand);
+      // 国境線：となりの持ち主が違えば、自分の側に自分の色の線を引く
+      float w = max(0.35, cpp * 1.7);
+      float a = ownerAt(vWorld + vec2(w, 0.0)), b = ownerAt(vWorld - vec2(w, 0.0));
+      float c = ownerAt(vWorld + vec2(0.0, w)), d = ownerAt(vWorld - vec2(0.0, w));
+      float edge = 0.0;
+      if (a > 0.5 && abs(a - id) > 0.5) edge = 1.0;
+      if (b > 0.5 && abs(b - id) > 0.5) edge = 1.0;
+      if (c > 0.5 && abs(c - id) > 0.5) edge = 1.0;
+      if (d > 0.5 && abs(d - id) > 0.5) edge = 1.0;
+      if (edge > 0.5) col = mix(col, pc * 1.1 + 0.08, 0.9 * isLand);
+      // 最近占領されたところは斜線
+      if (texture2D(uOwner, (floor(vWorld) + 0.5) / uGrid).g > 0.5) {
+        float s = step(0.5, fract((gl_FragCoord.x + gl_FragCoord.y) / 12.0));
+        col = mix(col, pc, s * 0.35);
+      }
+      // 建設モード：自県の領土を明るく、それ以外を暗く
+      if (uPlace > 0.0) col = abs(id - uMe) < 0.5 ? mix(col, vec3(0.75, 1.0, 0.6), 0.12) : col * 0.7;
     }
-    // 防御中のマス
-    if (o.b > 0.5) col = mix(col, vec3(0.78, 0.96, 1.0), 0.42);
-    // 攻撃できるマス：赤く点滅
-    if (uBlink > 0.0 && abs(id - uMe) > 0.5 && changed + fallout < 0.5 && o.b < 0.5) {
-      float adj = step(0.5, o.a);
-      adj += isMe(cell + vec2(-1.0, -1.0)) + isMe(cell + vec2(0.0, -1.0)) + isMe(cell + vec2(1.0, -1.0));
-      adj += isMe(cell + vec2(-1.0, 0.0)) + isMe(cell + vec2(1.0, 0.0));
-      adj += isMe(cell + vec2(-1.0, 1.0)) + isMe(cell + vec2(0.0, 1.0)) + isMe(cell + vec2(1.0, 1.0));
-      // 赤⇔白っぽく明滅させ、赤系の自県とも見分けられるようにする
-      if (adj > 0.5) col = mix(mix(col, vec3(1.0, 0.92, 0.88), 0.45 * (1.0 - uBlink)), vec3(1.0, 0.06, 0.03), 0.8 * uBlink);
-    }
-    // 拡大時だけマスの境目をうっすら
-    vec2 f = fract(vWorld);
-    vec2 e = min(f, 1.0 - f);
-    float ed = min(e.x, e.y);
-    float show = clamp((1.0 / cpp - 6.0) / 14.0, 0.0, 1.0);
-    float line = 1.0 - smoothstep(0.0, cpp * 1.2, ed);
-    col *= 1.0 - line * show * 0.3;
-  }
-  if (cell == uSel) {
-    vec2 f = fract(vWorld);
-    vec2 e = min(f, 1.0 - f);
-    if (min(e.x, e.y) < max(0.1, cpp * 2.5)) col = vec3(1.0, 0.9, 0.15);
   }
   gl_FragColor = vec4(col, 1.0);
 }`;
@@ -408,25 +443,33 @@ void main(){
   gl_FragColor = uColor;
 }`;
 
-// 箱（建物・部隊）：インスタンスごとに位置・大きさ・色を持つ
-const BOX_VS = `
+// 建物・兵士・木：メッシュ（箱・屋根・円錐・円柱）をインスタンスごとに 位置・大きさ・色・向き で描く
+const MESH_VS = `
 attribute vec3 aPos;
 attribute vec3 aNrm;
 attribute vec3 iOff;
 attribute vec3 iScale;
-attribute vec3 iColor;
+attribute vec4 iColor;   // rgb + 向き(ラジアン)
 uniform mat4 uVP;
 varying vec3 vN;
 varying vec3 vC;
-void main(){ vN = aNrm; vC = iColor; gl_Position = uVP * vec4(aPos * iScale + iOff, 1.0); }`;
-const BOX_FS = `
+void main(){
+  float c = cos(iColor.w), s = sin(iColor.w);
+  vec3 p = aPos * iScale;
+  p = vec3(c * p.x - s * p.z, p.y, s * p.x + c * p.z);
+  vN = vec3(c * aNrm.x - s * aNrm.z, aNrm.y, s * aNrm.x + c * aNrm.z);
+  vC = iColor.rgb;
+  gl_Position = uVP * vec4(p + iOff, 1.0);
+}`;
+const MESH_FS = `
 precision mediump float;
 varying vec3 vN;
 varying vec3 vC;
 void main(){
-  float l = 0.45 + 0.55 * max(dot(normalize(vN), normalize(vec3(-0.35, 0.85, 0.45))), 0.0);
+  float l = 0.5 + 0.6 * max(dot(normalize(vN), normalize(vec3(-0.55, 0.75, -0.45))), 0.0);
   gl_FragColor = vec4(vC * l, 1.0);
 }`;
+const INST_FLOATS = 10;
 
 function compile(gl, vs, fs, defs) {
   const mk = (type, src) => {
@@ -450,6 +493,46 @@ function compile(gl, vs, fs, defs) {
   return { p, u, a };
 }
 
+/** メッシュの形（底面中心が原点、高さ1、幅1） */
+function buildMeshes() {
+  const meshes = {};
+  const tri = (out, a, b, c) => {
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const L = Math.hypot(nx, ny, nz) || 1; nx /= L; ny /= L; nz /= L;
+    for (const p of [a, b, c]) out.push(p[0], p[1], p[2], nx, ny, nz);
+  };
+  const quad = (out, a, b, c, d) => { tri(out, a, b, c); tri(out, a, c, d); };
+  // 箱
+  const box = [];
+  const h = 0.5;
+  quad(box, [-h, 1, -h], [-h, 1, h], [h, 1, h], [h, 1, -h]);
+  quad(box, [-h, 0, h], [h, 0, h], [h, 1, h], [-h, 1, h]);
+  quad(box, [h, 0, -h], [-h, 0, -h], [-h, 1, -h], [h, 1, -h]);
+  quad(box, [h, 0, h], [h, 0, -h], [h, 1, -h], [h, 1, h]);
+  quad(box, [-h, 0, -h], [-h, 0, h], [-h, 1, h], [-h, 1, -h]);
+  meshes.box = box;
+  // 切妻屋根（x 方向に棟）
+  const roof = [];
+  quad(roof, [-h, 0, h], [h, 0, h], [h, 1, 0], [-h, 1, 0]);
+  quad(roof, [h, 0, -h], [-h, 0, -h], [-h, 1, 0], [h, 1, 0]);
+  tri(roof, [h, 0, h], [h, 0, -h], [h, 1, 0]);
+  tri(roof, [-h, 0, -h], [-h, 0, h], [-h, 1, 0]);
+  meshes.roof = roof;
+  // 円錐（木の葉・塔の屋根）と円柱
+  const cone = [], cyl = [], K = 8;
+  for (let k = 0; k < K; k++) {
+    const a0 = k / K * Math.PI * 2, a1 = (k + 1) / K * Math.PI * 2;
+    const p0 = [Math.cos(a0) * h, 0, Math.sin(a0) * h], p1 = [Math.cos(a1) * h, 0, Math.sin(a1) * h];
+    tri(cone, p1, p0, [0, 1, 0]);
+    quad(cyl, p1, p0, [p0[0], 1, p0[2]], [p1[0], 1, p1[2]]);
+    tri(cyl, [0, 1, 0], [p1[0], 1, p1[2]], [p0[0], 1, p0[2]]);
+  }
+  meshes.cone = cone;
+  meshes.cyl = cyl;
+  return meshes;
+}
+
 class Renderer {
   constructor(canvas, map) {
     this.canvas = canvas;
@@ -465,7 +548,7 @@ class Renderer {
     if (!hp || hp.precision === 0) fs = fs.replace('precision highp float;', 'precision mediump float;');
     this.ground = compile(gl, GROUND_VS, fs, deriv ? '#define HAS_DERIV\n' : '');
     this.line = compile(gl, LINE_VS, LINE_FS);
-    this.box = compile(gl, BOX_VS, BOX_FS);
+    this.mesh = compile(gl, MESH_VS, MESH_FS);
     this.instExt = gl.getExtension('ANGLE_instanced_arrays');
     this.instBuf = gl.createBuffer();
     this.dirty = new Set();
@@ -474,47 +557,74 @@ class Renderer {
     this.game = null;
     this.buildGround();
     this.buildLines();
-    this.buildBox();
+    this.meshBufs = {};
+    for (const [k, v] of Object.entries(buildMeshes())) {
+      const b = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, b);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(v), gl.STATIC_DRAW);
+      this.meshBufs[k] = { buf: b, count: v.length / 6 };
+    }
     this.palette = gl.createTexture();
     this.ownerTex = gl.createTexture();
     this.terrainTex = gl.createTexture();
+    this.elevTex = gl.createTexture();
   }
   dispose() {
     const gl = this.gl;
-    for (const t of [this.palette, this.ownerTex, this.terrainTex]) gl.deleteTexture(t);
-    for (const b of [this.groundBuf, this.lineBuf, this.boxBuf, this.instBuf]) gl.deleteBuffer(b);
-    for (const p of [this.ground, this.line, this.box]) gl.deleteProgram(p.p);
+    for (const t of [this.palette, this.ownerTex, this.terrainTex, this.elevTex]) gl.deleteTexture(t);
+    for (const b of [this.groundBuf, this.lineBuf, this.instBuf]) gl.deleteBuffer(b);
+    for (const m of Object.values(this.meshBufs)) gl.deleteBuffer(m.buf);
+    for (const p of [this.ground, this.line, this.mesh]) gl.deleteProgram(p.p);
   }
-  texParams(gl) {
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  texParams(gl, linear) {
+    const f = linear ? gl.LINEAR : gl.NEAREST;
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, f);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, f);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   }
-  /** 地形テクスチャ（マスごとに少し明るさをばらつかせる。マス内は単色） */
+  /** 地形テクスチャ（自然な色。標高が高いほど岩っぽく）と、標高・浅瀬テクスチャ */
   uploadTerrain() {
     const { gl, map } = this;
     const { W, H, N, terrain } = map;
-    const rgb = new Uint8Array(N * 3);
+    const ew = map.elevW, eh = map.elevH, elev = map.elev;
+    const rgba = new Uint8Array(N * 4);
     const pal = new Uint8Array(16 * 3);
     for (const k in TERRAIN_COLORS) pal.set(TERRAIN_COLORS[k], k * 3);
+    const ROCK = [126, 112, 92];
     for (let i = 0; i < N; i++) {
-      const t = terrain[i];
-      if (!t) { // 海：わずかなゆらぎ
-        const v = ((i * 2654435761) >>> 27) & 3;
-        rgb[i * 3] = 30 + v; rgb[i * 3 + 1] = 60 + v; rgb[i * 3 + 2] = 98 + v;
-        continue;
-      }
-      const h = (((i * 2654435761) ^ (i >>> 7)) >>> 24) / 255; // 0..1
-      const k = 0.93 + h * 0.12;
-      rgb[i * 3] = Math.min(255, pal[t * 3] * k);
-      rgb[i * 3 + 1] = Math.min(255, pal[t * 3 + 1] * k);
-      rgb[i * 3 + 2] = Math.min(255, pal[t * 3 + 2] * k);
+      const t = terrain[i], o = i * 4;
+      if (!t) { rgba[o] = 40; rgba[o + 1] = 90; rgba[o + 2] = 110; rgba[o + 3] = 0; continue; }
+      const x = i % W, y = (i / W) | 0;
+      const ev = elev[Math.min(eh - 1, y >> 1) * ew + Math.min(ew - 1, x >> 1)] / 255;   // 0..1（平方根スケール）
+      const r = (t & 8) ? 0 : clamp((ev - 0.35) * 1.6, 0, 0.75);   // 高いところは岩の色に寄せる（雪は除く）
+      rgba[o] = pal[t * 3] + (ROCK[0] - pal[t * 3]) * r;
+      rgba[o + 1] = pal[t * 3 + 1] + (ROCK[1] - pal[t * 3 + 1]) * r;
+      rgba[o + 2] = pal[t * 3 + 2] + (ROCK[2] - pal[t * 3 + 2]) * r;
+      rgba[o + 3] = 255;
     }
     gl.bindTexture(gl.TEXTURE_2D, this.terrainTex);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, W, H, 0, gl.RGB, gl.UNSIGNED_BYTE, rgb);
-    this.texParams(gl);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+    this.texParams(gl, true);
+    // 標高(L) と 陸地への近さ(A)（半分の解像度。ぼかして浅瀬の幅にする）
+    const near = new Float32Array(ew * eh);
+    for (let y = 0; y < eh; y++) for (let x = 0; x < ew; x++) {
+      const i = (y * 2) * W + x * 2;
+      near[y * ew + x] = (map.initPref[i] || map.initPref[i + 1] || map.initPref[i + W] || map.initPref[i + W + 1]) ? 1 : 0;
+    }
+    const blur = (src, r) => {
+      const tmp = new Float32Array(src.length), out = new Float32Array(src.length);
+      for (let y = 0; y < eh; y++) { let s = 0; for (let x = -r; x < ew + r; x++) { if (x + r < ew) s += src[y * ew + x + r]; if (x - r - 1 >= 0) s -= src[y * ew + x - r - 1]; if (x >= 0 && x < ew) tmp[y * ew + x] = s / (2 * r + 1); } }
+      for (let x = 0; x < ew; x++) { let s = 0; for (let y = -r; y < eh + r; y++) { if (y + r < eh) s += tmp[(y + r) * ew + x]; if (y - r - 1 >= 0) s -= tmp[(y - r - 1) * ew + x]; if (y >= 0 && y < eh) out[y * ew + x] = s / (2 * r + 1); } }
+      return out;
+    };
+    const nb = blur(blur(near, 5), 5);
+    const la = new Uint8Array(ew * eh * 2);
+    for (let k = 0; k < ew * eh; k++) { la[k * 2] = elev[k]; la[k * 2 + 1] = Math.min(255, nb[k] * 2.2 * 255); }
+    gl.bindTexture(gl.TEXTURE_2D, this.elevTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE_ALPHA, ew, eh, 0, gl.LUMINANCE_ALPHA, gl.UNSIGNED_BYTE, la);
+    this.texParams(gl, true);
   }
   setPalette(colors) {
     const gl = this.gl;
@@ -522,9 +632,9 @@ class Renderer {
     colors.forEach((c, i) => { if (c) { const [r, g, b] = hexToRgb(c); data.set([r, g, b, 255], i * 4); } });
     gl.bindTexture(gl.TEXTURE_2D, this.palette);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 64, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
-    this.texParams(gl);
+    this.texParams(gl, false);
   }
-  /** 持ち主テクスチャ: R=持ち主, G=今日変わった, B=防御中, A=連絡マス経由で自県に隣接 */
+  /** 持ち主テクスチャ: R=持ち主, G=128 なら最近占領されたマス */
   attachGame(game, me) {
     this.game = game; this.me = me;
     this.dirty.clear();
@@ -534,9 +644,8 @@ class Renderer {
     for (let i = 0; i < N; i++) this.computeTexel(i, data, i * 4);
     gl.bindTexture(gl.TEXTURE_2D, this.ownerTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
-    this.texParams(gl);
+    this.texParams(gl, false);
   }
-  /** 持ち主テクスチャ: R=持ち主, G=128 なら最近占領されたマス（斜線） */
   computeTexel(i, out, o) {
     const g = this.game, map = this.map;
     out[o] = g ? g.owner[i] : map.initPref[i];
@@ -544,19 +653,13 @@ class Renderer {
     out[o + 2] = 0;
     out[o + 3] = 0;
   }
-  cellChanged(i) {
-    this.dirty.add(i);
-    const ls = this.map.linkMap.get(i);
-    if (ls) for (const j of ls) this.dirty.add(j);
-  }
+  cellChanged(i) { this.dirty.add(i); }
   flush() {
     if (!this.dirty.size) return;
     const { gl, map } = this;
+    if (this.dirty.size > 20000) { const g = this.game; this.dirty.clear(); this.attachGame(g, this.me); return; }
     gl.bindTexture(gl.TEXTURE_2D, this.ownerTex);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    if (this.dirty.size > 20000) {   // 大量に変わったときはまとめて作り直す
-      const g = this.game; this.dirty.clear(); this.attachGame(g, this.me); return;
-    }
     for (const i of this.dirty) {
       this.computeTexel(i, this.texel, 0);
       gl.texSubImage2D(gl.TEXTURE_2D, 0, i % map.W, (i / map.W) | 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.texel);
@@ -565,27 +668,22 @@ class Renderer {
   }
   buildGround() {
     const gl = this.gl, { W, H } = this.map;
-    const m = 4000;
+    const m = 6000;
     const v = new Float32Array([-m, -m, W + m, -m, -m, H + m, W + m, H + m]);
     this.groundBuf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.groundBuf);
     gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
   }
-  /** 県境・海岸線・連絡線・インセット枠を「太さを持つ線分」の三角形にする */
+  /** 連絡線（橋・トンネル・航路）とインセット枠 */
   buildLines() {
     const gl = this.gl, map = this.map;
     const verts = [];
     this.lineGroups = {};
     const pushSeg = (ax, ay, bx, by, d0, d1) => {
-      // 6頂点 × (aA2, aB2, info3)
       const q = [[-1, 0, d0], [1, 0, d0], [-1, 1, d1], [1, 0, d0], [1, 1, d1], [-1, 1, d1]];
       for (const [side, end, d] of q) verts.push(ax, ay, bx, by, side, end, d);
     };
-    const group = (name, fn) => {
-      const start = verts.length / 7;
-      fn();
-      this.lineGroups[name] = [start, verts.length / 7 - start];
-    };
+    const group = (name, fn) => { const start = verts.length / 7; fn(); this.lineGroups[name] = [start, verts.length / 7 - start]; };
     const polyline = (pts) => {
       let d = 0;
       for (let i = 0; i + 3 < pts.length; i += 2) {
@@ -594,8 +692,6 @@ class Renderer {
         d += L;
       }
     };
-    group('coast', () => map.coast.forEach(polyline));
-    group('border', () => map.border.forEach(polyline));
     const W = map.W;
     const c = (i) => [(i % W) + 0.5, ((i / W) | 0) + 0.5];
     this.linkStubs = [];
@@ -604,60 +700,31 @@ class Renderer {
         const [ax, ay] = c(l.a), [bx, by] = c(l.b);
         const L = Math.hypot(bx - ax, by - ay);
         if (l.stub) {
-          // インセットへの長い航路は両端に短い矢印線だけ描く
           const ux = (bx - ax) / L, uy = (by - ay) / L, s = 45;
           pushSeg(ax, ay, ax + ux * s, ay + uy * s, 0, s);
           pushSeg(bx, by, bx - ux * s, by - uy * s, 0, s);
-          this.linkStubs.push({ x: ax + ux * s, y: ay + uy * s, name: l.name, to: 'b' });
-          this.linkStubs.push({ x: bx - ux * s, y: by - uy * s, name: l.name, to: 'a' });
-        } else {
-          pushSeg(ax, ay, bx, by, 0, L);
-        }
+          this.linkStubs.push({ x: ax + ux * s, y: ay + uy * s, name: l.name });
+          this.linkStubs.push({ x: bx - ux * s, y: by - uy * s, name: l.name });
+        } else pushSeg(ax, ay, bx, by, 0, L);
       }
     });
-    group('auto', () => {
-      for (const [a, b] of map.raw.autoLinks) {
-        const [ax, ay] = c(a), [bx, by] = c(b);
-        const L = Math.hypot(bx - ax, by - ay);
-        if (L > 2) pushSeg(ax, ay, bx, by, 0, L);
-      }
-    });
-    group('inset', () => {
-      for (const r of map.raw.insets) polyline(r.poly);
-    });
+    group('inset', () => { for (const r of map.raw.insets) polyline(r.poly); });
     this.lineBuf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.lineBuf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
-  }
-  buildBox() {
-    const gl = this.gl;
-    // 単位立方体（底面中心が原点、高さ1）
-    const v = [];
-    const F = [
-      [[0, 1, 0], [[-.5, 1, -.5], [.5, 1, -.5], [.5, 1, .5], [-.5, 1, .5]]],
-      [[0, 0, 1], [[-.5, 0, .5], [.5, 0, .5], [.5, 1, .5], [-.5, 1, .5]]],
-      [[0, 0, -1], [[.5, 0, -.5], [-.5, 0, -.5], [-.5, 1, -.5], [.5, 1, -.5]]],
-      [[1, 0, 0], [[.5, 0, .5], [.5, 0, -.5], [.5, 1, -.5], [.5, 1, .5]]],
-      [[-1, 0, 0], [[-.5, 0, -.5], [-.5, 0, .5], [-.5, 1, .5], [-.5, 1, -.5]]],
-    ];
-    for (const [n, q] of F) for (const k of [0, 1, 2, 0, 2, 3]) v.push(...q[k], ...n);
-    this.boxCount = v.length / 6;
-    this.boxBuf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.boxBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(v), gl.STATIC_DRAW);
   }
   resize(w, h, dpr) {
     const cw = Math.round(w * dpr), ch = Math.round(h * dpr);
     if (this.canvas.width !== cw || this.canvas.height !== ch) { this.canvas.width = cw; this.canvas.height = ch; }
   }
+  /** opt: { fill, place, time, meshes: { box|roof|cone|cyl: {data, count} } } */
   render(cam, opt) {
     const gl = this.gl, map = this.map;
     this.flush();
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-    gl.clearColor(0.124, 0.241, 0.390, 1);
+    gl.clearColor(0.09, 0.25, 0.40, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     const vp = cam.compute();
-    const cpp = 1 / cam.cellPx();
     // --- 地面
     const g = this.ground;
     gl.useProgram(g.p);
@@ -666,19 +733,18 @@ class Renderer {
     gl.enableVertexAttribArray(g.a.aPos);
     gl.vertexAttribPointer(g.a.aPos, 2, gl.FLOAT, false, 0, 0);
     gl.uniformMatrix4fv(g.u.uVP, false, vp);
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.terrainTex); gl.uniform1i(g.u.uTerrain, 0);
-    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.ownerTex); gl.uniform1i(g.u.uOwner, 1);
-    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.palette); gl.uniform1i(g.u.uPalette, 2);
+    const tex = [[this.terrainTex, 'uTerrain'], [this.elevTex, 'uElev'], [this.ownerTex, 'uOwner'], [this.palette, 'uPalette']];
+    tex.forEach(([t, name], k) => { gl.activeTexture(gl.TEXTURE0 + k); gl.bindTexture(gl.TEXTURE_2D, t); gl.uniform1i(g.u[name], k); });
     gl.uniform2f(g.u.uGrid, map.W, map.H);
-    gl.uniform1f(g.u.uMix, opt.mix);
+    gl.uniform1f(g.u.uFill, opt.fill);
     gl.uniform1f(g.u.uMe, this.me);
-    gl.uniform1f(g.u.uBlink, opt.blink);
-    if (g.u.uCpp) gl.uniform1f(g.u.uCpp, cpp);
-    gl.uniform2f(g.u.uSel, opt.sel >= 0 ? opt.sel % map.W : -9, opt.sel >= 0 ? (opt.sel / map.W) | 0 : -9);
+    gl.uniform1f(g.u.uPlace, opt.place ? 1 : 0);
+    gl.uniform1f(g.u.uTime, opt.time || 0);
+    if (g.u.uCpp) gl.uniform1f(g.u.uCpp, 1 / cam.cellPx());
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.disableVertexAttribArray(g.a.aPos);
-    // --- 線
-    const L = this.line;
+    // --- 連絡線・インセット枠
+    const L = this.line, cpp = 1 / cam.cellPx();
     gl.useProgram(L.p);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -698,52 +764,65 @@ class Renderer {
       gl.uniform1f(L.u.uDash, dashPx ? dashPx * cpp : 0);
       gl.drawArrays(gl.TRIANGLES, s, n);
     };
-    const zoomIn = clamp((cam.cellPx() - 0.3) / 1.5, 0, 1);
-    draw('coast', 1.3 + zoomIn, [0.06, 0.12, 0.22, 0.85]);
-    draw('border', 2.8 + zoomIn, [0, 0, 0, opt.top ? 0.55 : 0.4]);
-    draw('border', 1.1 + zoomIn * 0.6, [1, 1, 1, opt.top ? 0.95 : 0.8]);
-    if (cam.cellPx() > 1.2) draw('auto', 1.2, [1, 1, 1, 0.45], 8);
-    draw('links', 3.2, [0.1, 0.05, 0, 0.6], 12);
-    draw('links', 2.0, [1, 0.85, 0.2, 1], 12);
-    draw('inset', 1.5, [1, 1, 1, 0.6], 10);
+    draw('links', 3.0, [0.25, 0.15, 0.05, 0.6], 12);
+    draw('links', 1.8, [1, 0.88, 0.45, 1], 12);
+    draw('inset', 1.5, [1, 1, 1, 0.5], 10);
     for (const k of ['aA', 'aB', 'aInfo']) gl.disableVertexAttribArray(L.a[k]);
     gl.disable(gl.BLEND);
-    // --- 建物・部隊（インスタンス描画。9 floats/個: 位置3・大きさ3・色3）
-    const inst = opt.boxes;
-    if (inst && inst.count) {
-      const B = this.box, ext = this.instExt;
-      gl.useProgram(B.p);
+    // --- 建物・兵士・木（インスタンス描画）
+    const meshes = opt.meshes;
+    if (meshes) {
+      const M = this.mesh, ext = this.instExt;
+      gl.useProgram(M.p);
       gl.enable(gl.DEPTH_TEST);
       gl.clear(gl.DEPTH_BUFFER_BIT);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.boxBuf);
-      gl.enableVertexAttribArray(B.a.aPos); gl.enableVertexAttribArray(B.a.aNrm);
-      gl.vertexAttribPointer(B.a.aPos, 3, gl.FLOAT, false, 24, 0);
-      gl.vertexAttribPointer(B.a.aNrm, 3, gl.FLOAT, false, 24, 12);
-      gl.uniformMatrix4fv(B.u.uVP, false, vp);
-      const attrs = [B.a.iOff, B.a.iScale, B.a.iColor];
-      if (ext) {
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.instBuf);
-        gl.bufferData(gl.ARRAY_BUFFER, inst.data.subarray(0, inst.count * 9), gl.DYNAMIC_DRAW);
-        attrs.forEach((a, k) => {
-          gl.enableVertexAttribArray(a);
-          gl.vertexAttribPointer(a, 3, gl.FLOAT, false, 36, k * 12);
-          ext.vertexAttribDivisorANGLE(a, 1);
-        });
-        ext.drawArraysInstancedANGLE(gl.TRIANGLES, 0, this.boxCount, inst.count);
-        attrs.forEach((a) => { ext.vertexAttribDivisorANGLE(a, 0); gl.disableVertexAttribArray(a); });
-      } else {
-        // 拡張が無い端末：1個ずつ定数属性で描く
-        const d = inst.data;
-        for (let k = 0; k < inst.count; k++) {
-          const o = k * 9;
-          gl.vertexAttrib3f(attrs[0], d[o], d[o + 1], d[o + 2]);
-          gl.vertexAttrib3f(attrs[1], d[o + 3], d[o + 4], d[o + 5]);
-          gl.vertexAttrib3f(attrs[2], d[o + 6], d[o + 7], d[o + 8]);
-          gl.drawArrays(gl.TRIANGLES, 0, this.boxCount);
+      gl.uniformMatrix4fv(M.u.uVP, false, vp);
+      const attrs = [[M.a.iOff, 3, 0], [M.a.iScale, 3, 12], [M.a.iColor, 4, 24]];
+      for (const [name, inst] of Object.entries(meshes)) {
+        if (!inst || !inst.count) continue;
+        const mb = this.meshBufs[name];
+        gl.bindBuffer(gl.ARRAY_BUFFER, mb.buf);
+        gl.enableVertexAttribArray(M.a.aPos); gl.enableVertexAttribArray(M.a.aNrm);
+        gl.vertexAttribPointer(M.a.aPos, 3, gl.FLOAT, false, 24, 0);
+        gl.vertexAttribPointer(M.a.aNrm, 3, gl.FLOAT, false, 24, 12);
+        if (ext) {
+          gl.bindBuffer(gl.ARRAY_BUFFER, this.instBuf);
+          gl.bufferData(gl.ARRAY_BUFFER, inst.data.subarray(0, inst.count * INST_FLOATS), gl.DYNAMIC_DRAW);
+          for (const [a, n, off] of attrs) {
+            gl.enableVertexAttribArray(a);
+            gl.vertexAttribPointer(a, n, gl.FLOAT, false, INST_FLOATS * 4, off);
+            ext.vertexAttribDivisorANGLE(a, 1);
+          }
+          ext.drawArraysInstancedANGLE(gl.TRIANGLES, 0, mb.count, inst.count);
+          for (const [a] of attrs) { ext.vertexAttribDivisorANGLE(a, 0); gl.disableVertexAttribArray(a); }
+        } else {
+          const d = inst.data;
+          for (let k = 0; k < inst.count; k++) {
+            const o = k * INST_FLOATS;
+            gl.vertexAttrib3f(attrs[0][0], d[o], d[o + 1], d[o + 2]);
+            gl.vertexAttrib3f(attrs[1][0], d[o + 3], d[o + 4], d[o + 5]);
+            gl.vertexAttrib4f(attrs[2][0], d[o + 6], d[o + 7], d[o + 8], d[o + 9]);
+            gl.drawArrays(gl.TRIANGLES, 0, mb.count);
+          }
         }
+        gl.disableVertexAttribArray(M.a.aPos); gl.disableVertexAttribArray(M.a.aNrm);
       }
-      gl.disableVertexAttribArray(B.a.aPos); gl.disableVertexAttribArray(B.a.aNrm);
+      gl.disable(gl.DEPTH_TEST);
     }
-    gl.disable(gl.DEPTH_TEST);
+  }
+}
+
+/** インスタンスを貯めるバッファ（メッシュごと） */
+class InstanceList {
+  constructor() { this.data = new Float32Array(INST_FLOATS * 1024); this.count = 0; }
+  clear() { this.count = 0; }
+  push(x, y, z, sx, sy, sz, c, rot) {
+    if ((this.count + 1) * INST_FLOATS > this.data.length) {
+      const d = new Float32Array(this.data.length * 2); d.set(this.data); this.data = d;
+    }
+    const o = this.count * INST_FLOATS, d = this.data;
+    d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = sx; d[o + 4] = sy; d[o + 5] = sz;
+    d[o + 6] = c[0]; d[o + 7] = c[1]; d[o + 8] = c[2]; d[o + 9] = rot || 0;
+    this.count++;
   }
 }
