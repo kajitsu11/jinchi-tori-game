@@ -33,7 +33,7 @@ if (process.env.OVERRIDE) Object.assign(CONFIG, JSON.parse(process.env.OVERRIDE)
   const line = () => {
     const r = g.ranking();
     const lead = r[0];
-    const pct = (p) => (g.counts[p] / map.landCells * 100).toFixed(1);
+    const pct = (p) => (g.pop[p] / g.popTotal * 100).toFixed(1) + '%人口/' + (g.counts[p] / map.landCells * 100).toFixed(1);
     const d = Math.floor(g.time / 86400), h = Math.floor((g.time % 86400) / 3600);
     console.log(`D${d + 1} ${String(h).padStart(2, '0')}h | 1位 ${map.prefs[lead].short} ${pct(lead)}% 2位 ${map.prefs[r[1]].short} ${pct(r[1])}% 3位 ${map.prefs[r[2]].short} ${pct(r[2])}% | ` +
       `脱落 ${g.eliminated.size} | 自県(${map.prefs[me].short}) ${pct(me)}% ${g.rankOf(me)}位 | 兵 ${g.units.length} 建物 ${g.buildings.length} 拠点 ${g.nodes.length} | 占領 ${g.stats.captures} | ${((Date.now() - t0) / 1000).toFixed(0)}s`);

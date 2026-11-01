@@ -221,7 +221,7 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
           <li><b>兵舎</b>は食料を使って兵士を自動で訓練し、兵士は県の攻め先へ進軍します。<b>見張り塔</b>は近くの敵兵を撃ちます。</li>
           <li><b>町</b>・<b>砦</b>を建てると国境が広がります。敵の拠点（県庁・町・砦）は兵士が居座ると占領でき、周りの領土と建物がまとめて自県のものになります。</li>
           <li>「⚔ 攻撃目標」で敵の拠点を指定すると、あなたの兵舎の兵士がそこを攻めます。</li>
-          <li>全国の陸地の50%を支配すれば勝利。自県の拠点が0になると敗北。</li>
+          <li>1シーズンは<b>7日間</b>（24時間ずっと進みます）。7日目の終わりに<b>支配人口</b>（支配している土地に住む人口）が一番多い県が優勝。それより前に全国の人口の50%を支配すれば即優勝。自県の拠点が0になると敗北。</li>
         </ul>
       </details>
       <p class="credit">地図出典：地球地図日本（国土地理院）／ 加工：dataofjapan/land を元に作成<br>地形判定：AWS Terrain Tiles（標高データ）</p>
@@ -297,8 +297,8 @@ const CONFIG = {
   //   目安：兵士は県をまたぐのに数分・兵舎は15分に1人・建物は30〜60分に1つ・
   //         町の占領は10人で約15分・県庁は約40分
   // =================================================================
-  SEASON_DAYS: 7,                // 7日たったら、その時点で領土1位の県が優勝
-  WIN_RATIO: 0.5,                // それより前に全国の50%を取れば即優勝
+  SEASON_DAYS: 7,                // 7日たったら、その時点で支配人口1位の県が優勝
+  WIN_RATIO: 0.5,                // それより前に全国の人口の50%を支配すれば即優勝
   // ---- 参加者（全国で約1000人。今はプレイヤー以外をAIが担当）
   PARTICIPANTS_PER_MILLION: 8,
   MIN_PARTICIPANTS: 3,
@@ -326,11 +326,11 @@ const CONFIG = {
   BUILDING_DPS_MULT: 0.6,
   START_UNITS_RATIO: 0.5,
   UNIT_CAP_PER_PARTICIPANT: 2,
-  UNIT_CAP_PER_NODE: 1,
+  UNIT_CAP_PER_NODE: 0.3,        // 拠点が多い県が雪だるま式に強くならないよう小さめ
   CAPITAL_RANGE: 13, CAPITAL_DPS: 2.4,
   // ---- 拠点（県庁・町・砦）
   CAPTURE_RADIUS: 7,
-  CAPTURE_NEED: { capital: 22500, town: 9000, fort: 12000 },   // 攻撃側の兵士1人×1秒で1ポイント
+  CAPTURE_NEED: { capital: 67500, town: 27000, fort: 36000 },  // 攻撃側の兵士1人×1秒で1ポイント（町：20人で約25分）
   CAPTURE_MAX_RATE: 20,
   CAPTURE_DECAY: 0.5,
   RECENT_HATCH: 1800,            // 占領されてから30分は斜線
@@ -361,7 +361,7 @@ const BUILDINGS = {
   market: { name: '市場', icon: '🏪', cost: { wood: 120 }, hp: 200, desc: '金 +120/時', make: { gold: 0.033 } },
   barracks: { name: '兵舎', icon: '⚔️', cost: { wood: 150, gold: 50 }, hp: 350, desc: '食料30で兵士を訓練（15分ごと）', train: 900, trainFood: 30 },
   tower: { name: '見張り塔', icon: '🗼', cost: { wood: 80, gold: 60 }, hp: 450, desc: '近くの敵兵を撃つ', range: 11, dps: 1.9 },
-  town: { name: '町', icon: '🏘️', cost: { wood: 250, gold: 150 }, desc: '国境を広げる・金 +96/時', node: true, make: { gold: 0.027 } },
+  town: { name: '町', icon: '🏘️', cost: { wood: 250, gold: 150 }, desc: '国境を広げる・金 +43/時', node: true, make: { gold: 0.012 } },
   fort: { name: '砦', icon: '🏰', cost: { wood: 150, gold: 300 }, desc: '国境を広げ、近くの敵兵を撃つ', node: true, range: 13, dps: 2.9 },
 };
 const BUILD_ORDER = ['farm', 'lumber', 'market', 'barracks', 'tower', 'town', 'fort'];
@@ -1370,6 +1370,12 @@ class Sim {
     this.owner = map.initPref.slice();
     this.counts = new Int32Array(49);
     this.counts.set(map.initCounts);
+    // 支配人口：各マスは「元の県の人口 ÷ 元の県のマス数」の人口を持つ（万人）
+    this.cellPop = new Float64Array(48);
+    for (let p = 1; p <= 47; p++) this.cellPop[p] = map.prefs[p].pop / map.initCounts[p];
+    this.pop = new Float64Array(49);
+    for (let p = 1; p <= 47; p++) this.pop[p] = map.prefs[p].pop;
+    this.popTotal = this.pop.reduce((a, b) => a + b, 0);
     this.landIdx = new Int32Array(map.landCells);
     for (let i = 0, k = 0; i < N; i++) if (map.initPref[i]) this.landIdx[k++] = i;
     this.offs = [-W - 1, -W, -W + 1, -1, 1, W - 1, W, W + 1];
@@ -1444,6 +1450,13 @@ class Sim {
     for (const o of this.offs) { const j = i + o; if (ip[j]) fn(j); }
     const ls = this.map.linkMap.get(i);
     if (ls) for (const j of ls) fn(j);
+  }
+  /** マス i の持ち主を from → to に（領土マス数と支配人口を更新） */
+  moveCell(i, from, to) {
+    const w = this.cellPop[this.map.initPref[i]];
+    this.counts[from]--; this.counts[to]++;
+    this.pop[from] -= w; this.pop[to] += w;
+    this.owner[i] = to;
   }
   cellAt(x, y) { return (y | 0) * this.map.W + (x | 0); }
   addNode(o) {
@@ -1647,7 +1660,7 @@ class Sim {
     const q = [c], d = new Map([[c, 0]]);
     const take = (i, di) => {
       nodeOf[i] = n.id; dist[i] = di; claimed.push(i);
-      if (this.owner[i] !== P) { this.counts[this.owner[i]]--; this.counts[P]++; this.owner[i] = P; changed.push(i); }
+      if (this.owner[i] !== P) { this.moveCell(i, this.owner[i], P); changed.push(i); }
     };
     take(c, 0);
     for (let qh = 0; qh < q.length; qh++) {
@@ -1695,7 +1708,7 @@ class Sim {
     this.units.push(u);
     return u;
   }
-  unitCap(P) { return this.parts[P] * CONFIG.UNIT_CAP_PER_PARTICIPANT + this.nodeCount[P] * CONFIG.UNIT_CAP_PER_NODE; }
+  unitCap(P) { return Math.floor(this.parts[P] * CONFIG.UNIT_CAP_PER_PARTICIPANT + this.nodeCount[P] * CONFIG.UNIT_CAP_PER_NODE); }
   unitCount(P) { let n = 0; for (const u of this.units) if (u.pref === P) n++; return n; }
   trainAll(dt) {
     const cnt = new Int32Array(49);
@@ -1973,8 +1986,7 @@ class Sim {
     for (const i of cells) {
       const o = this.owner[i];
       if (o === A) continue;
-      this.counts[o]--; this.counts[A]++;
-      this.owner[i] = A;
+      this.moveCell(i, o, A);
       changed.push(i);
       moved++;
     }
@@ -2003,10 +2015,10 @@ class Sim {
   }
   checkEnd() {
     if (this.over) return;
-    const need = this.map.landCells * CONFIG.WIN_RATIO;
+    const need = this.popTotal * CONFIG.WIN_RATIO;   // 全国の人口の半分を支配したら即優勝
     if (this.nodeCount[this.me] === 0) this.over = { win: false, reason: 'lost' };
-    else if (this.counts[this.me] >= need) this.over = { win: true, reason: 'majority' };
-    else for (let p = 1; p <= 47; p++) if (p !== this.me && this.counts[p] >= need) { this.over = { win: false, reason: 'rival', rival: p }; break; }
+    else if (this.pop[this.me] >= need) this.over = { win: true, reason: 'majority' };
+    else for (let p = 1; p <= 47; p++) if (p !== this.me && this.pop[p] >= need) { this.over = { win: false, reason: 'rival', rival: p }; break; }
     // シーズン終了：その時点で領土が一番広い県の勝ち
     if (!this.over && this.time >= CONFIG.SEASON_DAYS * 86400) {
       const top = this.ranking()[0];
@@ -2024,7 +2036,7 @@ class Sim {
   ranking() {
     const arr = [];
     for (let p = 1; p <= 47; p++) arr.push(p);
-    arr.sort((a, b) => this.counts[b] - this.counts[a] || a - b);
+    arr.sort((a, b) => this.pop[b] - this.pop[a] || this.counts[b] - this.counts[a] || a - b);   // 順位は支配人口
     return arr;
   }
   rankOf(p) { return this.ranking().indexOf(p) + 1; }
@@ -2300,8 +2312,8 @@ const App = {
     const g = this.game, map = this.map, o = g.over;
     this.hidePanel(); this.setMode(null);
     let head, cls, detail;
-    if (o.win) { head = '天下統一！'; cls = 'win'; detail = `${map.prefs[this.me].name}が全国の${Math.round(CONFIG.WIN_RATIO * 100)}%を支配しました。`; }
-    else if (o.reason === 'rival') { head = '敗北…'; cls = 'lose'; detail = `${map.prefs[o.rival].name}が全国の${Math.round(CONFIG.WIN_RATIO * 100)}%を支配しました。`; }
+    if (o.win) { head = '天下統一！'; cls = 'win'; detail = `${map.prefs[this.me].name}が全国の人口の${Math.round(CONFIG.WIN_RATIO * 100)}%を支配しました。`; }
+    else if (o.reason === 'rival') { head = '敗北…'; cls = 'lose'; detail = `${map.prefs[o.rival].name}が全国の人口の${Math.round(CONFIG.WIN_RATIO * 100)}%を支配しました。`; }
     else if (o.reason === 'season') {
       head = o.win ? 'シーズン優勝！' : 'シーズン終了';
       cls = o.win ? 'win' : 'lose';
@@ -2332,7 +2344,7 @@ const App = {
     const dEl = $('h-delta');
     dEl.textContent = `(${d > 0 ? '+' : d < 0 ? '−' : '±'}${fmt(Math.abs(d))})`;
     dEl.className = d > 0 ? 'up' : d < 0 ? 'down' : '';
-    $('h-today').textContent = `拠点 ${g.nodeCount[me]}・兵士 ${g.unitCount(me)}/${g.unitCap(me)}・あなたの建物 ${g.myBuildings()}`;
+    $('h-today').textContent = `人口 ${fmt(Math.round(g.pop[me]))}万（${(g.pop[me] / g.popTotal * 100).toFixed(1)}%）・拠点 ${g.nodeCount[me]}・兵士 ${g.unitCount(me)}/${g.unitCap(me)}・あなたの建物 ${g.myBuildings()}`;
     // 建築カード：資源が足りないものは暗く
     for (const b of document.querySelectorAll('.bcard')) b.classList.toggle('poor', !g.canAfford(0, BUILDINGS[b.dataset.b].cost));
     const rn = g.rally >= 0 ? g.nodes[g.rally] : null;
@@ -2377,9 +2389,9 @@ const App = {
       return `<div class="rank-row${cls}"><span class="no">${k + 1}</span><span class="chip" style="background:${map.prefs[p].color}"></span>` +
         `<span class="nm">${map.prefs[p].name}${g.nodeCount[p] === 0 ? '（脱落）' : ''}<small class="sub">拠点${g.nodeCount[p]}・兵士${g.unitCount(p)}・建物${g.buildings.filter((b) => b.owner === p).length}</small></span>` +
         `<span class="ct">${fmt(c)}<small class="${d >= 0 ? 'plus' : 'minus'}"> ${d >= 0 ? '+' : '−'}${fmt(Math.abs(d))}</small></span>` +
-        `<span class="pc">${(c / map.landCells * 100).toFixed(2)}%</span></div>`;
+        `<span class="pc">${fmt(Math.round(g.pop[p]))}万<br>${(g.pop[p] / g.popTotal * 100).toFixed(1)}%</span></div>`;
     }).join('');
-    this.openModal(`戦況（${this.fmtTime(g.time)}）`, rows, [{ label: '閉じる', fn: () => this.closeModal() }]);
+    this.openModal(`戦況（${this.fmtTime(g.time)}・支配人口順）`, rows, [{ label: '閉じる', fn: () => this.closeModal() }]);
   },
 
   // ------------------------------------------------ 3D：建物・兵士・木（日本風）

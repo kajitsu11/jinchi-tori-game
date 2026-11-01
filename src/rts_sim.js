@@ -163,6 +163,12 @@ class Sim {
     this.owner = map.initPref.slice();
     this.counts = new Int32Array(49);
     this.counts.set(map.initCounts);
+    // 支配人口：各マスは「元の県の人口 ÷ 元の県のマス数」の人口を持つ（万人）
+    this.cellPop = new Float64Array(48);
+    for (let p = 1; p <= 47; p++) this.cellPop[p] = map.prefs[p].pop / map.initCounts[p];
+    this.pop = new Float64Array(49);
+    for (let p = 1; p <= 47; p++) this.pop[p] = map.prefs[p].pop;
+    this.popTotal = this.pop.reduce((a, b) => a + b, 0);
     this.landIdx = new Int32Array(map.landCells);
     for (let i = 0, k = 0; i < N; i++) if (map.initPref[i]) this.landIdx[k++] = i;
     this.offs = [-W - 1, -W, -W + 1, -1, 1, W - 1, W, W + 1];
@@ -237,6 +243,13 @@ class Sim {
     for (const o of this.offs) { const j = i + o; if (ip[j]) fn(j); }
     const ls = this.map.linkMap.get(i);
     if (ls) for (const j of ls) fn(j);
+  }
+  /** マス i の持ち主を from → to に（領土マス数と支配人口を更新） */
+  moveCell(i, from, to) {
+    const w = this.cellPop[this.map.initPref[i]];
+    this.counts[from]--; this.counts[to]++;
+    this.pop[from] -= w; this.pop[to] += w;
+    this.owner[i] = to;
   }
   cellAt(x, y) { return (y | 0) * this.map.W + (x | 0); }
   addNode(o) {
@@ -440,7 +453,7 @@ class Sim {
     const q = [c], d = new Map([[c, 0]]);
     const take = (i, di) => {
       nodeOf[i] = n.id; dist[i] = di; claimed.push(i);
-      if (this.owner[i] !== P) { this.counts[this.owner[i]]--; this.counts[P]++; this.owner[i] = P; changed.push(i); }
+      if (this.owner[i] !== P) { this.moveCell(i, this.owner[i], P); changed.push(i); }
     };
     take(c, 0);
     for (let qh = 0; qh < q.length; qh++) {
@@ -488,7 +501,7 @@ class Sim {
     this.units.push(u);
     return u;
   }
-  unitCap(P) { return this.parts[P] * CONFIG.UNIT_CAP_PER_PARTICIPANT + this.nodeCount[P] * CONFIG.UNIT_CAP_PER_NODE; }
+  unitCap(P) { return Math.floor(this.parts[P] * CONFIG.UNIT_CAP_PER_PARTICIPANT + this.nodeCount[P] * CONFIG.UNIT_CAP_PER_NODE); }
   unitCount(P) { let n = 0; for (const u of this.units) if (u.pref === P) n++; return n; }
   trainAll(dt) {
     const cnt = new Int32Array(49);
@@ -766,8 +779,7 @@ class Sim {
     for (const i of cells) {
       const o = this.owner[i];
       if (o === A) continue;
-      this.counts[o]--; this.counts[A]++;
-      this.owner[i] = A;
+      this.moveCell(i, o, A);
       changed.push(i);
       moved++;
     }
@@ -796,10 +808,10 @@ class Sim {
   }
   checkEnd() {
     if (this.over) return;
-    const need = this.map.landCells * CONFIG.WIN_RATIO;
+    const need = this.popTotal * CONFIG.WIN_RATIO;   // 全国の人口の半分を支配したら即優勝
     if (this.nodeCount[this.me] === 0) this.over = { win: false, reason: 'lost' };
-    else if (this.counts[this.me] >= need) this.over = { win: true, reason: 'majority' };
-    else for (let p = 1; p <= 47; p++) if (p !== this.me && this.counts[p] >= need) { this.over = { win: false, reason: 'rival', rival: p }; break; }
+    else if (this.pop[this.me] >= need) this.over = { win: true, reason: 'majority' };
+    else for (let p = 1; p <= 47; p++) if (p !== this.me && this.pop[p] >= need) { this.over = { win: false, reason: 'rival', rival: p }; break; }
     // シーズン終了：その時点で領土が一番広い県の勝ち
     if (!this.over && this.time >= CONFIG.SEASON_DAYS * 86400) {
       const top = this.ranking()[0];
@@ -817,7 +829,7 @@ class Sim {
   ranking() {
     const arr = [];
     for (let p = 1; p <= 47; p++) arr.push(p);
-    arr.sort((a, b) => this.counts[b] - this.counts[a] || a - b);
+    arr.sort((a, b) => this.pop[b] - this.pop[a] || this.counts[b] - this.counts[a] || a - b);   // 順位は支配人口
     return arr;
   }
   rankOf(p) { return this.ranking().indexOf(p) + 1; }

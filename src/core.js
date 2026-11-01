@@ -12,8 +12,8 @@ const CONFIG = {
   //   目安：兵士は県をまたぐのに数分・兵舎は15分に1人・建物は30〜60分に1つ・
   //         町の占領は10人で約15分・県庁は約40分
   // =================================================================
-  SEASON_DAYS: 7,                // 7日たったら、その時点で領土1位の県が優勝
-  WIN_RATIO: 0.5,                // それより前に全国の50%を取れば即優勝
+  SEASON_DAYS: 7,                // 7日たったら、その時点で支配人口1位の県が優勝
+  WIN_RATIO: 0.5,                // それより前に全国の人口の50%を支配すれば即優勝
   // ---- 参加者（全国で約1000人。今はプレイヤー以外をAIが担当）
   PARTICIPANTS_PER_MILLION: 8,
   MIN_PARTICIPANTS: 3,
@@ -41,11 +41,11 @@ const CONFIG = {
   BUILDING_DPS_MULT: 0.6,
   START_UNITS_RATIO: 0.5,
   UNIT_CAP_PER_PARTICIPANT: 2,
-  UNIT_CAP_PER_NODE: 1,
+  UNIT_CAP_PER_NODE: 0.3,        // 拠点が多い県が雪だるま式に強くならないよう小さめ
   CAPITAL_RANGE: 13, CAPITAL_DPS: 2.4,
   // ---- 拠点（県庁・町・砦）
   CAPTURE_RADIUS: 7,
-  CAPTURE_NEED: { capital: 22500, town: 9000, fort: 12000 },   // 攻撃側の兵士1人×1秒で1ポイント
+  CAPTURE_NEED: { capital: 67500, town: 27000, fort: 36000 },  // 攻撃側の兵士1人×1秒で1ポイント（町：20人で約25分）
   CAPTURE_MAX_RATE: 20,
   CAPTURE_DECAY: 0.5,
   RECENT_HATCH: 1800,            // 占領されてから30分は斜線
@@ -76,7 +76,7 @@ const BUILDINGS = {
   market: { name: '市場', icon: '🏪', cost: { wood: 120 }, hp: 200, desc: '金 +120/時', make: { gold: 0.033 } },
   barracks: { name: '兵舎', icon: '⚔️', cost: { wood: 150, gold: 50 }, hp: 350, desc: '食料30で兵士を訓練（15分ごと）', train: 900, trainFood: 30 },
   tower: { name: '見張り塔', icon: '🗼', cost: { wood: 80, gold: 60 }, hp: 450, desc: '近くの敵兵を撃つ', range: 11, dps: 1.9 },
-  town: { name: '町', icon: '🏘️', cost: { wood: 250, gold: 150 }, desc: '国境を広げる・金 +96/時', node: true, make: { gold: 0.027 } },
+  town: { name: '町', icon: '🏘️', cost: { wood: 250, gold: 150 }, desc: '国境を広げる・金 +43/時', node: true, make: { gold: 0.012 } },
   fort: { name: '砦', icon: '🏰', cost: { wood: 150, gold: 300 }, desc: '国境を広げ、近くの敵兵を撃つ', node: true, range: 13, dps: 2.9 },
 };
 const BUILD_ORDER = ['farm', 'lumber', 'market', 'barracks', 'tower', 'town', 'fort'];

@@ -265,8 +265,8 @@ const App = {
     const g = this.game, map = this.map, o = g.over;
     this.hidePanel(); this.setMode(null);
     let head, cls, detail;
-    if (o.win) { head = '天下統一！'; cls = 'win'; detail = `${map.prefs[this.me].name}が全国の${Math.round(CONFIG.WIN_RATIO * 100)}%を支配しました。`; }
-    else if (o.reason === 'rival') { head = '敗北…'; cls = 'lose'; detail = `${map.prefs[o.rival].name}が全国の${Math.round(CONFIG.WIN_RATIO * 100)}%を支配しました。`; }
+    if (o.win) { head = '天下統一！'; cls = 'win'; detail = `${map.prefs[this.me].name}が全国の人口の${Math.round(CONFIG.WIN_RATIO * 100)}%を支配しました。`; }
+    else if (o.reason === 'rival') { head = '敗北…'; cls = 'lose'; detail = `${map.prefs[o.rival].name}が全国の人口の${Math.round(CONFIG.WIN_RATIO * 100)}%を支配しました。`; }
     else if (o.reason === 'season') {
       head = o.win ? 'シーズン優勝！' : 'シーズン終了';
       cls = o.win ? 'win' : 'lose';
@@ -297,7 +297,7 @@ const App = {
     const dEl = $('h-delta');
     dEl.textContent = `(${d > 0 ? '+' : d < 0 ? '−' : '±'}${fmt(Math.abs(d))})`;
     dEl.className = d > 0 ? 'up' : d < 0 ? 'down' : '';
-    $('h-today').textContent = `拠点 ${g.nodeCount[me]}・兵士 ${g.unitCount(me)}/${g.unitCap(me)}・あなたの建物 ${g.myBuildings()}`;
+    $('h-today').textContent = `人口 ${fmt(Math.round(g.pop[me]))}万（${(g.pop[me] / g.popTotal * 100).toFixed(1)}%）・拠点 ${g.nodeCount[me]}・兵士 ${g.unitCount(me)}/${g.unitCap(me)}・あなたの建物 ${g.myBuildings()}`;
     // 建築カード：資源が足りないものは暗く
     for (const b of document.querySelectorAll('.bcard')) b.classList.toggle('poor', !g.canAfford(0, BUILDINGS[b.dataset.b].cost));
     const rn = g.rally >= 0 ? g.nodes[g.rally] : null;
@@ -342,9 +342,9 @@ const App = {
       return `<div class="rank-row${cls}"><span class="no">${k + 1}</span><span class="chip" style="background:${map.prefs[p].color}"></span>` +
         `<span class="nm">${map.prefs[p].name}${g.nodeCount[p] === 0 ? '（脱落）' : ''}<small class="sub">拠点${g.nodeCount[p]}・兵士${g.unitCount(p)}・建物${g.buildings.filter((b) => b.owner === p).length}</small></span>` +
         `<span class="ct">${fmt(c)}<small class="${d >= 0 ? 'plus' : 'minus'}"> ${d >= 0 ? '+' : '−'}${fmt(Math.abs(d))}</small></span>` +
-        `<span class="pc">${(c / map.landCells * 100).toFixed(2)}%</span></div>`;
+        `<span class="pc">${fmt(Math.round(g.pop[p]))}万<br>${(g.pop[p] / g.popTotal * 100).toFixed(1)}%</span></div>`;
     }).join('');
-    this.openModal(`戦況（${this.fmtTime(g.time)}）`, rows, [{ label: '閉じる', fn: () => this.closeModal() }]);
+    this.openModal(`戦況（${this.fmtTime(g.time)}・支配人口順）`, rows, [{ label: '閉じる', fn: () => this.closeModal() }]);
   },
 
   // ------------------------------------------------ 3D：建物・兵士・木（日本風）
