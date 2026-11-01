@@ -361,7 +361,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     await page.waitForSelector('#modal:not(.hidden)');
     assert((await page.$$('#m-body .rank-row')).length === 47, '47 rows');
     await shot('08_ranking');
-    await page.click('#m-btns button');
+    await page.click('#m-btns button:last-child');
     assert(await page.isHidden('#modal'), 'closed');
   });
 
@@ -416,7 +416,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     assert((await page.textContent('#m-body')).includes('天下統一'), 'win text');
     await shot('10_win');
     await ev(() => { window.__jinchi.CONFIG.WIN_RATIO = 0.5; });
-    await page.click('#m-btns button');
+    await page.click('#m-btns button:last-child');
     await page.waitForFunction(() => window.__jinchi.App.state === 'TITLE');
   });
 
@@ -431,7 +431,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     const r = await ev(() => window.__jinchi.game.over);
     assert(r.reason === 'season', JSON.stringify(r));
     assert((await page.textContent('#m-body')).includes(r.win ? 'シーズン優勝' : 'シーズン終了'), 'season text');
-    await page.click('#m-btns button');
+    await page.click('#m-btns button:last-child');
     await page.waitForFunction(() => window.__jinchi.App.state === 'TITLE');
   });
 
@@ -443,7 +443,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     await page.waitForFunction(() => window.__jinchi.App.state === 'GAMEOVER', null, { timeout: 5000 });
     assert((await page.textContent('#m-body')).includes('敗北'), 'lose text');
     await shot('11_lose');
-    await page.click('#m-btns button');
+    await page.click('#m-btns button:last-child');
     await page.waitForFunction(() => window.__jinchi.App.state === 'TITLE');
     const c = await ev(() => ({ l: Object.keys(window.__oldGame.listeners).length, g: window.__jinchi.game, hud: document.getElementById('hud').classList.contains('hidden') }));
     assert(c.l === 0 && c.g === null && c.hud, 'disposed ' + JSON.stringify(c));
