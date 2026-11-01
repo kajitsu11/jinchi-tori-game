@@ -102,12 +102,20 @@ function client(pref) {
     await page.waitForFunction(() => window.__jinchi && window.__jinchi.App.state === 'TITLE');
     await page.evaluate(() => { const A = window.__jinchi.App; A.selectTitlePref(27, false); A.startGame(27); });
     await page.waitForFunction(() => window.__jinchi.App.state === 'PLAYING');
-    await page.waitForFunction(() => { const A = window.__jinchi.App; return A.renderer.fineSlot.size > 0 && A.game.units.length > 0; }, null, { timeout: 30000 });
+    await page.waitForFunction(() => { const A = window.__jinchi.App; return A.renderer.fineSlot.size > 0 && A.game.snapAt > 0; }, null, { timeout: 30000 });
     const r = await page.evaluate(async () => {
       const A = window.__jinchi.App, g = A.game, n = g.nodes[A.me - 1];
-      let res = null;
-      for (let k = 0; k < 30; k++) { const x = n.x - 30 - k * 4, y = n.y + 25; res = g.playerBuild('farm', A.map.id(x, y), x, y); if (res.ok) break; }
-      await new Promise((ok) => setTimeout(ok, 2500));
+      let res = null, failed = 0;
+      g.on('buildfail', () => { failed++; });
+      // サーバーに断られたら（AIの建物と近すぎるなど）、場所を変えて建て直す
+      for (let k = 0; k < 30; k++) {
+        const x = n.x - 30 - k * 4, y = n.y + 25, f0 = failed;
+        res = g.playerBuild('farm', A.map.id(x, y), x, y);
+        if (!res.ok) continue;
+        await new Promise((ok) => setTimeout(ok, 1500));
+        if (failed === f0) break;
+      }
+      await new Promise((ok) => setTimeout(ok, 1500));
       return { res, myB: g.myB, fine: A.renderer.fineSlot.size, map: [A.map.W, A.map.H], me: A.me };
     });
     ok('browser joins and builds', r.res.ok && r.myB >= 1 && r.fine > 0 && r.map[0] === 21600 && r.me === 27, JSON.stringify(r));
