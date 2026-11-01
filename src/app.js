@@ -15,7 +15,7 @@ function applyFastMode() {
     FREE_HUMANS: true, SEASON_DAYS: 1 / 24, TRAIN_MULT: 1 / 15, AI_PLAN_INTERVAL: 10, AI_TARGET_TIMEOUT: 300, RECENT_HATCH: 120,
     AI_BUILD_INTERVAL: CONFIG.AI_BUILD_INTERVAL / 10, UNIT_SPEED: CONFIG.UNIT_SPEED * 1.5, START_UNITS_RATIO: 1,
     CAPTURE_NEED: { capital: 3000, town: 1200, fort: 1600, castle: 2400 },
-    FLAG_HOLD: 180, FLAG_DECAY: 100 / 60,   // 旗：6時間 → 3分（1シーズン7日 → 1時間と同じ縮め方）・誰もいなければ1分で消える
+    FLAG_HOLD: 180, FLAG_DECAY: 100 / 60, WAR_TIME: 600,   // 旗：6時間 → 3分（1シーズン7日 → 1時間と同じ縮め方）・誰もいなければ1分で消える
   });
   for (const r of RES_KEYS) { CONFIG.BASE_INCOME[r] *= 10; CONFIG.CAPITAL_MAKE[r] *= 10; }
 }
@@ -201,11 +201,17 @@ const App = {
     g.on('eliminated', (p) => { if (p !== this.me) this.log(`${map.prefs[p].name}が全ての拠点を失い、脱落しました`, 'bad', -1); });
     g.on('flag', (e) => {
       const f = e.flag, cell = map.id(f.x, f.y);
+      if (e.kind === 'done' && f.pref === this.me && f.hw === 0) this.banner('旗を守りきった！', 'ok', `領土拡大 +${fmt(e.cells || 0)}マス`);
       if (e.kind === 'done' && f.pref === this.me) this.log(`🚩 旗を守りきり、周りの領土を獲得しました（+${fmt(e.cells || 0)}マス）`, 'good', cell);
       else if (e.kind === 'done' && this.game.owner && cell >= 0 && this.game.owner[cell] === f.pref && map.initPref[cell] === this.me) this.log(`⚠ ${map.prefs[f.pref].name}の旗で領土を奪われました`, 'bad', cell);
       else if (e.kind === 'plant' && f.pref !== this.me && cell >= 0 && this.game.owner[cell] === this.me) this.log(`⚠ ${map.prefs[f.pref].name}が自県の中に旗を立てました`, 'bad', cell);
       else if (e.kind === 'lost' && f.pref === this.me && f.hw === 0) this.log('あなたの兵の旗が消えました（正方形の中に兵がいなくなった）', 'bad', cell);
     });
+    g.on('war', (e) => {
+      if (e.to === this.me) { this.banner(`${map.prefs[e.by].name}が宣戦布告！`, 'ng', 'あなたの県に攻めてきます。旗のボタンで迎撃しよう'); this.log(`⚔ ${map.prefs[e.by].name}があなたの県に宣戦布告しました`, 'bad', map.capitalCell[e.by]); }
+      else if (e.by === this.me) this.log(`⚔ ${map.prefs[this.me].name}は${map.prefs[e.to].name}に宣戦布告しました（県の作戦）`, 'good', map.capitalCell[e.to]);
+    });
+    g.on('final', () => { this.banner('決戦の時！', 'ok', `残り${this.fmtLeft(g.time).replace('残り', '')}・旗が${CONFIG.FINAL_RATE}倍の速さで取れる`); this.log(`⚔ 決戦が始まった：シーズン終了まで、旗が${CONFIG.FINAL_RATE}倍の速さで取れる`, 'good', -1); });
     g.on('buildfail', (m) => { this.marker = { x: m.x, z: m.y, t: this.clock, ok: false }; this.showBuildFail(m.why); });
     g.on('net', (s) => { if (s === 'down') this.banner('接続が切れました', 'ng', 'つなぎ直しています…'); else this.banner('再接続しました', 'ok', ''); });
     g.on('over', () => setTimeout(() => { if (this.state === STATE.PLAYING) this.setState(STATE.GAMEOVER); }, 900));
@@ -354,7 +360,7 @@ const App = {
       cls = o.win ? 'win' : 'lose';
       detail = o.win ? `${CONFIG.SEASON_DAYS}日間を戦い抜き、${map.prefs[this.me].name}が全国1位になりました。` : `${CONFIG.SEASON_DAYS}日間が終わりました。優勝は${map.prefs[o.rival].name}です。`;
     } else { head = '敗北…'; cls = 'lose'; detail = `${map.prefs[this.me].name}は全ての拠点を失いました。`; }
-    const body = `<div class="result-big ${cls}">${head}</div><p style="text-align:center">${detail}<br>経過 ${this.fmtTime(o.time)}・最終領土 ${fmt(g.counts[this.me])}マス・${g.rankOf(this.me)}位<br>あなたが建てた建物 ${g.myBuildings()}</p>`;
+    const body = `<div class="result-big ${cls}">${head}</div><p style="text-align:center">${detail}<br>経過 ${this.fmtTime(o.time)}・最終領土 ${fmt(g.counts[this.me])}マス・${g.rankOf(this.me)}位<br>あなたが建てた建物 ${g.myBuildings()}・あなたの指示で守りきった旗 ${(g.stats && g.stats.myFlags) || 0}本</p>`;
     this.openModal('ゲーム終了', body, [{ label: 'タイトルへ', cls: 'primary', fn: () => this.setState(STATE.TITLE) }]);
     signal.addEventListener('abort', () => { this.closeModal(); $('hud').classList.add('hidden'); });
   },

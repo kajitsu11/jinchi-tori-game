@@ -351,7 +351,10 @@ const CONFIG = {
   FLAG_HOLD: 6 * 3600,           // 6時間守り続けると獲得
   FLAG_SIZE: 20,                 // 正方形の一辺（マス。細かい地図では3倍）
   FLAG_DECAY: 100 / 600,         // 正方形の中に自分の兵がいないと、体力が毎秒この%ずつ減る（10分で消える）
-  FLAG_PER_PART: 0.12,           // 県が同時に立てられる旗の数：参加者1人あたり（＋2）            // 占領されてから30分は斜線
+  FLAG_PER_PART: 0.12,
+  FINAL_PHASE: 0.75,             // シーズンの最後の1/4は「決戦」：旗が FINAL_RATE 倍の速さで取れる（終盤に逆転が起きやすく）
+  FINAL_RATE: 2,
+  WAR_TIME: 12 * 3600,           // 宣戦布告：各県はこの時間ごとに、主に攻める相手の県を1つ選ぶ（弱い隣の県が狙われやすい）           // 県が同時に立てられる旗の数：参加者1人あたり（＋2）            // 占領されてから30分は斜線
   NODE_RADIUS: 36,
   NODE_MIN_DIST: 24,
   // ---- 建物
@@ -2666,7 +2669,7 @@ class Sim {
       if (b.t < need) continue;
       const free = this.isFree(b.wallet);
       // 軍艦は兵の上限の15%まで、飛行機は12%まで（陸の兵がいなくならないように）
-      const bit = UNITS[def.unit].bit, share = bit === 2 ? 0.15 : bit === 4 ? 0.12 : 1;
+      const bit = UNITS[def.unit].bit, share = bit === 2 ? 0.08 : bit === 4 ? 0.08 : 1;
       if (share < 1 && (tc.get(b.owner * 16 + bit) || 0) >= Math.max(2, capOf(b.owner) * share)) { b.t = need; continue; }
       if (cnt[b.owner] >= capOf(b.owner) || (!free && this.res.food[b.wallet] < def.trainFood)) { b.t = need; continue; }
       const u = this.spawnUnit(b.owner, b.x, b.y, def.unit === 'ship' ? 3 * this.S : 2.5, this.isHuman(b.wallet) ? b.wallet : -1, def.unit);
@@ -2747,6 +2750,19 @@ class Sim {
       if (s > ds) { ds = s; defend = n.id; }
     }
     pl.defend = defend;
+    // 宣戦布告：主に攻める相手の県を選ぶ（隣の県のうち、弱く・国境が長い県ほど選ばれやすい）
+    if (!pl.war || this.time >= pl.warUntil || !this.nodeCount[pl.war]) {
+      const nb = new Map();
+      for (const n of this.nodes) if (n.owner === P) for (const a of this.nodeAdj[n.id]) { const o = this.nodes[a].owner; if (o !== P) nb.set(o, (nb.get(o) || 0) + 1); }
+      let best = 0, bs = -1e9;
+      for (const [o, border] of nb) {
+        const s = this.rng() * 0.8 + Math.min(1, border / 6) * 0.4 - (this.pop[o] / Math.max(1, this.pop[P])) * 0.5;
+        if (s > bs) { bs = s; best = o; }
+      }
+      const was = pl.war;
+      pl.war = best; pl.warUntil = this.time + CONFIG.WAR_TIME * (0.8 + this.rng() * 0.4);
+      if (best && best !== was) { pl.targets = null; this.emit('war', { by: P, to: best }); }
+    }
     // 参加者が多い県は、何か所かに分かれて攻める（人間が大勢いると、みんなが同じ所を攻めるわけではないので）
     const groups = clamp(Math.round(this.aiCount(P) / 15), 1, 6);
     const done = !pl.targets || pl.targets.length !== groups || pl.targets.some((t) => !this.nodes[t] || this.nodes[t].owner === P);
@@ -2765,7 +2781,7 @@ class Sim {
           if (e.owner === P || seen.has(a)) continue;
           seen.add(a);
           const s = this.rng() * 1.5 - e.defenders * 0.4 - Math.hypot(e.x - cx, e.y - cy) / (120 * this.S)
-            + (e.type === 'capital' ? 0.8 : 0) + (e.type === 'fort' ? 0.3 : 0);
+            + (e.type === 'capital' ? 0.8 : 0) + (e.type === 'fort' ? 0.3 : 0) + (e.owner === pl.war ? 1.5 : 0);
           cand.push([s, a]);
         }
       }
@@ -2800,6 +2816,9 @@ class Sim {
     if (mine.farm < 2 + nodes * 1.5) want.push('farm');
     if (mine.lumber < 1 + nodes) want.push('lumber');
     if (mine.barracks < 1 + nodes / 3) want.push('barracks');
+    // 旗を立てられるのは足軽だけなので、兵舎はほかの兵の生産の建物と同じくらいは建てる
+    const prod = ['stable', 'ninja', 'foundry', 'gaslab', 'port', 'airfield', 'bomberbase'].reduce((a, t) => a + (mine[t] || 0), 0);
+    if (mine.barracks < prod * 0.8) want.push('barracks');
     if (mine.market < nodes / 2) want.push('market');
     if (mine.tower < nodes / 2) want.push('tower');
     // 町・砦（国境を広げる）はときどき。県の参加者数に応じた上限まで
@@ -3164,8 +3183,11 @@ class Sim {
     this.emit('flag', { flag: f, kind: 'plant' });
     return f;
   }
+  isFinal() { return this.time >= CONFIG.SEASON_DAYS * 86400 * CONFIG.FINAL_PHASE; }
   updateFlags(dt) {
+    if (!this.finalSaid && this.isFinal()) { this.finalSaid = true; this.emit('final'); }
     if (!this.flags || !this.flags.length) return;
+    const rate = this.isFinal() ? CONFIG.FINAL_RATE : 1;
     const half = this.flagHalf(), keep = [];
     for (const f of this.flags) {
       let own = 0, en = 0;
@@ -3180,7 +3202,7 @@ class Sim {
         keep.push(f); continue;
       }
       f.hp = Math.min(100, f.hp + CONFIG.FLAG_DECAY * 0.5 * dt);
-      if (own >= en) f.prog += dt;   // 敵の兵のほうが多いあいだは進まない
+      if (own >= en) f.prog += dt * rate;   // 敵の兵のほうが多いあいだは進まない（決戦中は速い）
       if (f.prog >= CONFIG.FLAG_HOLD) { this.completeFlag(f); continue; }
       keep.push(f);
     }
@@ -3208,6 +3230,7 @@ class Sim {
     }
     this.flipBuildings(changed, P);
     this.stats.flags = (this.stats.flags || 0) + 1;
+    if (f.hw === 0) this.stats.myFlags = (this.stats.myFlags || 0) + 1;
     this.emit('cells', changed);
     this.emit('flag', { flag: f, kind: 'done', cells: changed.length });
     for (let p = 1; p <= 47; p++) if (this.counts[p] === 0 && this.nodeCount[p] === 0) this.eliminate(p);
@@ -3662,7 +3685,7 @@ function applyFastMode() {
     FREE_HUMANS: true, SEASON_DAYS: 1 / 24, TRAIN_MULT: 1 / 15, AI_PLAN_INTERVAL: 10, AI_TARGET_TIMEOUT: 300, RECENT_HATCH: 120,
     AI_BUILD_INTERVAL: CONFIG.AI_BUILD_INTERVAL / 10, UNIT_SPEED: CONFIG.UNIT_SPEED * 1.5, START_UNITS_RATIO: 1,
     CAPTURE_NEED: { capital: 3000, town: 1200, fort: 1600, castle: 2400 },
-    FLAG_HOLD: 180, FLAG_DECAY: 100 / 60,   // 旗：6時間 → 3分（1シーズン7日 → 1時間と同じ縮め方）・誰もいなければ1分で消える
+    FLAG_HOLD: 180, FLAG_DECAY: 100 / 60, WAR_TIME: 600,   // 旗：6時間 → 3分（1シーズン7日 → 1時間と同じ縮め方）・誰もいなければ1分で消える
   });
   for (const r of RES_KEYS) { CONFIG.BASE_INCOME[r] *= 10; CONFIG.CAPITAL_MAKE[r] *= 10; }
 }
@@ -3848,11 +3871,17 @@ const App = {
     g.on('eliminated', (p) => { if (p !== this.me) this.log(`${map.prefs[p].name}が全ての拠点を失い、脱落しました`, 'bad', -1); });
     g.on('flag', (e) => {
       const f = e.flag, cell = map.id(f.x, f.y);
+      if (e.kind === 'done' && f.pref === this.me && f.hw === 0) this.banner('旗を守りきった！', 'ok', `領土拡大 +${fmt(e.cells || 0)}マス`);
       if (e.kind === 'done' && f.pref === this.me) this.log(`🚩 旗を守りきり、周りの領土を獲得しました（+${fmt(e.cells || 0)}マス）`, 'good', cell);
       else if (e.kind === 'done' && this.game.owner && cell >= 0 && this.game.owner[cell] === f.pref && map.initPref[cell] === this.me) this.log(`⚠ ${map.prefs[f.pref].name}の旗で領土を奪われました`, 'bad', cell);
       else if (e.kind === 'plant' && f.pref !== this.me && cell >= 0 && this.game.owner[cell] === this.me) this.log(`⚠ ${map.prefs[f.pref].name}が自県の中に旗を立てました`, 'bad', cell);
       else if (e.kind === 'lost' && f.pref === this.me && f.hw === 0) this.log('あなたの兵の旗が消えました（正方形の中に兵がいなくなった）', 'bad', cell);
     });
+    g.on('war', (e) => {
+      if (e.to === this.me) { this.banner(`${map.prefs[e.by].name}が宣戦布告！`, 'ng', 'あなたの県に攻めてきます。旗のボタンで迎撃しよう'); this.log(`⚔ ${map.prefs[e.by].name}があなたの県に宣戦布告しました`, 'bad', map.capitalCell[e.by]); }
+      else if (e.by === this.me) this.log(`⚔ ${map.prefs[this.me].name}は${map.prefs[e.to].name}に宣戦布告しました（県の作戦）`, 'good', map.capitalCell[e.to]);
+    });
+    g.on('final', () => { this.banner('決戦の時！', 'ok', `残り${this.fmtLeft(g.time).replace('残り', '')}・旗が${CONFIG.FINAL_RATE}倍の速さで取れる`); this.log(`⚔ 決戦が始まった：シーズン終了まで、旗が${CONFIG.FINAL_RATE}倍の速さで取れる`, 'good', -1); });
     g.on('buildfail', (m) => { this.marker = { x: m.x, z: m.y, t: this.clock, ok: false }; this.showBuildFail(m.why); });
     g.on('net', (s) => { if (s === 'down') this.banner('接続が切れました', 'ng', 'つなぎ直しています…'); else this.banner('再接続しました', 'ok', ''); });
     g.on('over', () => setTimeout(() => { if (this.state === STATE.PLAYING) this.setState(STATE.GAMEOVER); }, 900));
@@ -4001,7 +4030,7 @@ const App = {
       cls = o.win ? 'win' : 'lose';
       detail = o.win ? `${CONFIG.SEASON_DAYS}日間を戦い抜き、${map.prefs[this.me].name}が全国1位になりました。` : `${CONFIG.SEASON_DAYS}日間が終わりました。優勝は${map.prefs[o.rival].name}です。`;
     } else { head = '敗北…'; cls = 'lose'; detail = `${map.prefs[this.me].name}は全ての拠点を失いました。`; }
-    const body = `<div class="result-big ${cls}">${head}</div><p style="text-align:center">${detail}<br>経過 ${this.fmtTime(o.time)}・最終領土 ${fmt(g.counts[this.me])}マス・${g.rankOf(this.me)}位<br>あなたが建てた建物 ${g.myBuildings()}</p>`;
+    const body = `<div class="result-big ${cls}">${head}</div><p style="text-align:center">${detail}<br>経過 ${this.fmtTime(o.time)}・最終領土 ${fmt(g.counts[this.me])}マス・${g.rankOf(this.me)}位<br>あなたが建てた建物 ${g.myBuildings()}・あなたの指示で守りきった旗 ${(g.stats && g.stats.myFlags) || 0}本</p>`;
     this.openModal('ゲーム終了', body, [{ label: 'タイトルへ', cls: 'primary', fn: () => this.setState(STATE.TITLE) }]);
     signal.addEventListener('abort', () => { this.closeModal(); $('hud').classList.add('hidden'); });
   },

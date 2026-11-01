@@ -636,7 +636,7 @@ class Sim {
       if (b.t < need) continue;
       const free = this.isFree(b.wallet);
       // 軍艦は兵の上限の15%まで、飛行機は12%まで（陸の兵がいなくならないように）
-      const bit = UNITS[def.unit].bit, share = bit === 2 ? 0.15 : bit === 4 ? 0.12 : 1;
+      const bit = UNITS[def.unit].bit, share = bit === 2 ? 0.08 : bit === 4 ? 0.08 : 1;
       if (share < 1 && (tc.get(b.owner * 16 + bit) || 0) >= Math.max(2, capOf(b.owner) * share)) { b.t = need; continue; }
       if (cnt[b.owner] >= capOf(b.owner) || (!free && this.res.food[b.wallet] < def.trainFood)) { b.t = need; continue; }
       const u = this.spawnUnit(b.owner, b.x, b.y, def.unit === 'ship' ? 3 * this.S : 2.5, this.isHuman(b.wallet) ? b.wallet : -1, def.unit);
@@ -717,6 +717,19 @@ class Sim {
       if (s > ds) { ds = s; defend = n.id; }
     }
     pl.defend = defend;
+    // 宣戦布告：主に攻める相手の県を選ぶ（隣の県のうち、弱く・国境が長い県ほど選ばれやすい）
+    if (!pl.war || this.time >= pl.warUntil || !this.nodeCount[pl.war]) {
+      const nb = new Map();
+      for (const n of this.nodes) if (n.owner === P) for (const a of this.nodeAdj[n.id]) { const o = this.nodes[a].owner; if (o !== P) nb.set(o, (nb.get(o) || 0) + 1); }
+      let best = 0, bs = -1e9;
+      for (const [o, border] of nb) {
+        const s = this.rng() * 0.8 + Math.min(1, border / 6) * 0.4 - (this.pop[o] / Math.max(1, this.pop[P])) * 0.5;
+        if (s > bs) { bs = s; best = o; }
+      }
+      const was = pl.war;
+      pl.war = best; pl.warUntil = this.time + CONFIG.WAR_TIME * (0.8 + this.rng() * 0.4);
+      if (best && best !== was) { pl.targets = null; this.emit('war', { by: P, to: best }); }
+    }
     // 参加者が多い県は、何か所かに分かれて攻める（人間が大勢いると、みんなが同じ所を攻めるわけではないので）
     const groups = clamp(Math.round(this.aiCount(P) / 15), 1, 6);
     const done = !pl.targets || pl.targets.length !== groups || pl.targets.some((t) => !this.nodes[t] || this.nodes[t].owner === P);
@@ -735,7 +748,7 @@ class Sim {
           if (e.owner === P || seen.has(a)) continue;
           seen.add(a);
           const s = this.rng() * 1.5 - e.defenders * 0.4 - Math.hypot(e.x - cx, e.y - cy) / (120 * this.S)
-            + (e.type === 'capital' ? 0.8 : 0) + (e.type === 'fort' ? 0.3 : 0);
+            + (e.type === 'capital' ? 0.8 : 0) + (e.type === 'fort' ? 0.3 : 0) + (e.owner === pl.war ? 1.5 : 0);
           cand.push([s, a]);
         }
       }
@@ -770,6 +783,9 @@ class Sim {
     if (mine.farm < 2 + nodes * 1.5) want.push('farm');
     if (mine.lumber < 1 + nodes) want.push('lumber');
     if (mine.barracks < 1 + nodes / 3) want.push('barracks');
+    // 旗を立てられるのは足軽だけなので、兵舎はほかの兵の生産の建物と同じくらいは建てる
+    const prod = ['stable', 'ninja', 'foundry', 'gaslab', 'port', 'airfield', 'bomberbase'].reduce((a, t) => a + (mine[t] || 0), 0);
+    if (mine.barracks < prod * 0.8) want.push('barracks');
     if (mine.market < nodes / 2) want.push('market');
     if (mine.tower < nodes / 2) want.push('tower');
     // 町・砦（国境を広げる）はときどき。県の参加者数に応じた上限まで
@@ -1134,8 +1150,11 @@ class Sim {
     this.emit('flag', { flag: f, kind: 'plant' });
     return f;
   }
+  isFinal() { return this.time >= CONFIG.SEASON_DAYS * 86400 * CONFIG.FINAL_PHASE; }
   updateFlags(dt) {
+    if (!this.finalSaid && this.isFinal()) { this.finalSaid = true; this.emit('final'); }
     if (!this.flags || !this.flags.length) return;
+    const rate = this.isFinal() ? CONFIG.FINAL_RATE : 1;
     const half = this.flagHalf(), keep = [];
     for (const f of this.flags) {
       let own = 0, en = 0;
@@ -1150,7 +1169,7 @@ class Sim {
         keep.push(f); continue;
       }
       f.hp = Math.min(100, f.hp + CONFIG.FLAG_DECAY * 0.5 * dt);
-      if (own >= en) f.prog += dt;   // 敵の兵のほうが多いあいだは進まない
+      if (own >= en) f.prog += dt * rate;   // 敵の兵のほうが多いあいだは進まない（決戦中は速い）
       if (f.prog >= CONFIG.FLAG_HOLD) { this.completeFlag(f); continue; }
       keep.push(f);
     }
@@ -1178,6 +1197,7 @@ class Sim {
     }
     this.flipBuildings(changed, P);
     this.stats.flags = (this.stats.flags || 0) + 1;
+    if (f.hw === 0) this.stats.myFlags = (this.stats.myFlags || 0) + 1;
     this.emit('cells', changed);
     this.emit('flag', { flag: f, kind: 'done', cells: changed.length });
     for (let p = 1; p <= 47; p++) if (this.counts[p] === 0 && this.nodeCount[p] === 0) this.eliminate(p);
