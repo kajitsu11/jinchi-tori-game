@@ -70,10 +70,10 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
       return { W: m.W, H: m.H, land: m.landCells, prefs: m.prefs.filter(Boolean).length, de: m.raw.minNeighborDeltaE,
         towns: m.raw.towns.length, elev: m.elev.length, src: document.querySelector('.credit').textContent };
     });
-    assert(info.W === 2400 && info.H === 2510, 'grid size');
-    assert(info.land > 550000 && info.land < 680000, 'land cells ' + info.land);
+    assert(info.W === 3600 && info.H === 3765, 'grid size');
+    assert(info.land > 1200000 && info.land < 1500000, 'land cells ' + info.land);
     assert(info.prefs === 47 && info.de >= 70, 'prefs / deltaE');
-    assert(info.towns > 400 && info.elev === 1200 * 1255, 'towns/elev');
+    assert(info.towns > 400 && info.elev === 1800 * 1882, 'towns/elev');
     assert(info.src.includes('地球地図日本（国土地理院）'), '出典表示');
     await page.waitForTimeout(800);
     await shot('01_title');
@@ -287,13 +287,13 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
 
   await test('真上ビューと戻る', async () => {
     await page.click('[data-act=top]');
-    await page.waitForTimeout(900);
+    await page.waitForFunction(() => Math.abs(window.__jinchi.App.cam.pitch - 90) < 0.5, null, { timeout: 15000 }).catch(() => {});
     assert(Math.abs((await ev(() => window.__jinchi.App.cam.pitch)) - 90) < 0.5, 'top');
     await ev(() => { window.__jinchi.App.cam.dist = 900; });
     await page.waitForTimeout(400);
     await shot('06_topview');
     await page.click('[data-act=top]');
-    await page.waitForTimeout(900);
+    await page.waitForFunction(() => Math.abs(window.__jinchi.App.cam.pitch - window.__jinchi.CONFIG.CAMERA_PITCH) < 0.5, null, { timeout: 15000 }).catch(() => {});
     assert(Math.abs((await ev(() => window.__jinchi.App.cam.pitch)) - (await ev(() => window.__jinchi.CONFIG.CAMERA_PITCH))) < 0.5, 'tilt');
   });
 
@@ -307,7 +307,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     for (let k = 0; k < 20; k++) await page.mouse.wheel(0, 2000);
     assert((await ev(() => window.__jinchi.App.cam.dist)) === (await ev(() => window.__jinchi.CONFIG.ZOOM_MAX)), 'zoom max');
     for (let k = 0; k < 40; k++) await page.mouse.wheel(0, -2000);
-    assert((await ev(() => window.__jinchi.App.cam.dist)) === 5, 'zoom min');
+    assert((await ev(() => window.__jinchi.App.cam.dist)) === (await ev(() => window.__jinchi.CONFIG.ZOOM_MIN)), 'zoom min');
     await page.waitForTimeout(200);
     await shot('07_zoom_min');
     await page.keyboard.press('Minus');

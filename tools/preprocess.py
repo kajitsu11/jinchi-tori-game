@@ -37,10 +37,10 @@ CACHE = os.path.join(DATA, "dem_cache")
 PREVIEW = os.path.join(DATA, "preview")
 
 # ---- グリッド定義 ----
-DLON = 0.009
-DLAT = 0.0072
-W = 2400
-H = 2510
+DLON = 0.006            # 1マス ≒ 540m × 530m（以前の 0.009°×0.0072° から 1.5倍細かく）
+DLAT = 0.0048
+W = 3600
+H = 3765
 LON0 = 128.25            # 左端の経度
 LAT_TOP = 45.65          # 上端の緯度（行0が北）
 
@@ -227,7 +227,7 @@ def classify_terrain(pref, region):
 
     # 傾斜（1マス≒0.8km）
     gy, gx = np.gradient(ndimage.gaussian_filter(elev, 0.7))
-    slope = np.hypot(gx, gy) / 800.0
+    slope = np.hypot(gx, gy) / (DLAT * 111000.0)
 
     # 市街地スコア
     urb = np.zeros(len(xs), np.float32)
@@ -328,7 +328,7 @@ def build_lines(topo, arcs):
         p = shifted(a, reg)
         gx, gy = to_grid(p[:, 0], p[:, 1])
         g = np.stack([gx, gy], 1)
-        s = dp_simplify(g, 0.45)
+        s = dp_simplify(g, 0.7)
         if len(s) < 2:
             continue
         # 小さすぎる島の海岸線は省略（マス自体は残る）
@@ -579,7 +579,7 @@ def save_previews(pref, terr, colors, named, auto, capitals):
 
 
 # ---------------------------------------------------------------- towns (RTS の拠点)
-TOWN_SPACING = 38   # 拠点どうしのおおよその間隔（マス）
+TOWN_SPACING = 57   # 拠点どうしのおおよその間隔（マス）
 
 
 def place_towns(pref, terr, capitals):
@@ -587,7 +587,7 @@ def place_towns(pref, terr, capitals):
     land = pref > 0
     lab, n = ndimage.label(land, structure=np.ones((3, 3), int))
     sizes = np.bincount(lab.ravel())
-    big = land & (sizes[lab] >= 60)
+    big = land & (sizes[lab] >= 135)
     rank = {CITY: 0, PLAIN: 1, FOREST: 2, MOUNTAIN: 3}
     dirs = ["東", "北東", "北", "北西", "西", "南西", "南", "南東"]
     towns = []
@@ -606,8 +606,8 @@ def place_towns(pref, terr, capitals):
             x, y = int(pts[k, 0]), int(pts[k, 1])
             # 近くの市街地・平地に寄せる
             best, bs = (x, y), 9
-            for dy in range(-6, 7):
-                for dx in range(-6, 7):
+            for dy in range(-9, 10):
+                for dx in range(-9, 10):
                     xx, yy = x + dx, y + dy
                     if 0 <= xx < W and 0 <= yy < H and pref[yy, xx] == pid and big[yy, xx]:
                         sc = rank.get(int(terr[yy, xx]) & 7, 5) + 0.05 * (abs(dx) + abs(dy))
@@ -681,7 +681,7 @@ def main():
         ys, xs = np.nonzero(m)
         return [int(xs.min()) - pad, int(ys.min()) - pad, int(xs.max()) + pad, int(ys.max()) + pad]
 
-    pad = 22
+    pad = 33
     # 沖縄・奄美：先島（左・低い）と本島〜奄美（右・高い）を囲む階段状の枠
     ax0, ay0, ax1, ay1 = bbox([4], pad)
     bx0, by0, bx1, by1 = bbox([1, 5], pad)

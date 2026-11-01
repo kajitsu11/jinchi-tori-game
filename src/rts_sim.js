@@ -40,7 +40,7 @@ class Heap {
 /** 8×8マスのブロック単位の移動グラフ（陸地を含むブロックだけ通れる。連絡マスは追加の辺） */
 class NavGrid {
   constructor(map) {
-    const B = 8, W = map.W, H = map.H;
+    const B = 12, W = map.W, H = map.H;   // 12×12マスのブロック
     this.B = B; this.W = W;
     this.bw = Math.ceil(W / B); this.bh = Math.ceil(H / B);
     const n = this.bw * this.bh;
@@ -173,11 +173,11 @@ class Sim {
     }
     for (const t of map.raw.towns) {
       const c = map.capitalCell[t.pref];
-      if (Math.hypot(t.cell % W - c % W, ((t.cell / W) | 0) - ((c / W) | 0)) < 12) continue;
+      if (Math.hypot(t.cell % W - c % W, ((t.cell / W) | 0) - ((c / W) | 0)) < 18) continue;
       this.addNode({ cell: t.cell, pref: t.pref, type: 'town', name: t.name });
     }
     this.nodeOf = new Int16Array(N).fill(-1);
-    this.nodeDist = new Uint16Array(N).fill(65535);
+    this.nodeDist = new Uint8Array(N).fill(255);   // 拠点までの距離（255で頭打ち。メモリ節約）
     this.assignTerritory();
     this.nodeCount = new Int32Array(49);
     for (const n of this.nodes) this.nodeCount[n.owner]++;
@@ -205,12 +205,12 @@ class Sim {
     this.useq = 0;
     for (let p = 1; p <= 47; p++) {
       const n = Math.round(this.parts[p] * CONFIG.START_UNITS_RATIO);
-      for (let k = 0; k < n; k++) this.spawnUnit(p, this.nodes[p - 1].x, this.nodes[p - 1].y, 14, false);
+      for (let k = 0; k < n; k++) this.spawnUnit(p, this.nodes[p - 1].x, this.nodes[p - 1].y, 20, false);
     }
     this.rally = -1;                                // プレイヤーの兵士の攻撃目標（拠点）
     this.plans = [];
     for (let p = 0; p <= 47; p++) this.plans.push({ target: -1, since: 0, defend: -1, next: this.rng() * CONFIG.AI_PLAN_INTERVAL });
-    this.hs = 16;
+    this.hs = 24;
     this.hw = Math.ceil(W / this.hs); this.hh = Math.ceil(map.H / this.hs);
     this.head = new Int32Array(this.hw * this.hh);
     this.next = new Int32Array(64);
@@ -254,7 +254,7 @@ class Sim {
     for (const n of this.nodes) { nodeOf[n.cell] = n.id; dist[n.cell] = 0; q[qt++] = n.cell; }
     while (qh < qt) {
       const i = q[qh++], nid = nodeOf[i], P = this.nodes[nid].pref, d = dist[i] + 1;
-      this.forNeighbors(i, (j) => { if (nodeOf[j] === -1 && ip[j] === P) { nodeOf[j] = nid; dist[j] = d; q[qt++] = j; } });
+      this.forNeighbors(i, (j) => { if (nodeOf[j] === -1 && ip[j] === P) { nodeOf[j] = nid; dist[j] = d > 255 ? 255 : d; q[qt++] = j; } });
     }
     for (const i of this.landIdx) {
       if (nodeOf[i] !== -1) continue;
@@ -264,7 +264,7 @@ class Sim {
         const d = Math.hypot(n.x - (i % W), n.y - ((i / W) | 0));
         if (d < bd) { bd = d; best = n.id; }
       }
-      nodeOf[i] = best; dist[i] = Math.min(65000, Math.round(bd));
+      nodeOf[i] = best; dist[i] = Math.min(255, Math.round(bd));
     }
   }
   rebuildNodeCells() {
@@ -610,7 +610,7 @@ class Sim {
     const W = this.map.W;
     for (let tries = 0; tries < 14; tries++) {
       const n = list[(this.rng() * list.length) | 0];
-      const r = BUILDINGS[type].node ? CONFIG.NODE_MIN_DIST + this.rng() * 10 : 3 + this.rng() * 12;
+      const r = BUILDINGS[type].node ? CONFIG.NODE_MIN_DIST + this.rng() * 15 : 3 + this.rng() * 20;
       const a = this.rng() * Math.PI * 2;
       let x = n.x + Math.cos(a) * r, y = n.y + Math.sin(a) * r;
       if (BUILDINGS[type].node && pl0(this, P)) {

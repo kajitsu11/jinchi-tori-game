@@ -330,121 +330,229 @@ const App = {
   // ------------------------------------------------ 3D：建物・兵士・木
   buildScene() {
     const g = this.game, map = this.map, cam = this.cam;
-    if (!this.inst) this.inst = { box: new InstanceList(), roof: new InstanceList(), cone: new InstanceList(), cyl: new InstanceList() };
+    if (!this.inst) this.inst = { shadow: new InstanceList(), box: new InstanceList(), roof: new InstanceList(), cone: new InstanceList(), cyl: new InstanceList(), sphere: new InstanceList() };
     const I = this.inst;
     for (const k in I) I[k].clear();
+    this.smoke = [];
     const v = [0, 0], m = 60;
     const visible = (x, z) => cam.project(x, 0, z, v) && v[0] > -m && v[0] < this.w + m && v[1] > -m && v[1] < this.h + m;
     if (!this.colCache) this.colCache = map.prefs.map((p) => (p ? hexToRgb(p.color).map((q) => q / 255) : [0, 0, 0]));
     const col = this.colCache;
     const cpx = cam.cellPx();
-    // 引いているときは建物を大きめに（見つけやすく）
-    const big = clamp(cam.dist * 0.0022, 0.9, 7);
-    const WALL = [0.86, 0.8, 0.68], WALL2 = [0.72, 0.62, 0.5], ROOF = [0.55, 0.22, 0.16], ROOF2 = [0.36, 0.26, 0.2], STONE = [0.62, 0.6, 0.56],
-      WOOD = [0.5, 0.35, 0.2], FIELD = [0.78, 0.66, 0.3], DARK = [0.25, 0.23, 0.22], GREEN = [0.2, 0.42, 0.18];
-    const house = (x, z, s, rot, roofCol, wall) => {
-      I.box.push(x, 0, z, s, s * 0.7, s * 0.8, wall || WALL, rot);
-      I.roof.push(x, s * 0.7, z, s * 1.08, s * 0.5, s * 0.9, roofCol || ROOF, rot);
+    const detail = cpx > 2.6;                         // 拡大したときだけ細かいモデル
+    const big = clamp(cam.dist * 0.0016, 0.9, 7);    // 引いているときは大きめに（見つけやすく）
+    // 色
+    const C = {
+      plaster: [0.9, 0.85, 0.72], plaster2: [0.84, 0.76, 0.62], brick: [0.64, 0.36, 0.26], stone: [0.68, 0.66, 0.6], stoneDk: [0.5, 0.48, 0.45],
+      roofRed: [0.66, 0.27, 0.18], roofDk: [0.33, 0.29, 0.27], roofSlate: [0.36, 0.4, 0.46], copper: [0.45, 0.66, 0.56], wood: [0.5, 0.34, 0.2],
+      woodLt: [0.68, 0.52, 0.32], straw: [0.86, 0.76, 0.42], crop: [0.44, 0.62, 0.22], crop2: [0.8, 0.7, 0.3], soil: [0.5, 0.38, 0.24],
+      win: [0.16, 0.14, 0.13], smoke: [0.3, 0.3, 0.3], white: [0.95, 0.94, 0.9], skin: [0.92, 0.78, 0.62], gun: [0.18, 0.16, 0.14],
     };
-    // 拠点
+    // 部品を置く：建物の中心 (cx,cz)・向き rot・大きさ s の座標系で
+    let cx = 0, cz = 0, rot = 0, cs = 1, sn = 0, S = 1;
+    const at = (x, z, r, s) => { cx = x; cz = z; rot = r; cs = Math.cos(r); sn = Math.sin(r); S = s; };
+    const P = (mesh, lx, ly, lz, sx, sy, sz, c, r2) => {
+      const wx = cx + (lx * cs - lz * sn) * S, wz = cz + (lx * sn + lz * cs) * S;
+      I[mesh].push(wx, ly * S, wz, sx * S, sy * S, sz * S, c, rot + (r2 || 0));
+    };
+    const shadow = (w, d) => I.shadow.push(cx + 0.3 * S, 0.02, cz + 0.35 * S, w * 1.25 * S, 0.01, d * 1.25 * S, [0, 0, 0], rot);
+    const smokeAt = (lx, ly, lz) => { if (this.smoke.length < 80) this.smoke.push([cx + (lx * cs - lz * sn) * S, ly * S, cz + (lx * sn + lz * cs) * S]); };
+    // 家：壁・屋根・窓・煙突
+    const house = (lx, lz, w, d, h, wall, roofC, r2, chimney) => {
+      P('box', lx, 0, lz, w, h, d, wall, r2);
+      P('roof', lx, h, lz, w * 1.08, h * 0.65, d * 1.12, roofC, r2);
+      if (detail) {
+        P('box', lx, h * 0.45, lz + d * 0.51, w * 0.18, h * 0.28, 0.02, C.win, r2);
+        P('box', lx + w * 0.3, h * 0.45, lz + d * 0.51, w * 0.14, h * 0.28, 0.02, C.win, r2);
+        P('box', lx - w * 0.3, h * 0.45, lz + d * 0.51, w * 0.14, h * 0.28, 0.02, C.win, r2);
+        if (chimney) { P('box', lx + w * 0.28, h, lz - d * 0.15, w * 0.12, h * 0.75, w * 0.12, C.brick, r2); smokeAt(lx + w * 0.28, h * 1.8, lz - d * 0.15); }
+      }
+    };
+    const tower = (lx, lz, r, h, roofC) => {
+      P('cyl', lx, 0, lz, r, h, r, C.stone);
+      if (detail) for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; P('box', lx + Math.cos(a) * r * 0.45, h, lz + Math.sin(a) * r * 0.45, r * 0.16, r * 0.18, r * 0.16, C.stone); }
+      P('cone', lx, h + (detail ? r * 0.15 : 0), lz, r * 1.15, r * 0.9, r * 1.15, roofC);
+    };
+    const flag = (lx, lz, h, c) => {
+      P('cyl', lx, 0, lz, 0.05, h, 0.05, C.wood);
+      P('box', lx + 0.22, h - 0.32, lz, 0.42, 0.28, 0.02, c);
+    };
+    // ---- 拠点
     const nodes = g ? g.nodes : map.prefs.filter(Boolean).map((p) => ({ x: (p.capital % map.W) + 0.5, y: ((p.capital / map.W) | 0) + 0.5, owner: p.id, type: 'capital' }));
     for (const n of nodes) {
       if (!visible(n.x, n.y)) continue;
-      const c = col[n.owner], s = big;
+      const c = col[n.owner];
       if (n.type === 'capital') {
-        // 城：石垣・天守・旗
-        I.box.push(n.x, 0, n.y, s * 3.2, s * 0.6, s * 3.2, STONE, 0);
-        I.box.push(n.x, s * 0.6, n.y, s * 1.8, s * 1.0, s * 1.6, WALL, 0);
-        I.roof.push(n.x, s * 1.6, n.y, s * 2.1, s * 0.6, s * 1.9, DARK, 0);
-        I.box.push(n.x, s * 2.2, n.y, s * 1.0, s * 0.7, s * 0.9, WALL, 0);
-        I.roof.push(n.x, s * 2.9, n.y, s * 1.3, s * 0.5, s * 1.1, DARK, 0);
-        I.cyl.push(n.x + s * 1.3, s * 0.6, n.y + s * 1.3, s * 0.08, s * 2.6, s * 0.08, WOOD, 0);
-        I.box.push(n.x + s * 1.6, s * 2.8, n.y + s * 1.3, s * 0.7, s * 0.45, s * 0.04, c, 0);
-        for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + 0.6; house(n.x + Math.cos(a) * s * 2.6, n.y + Math.sin(a) * s * 2.6, s * 0.8, a, ROOF2); }
-      } else if (n.type === 'town') {
-        for (let k = 0; k < 5; k++) { const a = k * 1.26 + n.x; house(n.x + Math.cos(a) * s * 1.1 * (k ? 1 : 0), n.y + Math.sin(a) * s * 1.1 * (k ? 1 : 0), s * (k ? 0.75 : 1.0), a, k % 2 ? ROOF : ROOF2); }
-        I.cyl.push(n.x, 0, n.y, s * 0.06, s * 2.2, s * 0.06, WOOD, 0);
-        I.box.push(n.x + s * 0.3, s * 1.9, n.y, s * 0.55, s * 0.35, s * 0.04, c, 0);
-      } else {
-        // 砦：石壁の四角と角の塔
-        for (let k = 0; k < 4; k++) {
-          const a = k * Math.PI / 2, ox = Math.cos(a) * s * 1.2, oz = Math.sin(a) * s * 1.2;
-          I.box.push(n.x + ox, 0, n.y + oz, (k % 2 ? 0.3 : 2.6) * s, s * 0.7, (k % 2 ? 2.6 : 0.3) * s, STONE, 0);
-          const tx = n.x + (k < 2 ? 1 : -1) * s * 1.2, tz = n.y + (k % 3 ? 1 : -1) * s * 1.2;
-          I.cyl.push(tx, 0, tz, s * 0.6, s * 1.1, s * 0.6, STONE, 0);
-          I.cone.push(tx, s * 1.1, tz, s * 0.75, s * 0.6, s * 0.75, c, 0);
+        // 都：石畳の広場・宮殿（ドームと塔）・周りの街並み・工場の煙突
+        at(n.x, n.y, 0, big * 1.15);
+        shadow(4.6, 4.2);
+        P('box', 0, 0, 0, 4.4, 0.12, 4.0, C.stoneDk);
+        P('box', 0, 0.12, 0, 2.0, 1.0, 1.4, C.plaster);
+        P('box', 0, 1.12, 0, 1.4, 0.6, 1.0, C.plaster2);
+        P('sphere', 0, 1.65, 0, 0.9, 0.85, 0.9, C.copper);
+        P('cyl', 0, 2.4, 0, 0.05, 0.35, 0.05, C.gun);
+        tower(-1.25, -0.8, 0.5, 1.6, C.roofSlate);
+        tower(1.25, -0.8, 0.5, 1.6, C.roofSlate);
+        if (detail) for (let k = -2; k <= 2; k++) P('box', k * 0.36, 0.45, 0.71, 0.18, 0.4, 0.02, C.win);
+        const ring = detail ? 10 : 5;
+        for (let k = 0; k < ring; k++) {
+          const a = k / ring * Math.PI * 2 + 0.3, rr = 2.1 + (k % 2) * 0.25;
+          house(Math.cos(a) * rr, Math.sin(a) * rr, 0.7 + (k % 3) * 0.1, 0.55, 0.55 + (k % 4) * 0.12,
+            k % 3 === 0 ? C.brick : k % 3 === 1 ? C.plaster : C.plaster2, k % 2 ? C.roofRed : C.roofDk, -a, k % 3 === 0);
         }
-        I.box.push(n.x, 0, n.y, s * 1.0, s * 1.3, s * 1.0, WALL2, 0);
+        if (detail) {
+          for (let k = 0; k < 3; k++) { P('cyl', 1.7 + k * 0.28, 0, 1.55, 0.16, 1.9, 0.16, C.brick); smokeAt(1.7 + k * 0.28, 2.0, 1.55); }
+          P('box', 1.95, 0, 1.6, 1.0, 0.7, 0.6, C.brick);
+        }
+        flag(0.9, 0.9, 2.2, c);
+      } else if (n.type === 'town') {
+        // 町：教会と家々
+        at(n.x, n.y, (n.x * 7.1 + n.y) % 6.28, big * 0.9);
+        shadow(3.0, 2.8);
+        P('box', 0, 0, 0, 0.7, 0.9, 1.2, C.plaster);
+        P('roof', 0, 0.9, 0, 0.78, 0.5, 1.28, C.roofDk, Math.PI / 2);
+        P('box', 0, 0, -0.75, 0.42, 1.5, 0.42, C.plaster);
+        P('cone', 0, 1.5, -0.75, 0.5, 0.7, 0.5, C.roofSlate);
+        const k0 = detail ? 8 : 4;
+        for (let k = 0; k < k0; k++) {
+          const a = k / k0 * Math.PI * 2, rr = 1.25 + (k % 2) * 0.3;
+          house(Math.cos(a) * rr, Math.sin(a) * rr, 0.6, 0.48, 0.45 + (k % 3) * 0.08, k % 2 ? C.plaster2 : C.brick, k % 2 ? C.roofRed : C.roofDk, -a, k % 2 === 0);
+        }
+        flag(0.55, 0.5, 1.6, c);
+      } else {
+        // 砦：石壁・角の丸い塔・天守
+        at(n.x, n.y, 0, big * 1.0);
+        shadow(3.3, 3.3);
+        for (let k = 0; k < 4; k++) {
+          const a = k * Math.PI / 2;
+          P('box', Math.cos(a) * 1.3, 0, Math.sin(a) * 1.3, k % 2 ? 0.25 : 2.6, 0.75, k % 2 ? 2.6 : 0.25, C.stone);
+          if (detail) for (let q = -3; q <= 3; q++) P('box', Math.cos(a) * 1.3 + (k % 2 ? 0 : q * 0.36), 0.75, Math.sin(a) * 1.3 + (k % 2 ? q * 0.36 : 0), 0.14, 0.14, 0.14, C.stone);
+        }
+        for (const [tx, tz] of [[1.3, 1.3], [-1.3, 1.3], [1.3, -1.3], [-1.3, -1.3]]) tower(tx, tz, 0.62, 1.15, c);
+        P('box', 0, 0, 0, 1.0, 1.4, 1.0, C.stoneDk);
+        P('roof', 0, 1.4, 0, 1.1, 0.5, 1.1, C.roofDk);
+        P('box', 0, 0, 1.3, 0.6, 0.95, 0.4, C.stoneDk);
+        flag(0, 0, 2.4, c);
       }
     }
     if (g) {
-      // 建物
+      // ---- 建物
+      const t = this.clock;
       for (const b of g.buildings) {
-        if (cpx < 0.35 || !visible(b.x, b.y)) continue;   // 日本全体を見ているときは拠点だけ
-        const s = big * 0.85, c = col[b.owner], r = b.rot;
+        if (cpx < 0.3 || !visible(b.x, b.y)) continue;   // 日本全体を見ているときは拠点だけ
+        const c = col[b.owner];
+        at(b.x, b.y, b.rot, big * 0.8);
         switch (b.type) {
-          case 'farm':
-            I.box.push(b.x, 0, b.y, s * 2.6, s * 0.06, s * 2.0, FIELD, r);
-            house(b.x + s * 0.9, b.y - s * 0.7, s * 0.7, r, ROOF2);
-            I.box.push(b.x - s * 0.6, s * 0.06, b.y + s * 0.3, s * 1.0, s * 0.05, s * 0.8, GREEN, r);
+          case 'farm': {
+            shadow(1.4, 1.2);
+            P('box', 0, 0, 0, 2.8, 0.04, 2.2, C.soil);
+            if (detail) for (let k = 0; k < 7; k++) P('box', -1.15 + k * 0.33, 0.04, 0.15, 0.2, 0.08, 1.7, (k + b.id) % 3 ? C.crop : C.crop2);
+            else P('box', 0, 0.04, 0.15, 2.4, 0.06, 1.7, C.crop);
+            house(0.85, -0.85, 0.9, 0.6, 0.55, C.brick, C.roofRed, 0, false);
+            P('cyl', 1.25, 0, -0.25, 0.4, 1.0, 0.4, C.white);
+            P('sphere', 1.25, 0.8, -0.25, 0.42, 0.42, 0.42, C.roofSlate);
+            if (detail) for (let k = 0; k < 6; k++) P('box', -1.4 + k * 0.56, 0, 1.12, 0.04, 0.22, 0.04, C.woodLt);
             break;
+          }
           case 'lumber':
-            house(b.x, b.y, s * 0.9, r, ROOF2, WALL2);
-            for (let k = 0; k < 3; k++) I.cyl.push(b.x + s * 0.9, s * 0.12 * (k + 0.5), b.y - s * 0.4 + k * s * 0.25, s * 0.2, s * 0.9, s * 0.2, WOOD, Math.PI / 2);
+            shadow(1.8, 1.4);
+            house(-0.2, 0, 1.1, 0.8, 0.6, C.woodLt, C.roofDk, 0, true);
+            for (let k = 0; k < 3; k++) for (let q = 0; q < 3 - k; q++) P('cyl', 0.95 + q * 0.2 + k * 0.1, 0.1 + k * 0.17, 0.6, 0.18, 0.95, 0.18, C.wood, Math.PI / 2);
+            if (detail) { P('cyl', -0.9, 0, 0.75, 0.3, 0.2, 0.3, C.woodLt); P('box', 0.9, 0, -0.5, 0.5, 0.35, 0.18, C.wood); }
             break;
-          case 'market':
-            house(b.x, b.y, s * 1.0, r, [0.75, 0.55, 0.2]);
-            I.box.push(b.x + s * 0.9, 0, b.y + s * 0.6, s * 0.7, s * 0.35, s * 0.7, [0.85, 0.75, 0.4], r);
+          case 'market': {
+            shadow(2.0, 1.8);
+            house(0, -0.35, 1.0, 0.8, 0.75, C.plaster, C.roofRed, 0, true);
+            const aw = [[0.85, 0.2, 0.2], [0.2, 0.45, 0.8], [0.9, 0.75, 0.2], [0.25, 0.6, 0.3]];
+            for (let k = 0; k < 4; k++) {
+              const sx = -0.9 + k * 0.6, sz = 0.75;
+              P('box', sx, 0, sz, 0.42, 0.3, 0.35, C.woodLt);
+              P('roof', sx, 0.42, sz, 0.55, 0.16, 0.5, aw[k]);
+              if (detail) { P('cyl', sx - 0.22, 0, sz + 0.2, 0.03, 0.42, 0.03, C.wood); P('cyl', sx + 0.22, 0, sz + 0.2, 0.03, 0.42, 0.03, C.wood); }
+            }
             break;
+          }
           case 'barracks':
-            I.box.push(b.x, 0, b.y, s * 2.0, s * 0.8, s * 1.1, WALL2, r);
-            I.roof.push(b.x, s * 0.8, b.y, s * 2.15, s * 0.5, s * 1.25, c, r);
-            I.cyl.push(b.x + s * 1.2, 0, b.y + s * 0.8, s * 0.05, s * 1.8, s * 0.05, WOOD, 0);
-            I.box.push(b.x + s * 1.45, s * 1.55, b.y + s * 0.8, s * 0.45, s * 0.3, s * 0.03, c, 0);
+            shadow(2.4, 1.8);
+            P('box', 0, 0, -0.3, 2.2, 0.8, 0.9, C.brick);
+            P('roof', 0, 0.8, -0.3, 2.3, 0.45, 1.0, C.roofSlate);
+            if (detail) {
+              for (let k = -3; k <= 3; k++) P('box', k * 0.3, 0.35, 0.16, 0.14, 0.28, 0.02, C.win);
+              for (let k = 0; k < 9; k++) P('box', -1.1 + k * 0.275, 0, 1.05, 0.05, 0.25, 0.05, C.woodLt);
+              P('box', 0, 0.18, 1.05, 2.2, 0.03, 0.03, C.woodLt);
+              P('box', -1.1, 0.18, 0.62, 0.03, 0.03, 0.86, C.woodLt);
+              P('box', 1.1, 0.18, 0.62, 0.03, 0.03, 0.86, C.woodLt);
+            }
+            flag(0.9, 0.7, 1.8, c);
             break;
           case 'tower':
-            I.cyl.push(b.x, 0, b.y, s * 0.8, s * 2.4, s * 0.8, STONE, 0);
-            I.cone.push(b.x, s * 2.4, b.y, s * 1.05, s * 0.9, s * 1.05, c, 0);
+            shadow(0.9, 0.9);
+            tower(0, 0, 0.75, 2.4, c);
+            if (detail) P('box', 0, 0, 0.36, 0.22, 0.38, 0.06, C.wood);
             break;
         }
       }
-      // 兵士（引きのときは大きめの印）
-      const sU = clamp(cam.dist * 0.0028, 0.5, 14), a = clamp(g.acc / CONFIG.TICK, 0, 1);
-      const SKIN = [0.92, 0.78, 0.62];
-      for (const u of g.units) {
-        const x = u.px + (u.x - u.px) * a, z = u.py + (u.y - u.py) * a;
-        if (!visible(x, z)) continue;
-        I.box.push(x, 0, z, sU * 0.45, sU * 0.85, sU * 0.35, col[u.pref], 0);
-        I.box.push(x, sU * 0.85, z, sU * 0.3, sU * 0.3, sU * 0.3, u.fromPlayer ? [1, 0.84, 0.25] : SKIN, 0);
+      // ---- 兵士（拡大すると脚・胴・頭・銃。引きのときは色つきの印）
+      const a = clamp(g.acc / CONFIG.TICK, 0, 1);
+      if (detail) {
+        const sU = 0.55;
+        for (const u of g.units) {
+          const x = u.px + (u.x - u.px) * a, z = u.py + (u.y - u.py) * a;
+          if (!visible(x, z)) continue;
+          const dir = Math.atan2(u.y - u.py, u.x - u.px) || 0, moving = u.x !== u.px || u.y !== u.py;
+          const sw = moving ? Math.sin(t * 12 + u.id) * 0.12 : 0;
+          at(x, z, -dir + Math.PI / 2, sU);
+          I.shadow.push(x + 0.08, 0.02, z + 0.1, 0.45 * sU, 0.01, 0.3 * sU, [0, 0, 0], 0);
+          P('box', -0.09, 0, sw, 0.12, 0.42, 0.12, C.roofDk);
+          P('box', 0.09, 0, -sw, 0.12, 0.42, 0.12, C.roofDk);
+          P('box', 0, 0.42, 0, 0.36, 0.42, 0.22, col[u.pref]);
+          P('sphere', 0, 0.84, 0, 0.22, 0.22, 0.22, C.skin);
+          P('box', 0, 0.98, 0, 0.26, 0.08, 0.26, u.fromPlayer ? [1, 0.84, 0.25] : C.roofDk);
+          P('box', 0.2, 0.5, 0.16, 0.05, 0.05, 0.55, C.gun);
+        }
+      } else {
+        const sU = clamp(cam.dist * 0.0022, 0.6, 16);
+        for (const u of g.units) {
+          const x = u.px + (u.x - u.px) * a, z = u.py + (u.y - u.py) * a;
+          if (!visible(x, z)) continue;
+          I.box.push(x, 0, z, sU * 0.45, sU * 0.85, sU * 0.35, col[u.pref], 0);
+          I.box.push(x, sU * 0.85, z, sU * 0.3, sU * 0.3, sU * 0.3, u.fromPlayer ? [1, 0.84, 0.25] : C.skin, 0);
+        }
       }
     }
-    // 木（拡大したときだけ。森のマスに、場所から決まる乱数で並べる）
-    if (cpx > 1.6) this.addTrees(I.cone, I.cyl);
+    // ---- 木
+    if (cpx > 1.4) this.addTrees(I, cpx);
     return I;
   },
-  addTrees(cone, cyl) {
-    const map = this.map, cam = this.cam, W = map.W, t = map.terrain;
+  /** 森のマスに木を並べる（場所から決まる乱数。標高が高い・北のほうは針葉樹、低いところは広葉樹） */
+  addTrees(I, cpx) {
+    const map = this.map, cam = this.cam, W = map.W, t = map.terrain, ew = map.elevW, ev = map.elev;
     const pts = [[0, 0], [this.w, 0], [0, this.h], [this.w, this.h]].map(([x, y]) => cam.groundAt(x, y)).filter(Boolean);
     if (pts.length < 4) return;
     const x0 = Math.max(0, Math.floor(Math.min(...pts.map((p) => p.x)))), x1 = Math.min(W - 1, Math.ceil(Math.max(...pts.map((p) => p.x))));
     const y0 = Math.max(0, Math.floor(Math.min(...pts.map((p) => p.z)))), y1 = Math.min(map.H - 1, Math.ceil(Math.max(...pts.map((p) => p.z))));
     const area = (x1 - x0 + 1) * (y1 - y0 + 1);
-    const step = Math.max(1, Math.ceil(Math.sqrt(area / 60000)));
-    const s = clamp(cam.dist * 0.0028, 0.55, 3) * 1.15;
+    const step = Math.max(1, Math.ceil(Math.sqrt(area / 70000)));
+    const s = clamp(cam.dist * 0.002, 0.55, 2.6) * 1.2;
     const v = [0, 0];
+    const shadows = cpx > 3;
     let n = 0;
     for (let y = y0; y <= y1; y += step) {
       for (let x = x0; x <= x1; x += step) {
         const i = y * W + x, k = t[i] & 7;
         if (k !== 2 && k !== 1) continue;
         const h = ((i * 2654435761) >>> 0) / 4294967296;
-        if (k === 1 ? h > 0.012 : h > 0.55) continue;
+        if (k === 1 ? h > 0.01 : h > 0.5) continue;
         const h2 = ((i * 40503 + 7) % 997) / 997, h3 = ((i * 69069 + 3) % 991) / 991;
         const px = x + h2, pz = y + h3;
         if (!cam.project(px, 0, pz, v) || v[0] < -20 || v[0] > this.w + 20 || v[1] < -40 || v[1] > this.h + 20) continue;
         const sz = s * (0.8 + h2 * 0.5), snow = t[i] & 8;
-        cyl.push(px, 0, pz, sz * 0.15, sz * 0.5, sz * 0.15, [0.35, 0.24, 0.14], 0);
-        cone.push(px, sz * 0.35, pz, sz * 0.95, sz * 1.5, sz * 0.95, snow ? [0.75, 0.82, 0.8] : [0.13 + h3 * 0.08, 0.32 + h2 * 0.1, 0.14], 0);
+        const e = ev[(y >> 1) * ew + (x >> 1)];
+        const conifer = snow || e > 120 || y < map.H * 0.3 || h3 > 0.75;
+        if (shadows) I.shadow.push(px + sz * 0.3, 0.02, pz + sz * 0.35, sz * 0.9, 0.01, sz * 0.7, [0, 0, 0], 0);
+        I.cyl.push(px, 0, pz, sz * 0.15, sz * 0.5, sz * 0.15, [0.36, 0.25, 0.15], 0);
+        if (conifer) I.cone.push(px, sz * 0.35, pz, sz * 0.95, sz * 1.5, sz * 0.95, snow ? [0.75, 0.82, 0.8] : [0.14 + h3 * 0.06, 0.34 + h2 * 0.1, 0.16], 0);
+        else I.sphere.push(px, sz * 0.35, pz, sz * 1.15, sz * 1.0, sz * 1.15, [0.24 + h3 * 0.12, 0.44 + h2 * 0.12, 0.16], 0);
         if (++n >= CONFIG.TREE_MAX) return;
       }
     }
@@ -461,26 +569,41 @@ const App = {
     const v = [0, 0], w = [0, 0];
     const onScreen = () => v[0] > -40 && v[0] < this.w + 40 && v[1] > -40 && v[1] < this.h + 40;
     ctx.lineJoin = 'round';
-    // 交戦・射撃の線
+    // 煙突の煙（拡大時）
+    if (this.smoke && this.smoke.length) {
+      for (let k = 0; k < this.smoke.length; k++) {
+        const [x, y, z] = this.smoke[k];
+        for (let q = 0; q < 3; q++) {
+          const ph = (this.clock * 0.35 + q / 3 + k * 0.137) % 1;
+          if (!cam.project(x + ph * 0.8, y + ph * 2.2, z - ph * 0.3, v) || !onScreen()) continue;
+          const r = (2 + ph * 7) * Math.min(2, cpx / 4);
+          ctx.fillStyle = `rgba(215,212,205,${0.45 * (1 - ph)})`;
+          ctx.beginPath(); ctx.arc(v[0], v[1], r, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    }
+    // 銃撃の閃光（兵士）と、塔・砦の射撃
     if (g && cpx > 0.5) {
       const a = clamp(g.acc / CONFIG.TICK, 0, 1);
-      ctx.strokeStyle = 'rgba(255,230,140,.7)'; ctx.lineWidth = 1;
-      ctx.beginPath();
       let n = 0;
-      const idx = g.unitIndex;
-      if (idx) for (const u of g.units) {
-        if (u.engaged < 0 || n > 400) continue;
-        const e = idx.get(u.engaged);
-        if (!e) continue;
-        if (!cam.project(u.px + (u.x - u.px) * a, 0.5, u.py + (u.y - u.py) * a, v) || !onScreen() || !cam.project(e.x, 0.5, e.y, w)) continue;
-        ctx.moveTo(v[0], v[1]); ctx.lineTo(w[0], w[1]); n++;
+      for (const u of g.units) {
+        if (u.engaged < 0 && !u.hitB) continue;
+        if (n > 500) break;
+        const flick = ((u.id * 7 + Math.floor(this.clock * 9)) % 4) === 0;
+        if (!flick) continue;
+        if (!cam.project(u.px + (u.x - u.px) * a, cpx > 2.6 ? 0.35 : clamp(cam.dist * 0.0022, 0.6, 16) * 0.6, u.py + (u.y - u.py) * a, v) || !onScreen()) continue;
+        const r = clamp(cpx * 0.5, 1.5, 4);
+        ctx.fillStyle = 'rgba(255,214,120,.95)';
+        ctx.beginPath(); ctx.arc(v[0] + 3, v[1], r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,120,40,.45)';
+        ctx.beginPath(); ctx.arc(v[0] + 3, v[1], r * 2.2, 0, Math.PI * 2); ctx.fill();
+        n++;
       }
-      ctx.stroke();
       if (g.shots && g.shots.length) {
-        ctx.strokeStyle = 'rgba(255,150,80,.85)'; ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(255,170,90,.8)'; ctx.lineWidth = 1.2;
         ctx.beginPath();
         for (const [x0, y0, x1, y1] of g.shots) {
-          if (!cam.project(x0, clamp(cam.dist * 0.0022, 0.9, 7) * 2, y0, v) || !onScreen() || !cam.project(x1, 0.5, y1, w)) continue;
+          if (!cam.project(x0, clamp(cam.dist * 0.0016, 0.9, 7) * 2, y0, v) || !onScreen() || !cam.project(x1, 0.5, y1, w)) continue;
           ctx.moveTo(v[0], v[1]); ctx.lineTo(w[0], w[1]);
         }
         ctx.stroke();
@@ -490,7 +613,7 @@ const App = {
     if (g && cpx > 1.5) {
       for (const b of g.buildings) {
         if (b.hp >= b.maxHp || !(g.time - (b.hitAt || -99) < 3)) continue;
-        if (!cam.project(b.x, clamp(cam.dist * 0.0022, 0.9, 7) * 2.4, b.y, v) || !onScreen()) continue;
+        if (!cam.project(b.x, clamp(cam.dist * 0.0016, 0.9, 7) * 2.4, b.y, v) || !onScreen()) continue;
         ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(v[0] - 12, v[1] - 6, 24, 4);
         ctx.fillStyle = b.hp / b.maxHp > 0.5 ? '#ffcf3f' : '#ff4a3d';
         ctx.fillRect(v[0] - 12, v[1] - 6, 24 * Math.max(0, b.hp) / b.maxHp, 4);
@@ -499,7 +622,7 @@ const App = {
     // 拠点の名前と占領ゲージ
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     const fs = clamp(9 + Math.log2(cpx + 1) * 3, 9, 16);
-    const bh = clamp(cam.dist * 0.0022, 0.9, 7) * 3.4;
+    const bh = clamp(cam.dist * 0.0016, 0.9, 7) * 3.4;
     const placed = [];
     const order = [];
     if (g) {

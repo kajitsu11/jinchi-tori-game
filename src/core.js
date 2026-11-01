@@ -23,10 +23,10 @@ const CONFIG = {
   LUMBER_MIN_FOREST: 8,
   // ---- 兵士
   UNIT_HP: 100,
-  UNIT_SPEED: 5,
+  UNIT_SPEED: 7.5,               // マス/秒（1マス≒0.5km）
   UNIT_DPS: 12,
   ATTACK_RANGE: 2.5,
-  AGGRO_RANGE: 9,
+  AGGRO_RANGE: 12,
   HOME_BONUS: 1.25,
   ATTRITION: 0.6,
   REGEN: 3,
@@ -34,15 +34,15 @@ const CONFIG = {
   START_UNITS_RATIO: 0.5,        // 開始時の兵士＝参加者数×これ
   UNIT_CAP_PER_PARTICIPANT: 2,   // 兵士の上限＝参加者×2＋拠点×1
   UNIT_CAP_PER_NODE: 1,
-  CAPITAL_RANGE: 10, CAPITAL_DPS: 18,
+  CAPITAL_RANGE: 13, CAPITAL_DPS: 18,
   // ---- 拠点（県庁・町・砦）
-  CAPTURE_RADIUS: 6,
+  CAPTURE_RADIUS: 7,
   CAPTURE_NEED: { capital: 150, town: 60, fort: 80 },
   CAPTURE_MAX_RATE: 20,
   CAPTURE_DECAY: 15,
   RECENT_HATCH: 15,
-  NODE_RADIUS: 24,               // 町・砦が国境を押し出す距離
-  NODE_MIN_DIST: 16,             // 町・砦はほかの拠点からこれ以上離す
+  NODE_RADIUS: 36,               // 町・砦が国境を押し出す距離
+  NODE_MIN_DIST: 24,             // 町・砦はほかの拠点からこれ以上離す
   // ---- 建物
   BUILD_GAP: 2.2,                // 建物どうしの最小間隔（マス）
   MAX_BUILDINGS_PER_PARTICIPANT: 5,
@@ -52,10 +52,10 @@ const CONFIG = {
   AI_TARGET_TIMEOUT: 120,
   AI_DEFENDER_RATIO: 0.25,
   // ---- 画面
-  CAMERA_PITCH: 52, TOP_PITCH: 90, TITLE_PITCH: 75, FOV: 40,
-  ZOOM_MIN: 5, ZOOM_MAX: 9000,
+  CAMERA_PITCH: 46, TOP_PITCH: 90, TITLE_PITCH: 75, FOV: 34,
+  ZOOM_MIN: 6, ZOOM_MAX: 13500,
   FILL: 0.1, FILL_TOP: 0.78,      // 領土の塗りの濃さ（斜め／真上）
-  TREE_MAX: 7000,
+  TREE_MAX: 9000,
   LOG_MAX: 4, BANNER_MS: 1800, MINIMAP_REFRESH: 1.0, MAX_DPR: 2, HUD_REFRESH: 0.25,
 };
 const RES_KEYS = ['food', 'wood', 'gold'];
@@ -67,9 +67,9 @@ const BUILDINGS = {
   lumber: { name: '製材所', icon: '🪓', cost: { wood: 40, gold: 20 }, hp: 150, desc: '周りの森から木材（最大 +2/秒）', forest: true },
   market: { name: '市場', icon: '🏪', cost: { wood: 120 }, hp: 200, desc: '金 +1/秒', make: { gold: 1 } },
   barracks: { name: '兵舎', icon: '⚔️', cost: { wood: 150, gold: 50 }, hp: 350, desc: '食料30で兵士を訓練（8秒ごと）', train: 8, trainFood: 30 },
-  tower: { name: '見張り塔', icon: '🗼', cost: { wood: 80, gold: 60 }, hp: 450, desc: '近くの敵兵を撃つ', range: 9, dps: 14 },
+  tower: { name: '見張り塔', icon: '🗼', cost: { wood: 80, gold: 60 }, hp: 450, desc: '近くの敵兵を撃つ', range: 11, dps: 14 },
   town: { name: '町', icon: '🏘️', cost: { wood: 250, gold: 150 }, desc: '国境を広げる・金 +0.8/秒', node: true, make: { gold: 0.8 } },
-  fort: { name: '砦', icon: '🏰', cost: { wood: 150, gold: 300 }, desc: '国境を広げ、近くの敵兵を撃つ', node: true, range: 10, dps: 22 },
+  fort: { name: '砦', icon: '🏰', cost: { wood: 150, gold: 300 }, desc: '国境を広げ、近くの敵兵を撃つ', node: true, range: 13, dps: 22 },
 };
 const BUILD_ORDER = ['farm', 'lumber', 'market', 'barracks', 'tower', 'town', 'fort'];
 const WASTE = 48;             // 焦土（持ち主なし）を表す持ち主ID
@@ -134,7 +134,7 @@ function decodeLines(list) {
 const TERRAIN_NAMES = ['海', '平地', '森', '山', '市街地'];
 // 自然な色（草原・森・岩・街は草原寄り、雪）
 const TERRAIN_COLORS = {
-  1: [130, 168, 78], 2: [70, 110, 52], 3: [132, 120, 96], 4: [140, 160, 90],
+  1: [152, 178, 74], 2: [96, 134, 58], 3: [150, 136, 104], 4: [156, 172, 86],
   9: [226, 231, 233], 10: [176, 196, 190], 11: [240, 242, 245], 12: [216, 222, 222],
 };
 
@@ -340,7 +340,7 @@ const GROUND_FS = `
 precision highp float;
 uniform sampler2D uTerrain;   // RGB=地形の色, A=陸(1)/海(0)
 uniform sampler2D uElev;      // L=標高, A=陸地への近さ（浅瀬用）
-uniform sampler2D uOwner;     // R=持ち主, G=最近占領された
+uniform sampler2D uOwner;     // L=持ち主, A=最近占領された
 uniform sampler2D uPalette;
 uniform vec2 uGrid;
 uniform float uFill;
@@ -375,7 +375,12 @@ void main(){
   float shade = clamp(0.55 + 0.6 * dot(n, normalize(vec3(-0.55, 0.75, -0.45))), 0.45, 1.25);
   // 草原らしい細かいゆらぎ（拡大すると見える）
   float nz = noise(vWorld * 0.35) * 0.45 + noise(vWorld * 1.6) * 0.35 + noise(vWorld * 6.0) * 0.2 * clamp(1.5 - cpp * 2.0, 0.0, 1.0);
-  vec3 land = t.rgb * (0.8 + 0.38 * nz) * shade;
+  vec3 land = t.rgb * (0.82 + 0.36 * nz);
+  // 低い周波数の「土の色の斑」と「濃い緑の斑」（草原のむら）
+  float patch = noise(vWorld * 0.06 + 7.3), patch2 = noise(vWorld * 0.11 - 3.1);
+  land = mix(land, vec3(0.6, 0.6, 0.3), smoothstep(0.66, 0.9, patch) * 0.22 * t.a);
+  land = mix(land, t.rgb * vec3(0.72, 0.86, 0.66), smoothstep(0.55, 0.8, patch2) * 0.4);
+  land *= shade;
   // 海：岸に近いほど浅い色、さざ波
   float near = e.a;
   vec3 shallow = vec3(0.24, 0.52, 0.58);
@@ -391,17 +396,18 @@ void main(){
       vec3 pc = texture2D(uPalette, vec2((id + 0.5) / 64.0, 0.5)).rgb;
       col = mix(col, pc, uFill * isLand);
       // 国境線：となりの持ち主が違えば、自分の側に自分の色の線を引く
+      // 引いているときは画面上で2pxくらい、拡大すると0.35マスの帯
       float w = max(0.35, cpp * 1.7);
-      float a = ownerAt(vWorld + vec2(w, 0.0)), b = ownerAt(vWorld - vec2(w, 0.0));
-      float c = ownerAt(vWorld + vec2(0.0, w)), d = ownerAt(vWorld - vec2(0.0, w));
       float edge = 0.0;
-      if (a > 0.5 && abs(a - id) > 0.5) edge = 1.0;
-      if (b > 0.5 && abs(b - id) > 0.5) edge = 1.0;
-      if (c > 0.5 && abs(c - id) > 0.5) edge = 1.0;
-      if (d > 0.5 && abs(d - id) > 0.5) edge = 1.0;
-      if (edge > 0.5) col = mix(col, pc * 1.1 + 0.08, 0.9 * isLand);
+      for (int k = 0; k < 4; k++) {
+        vec2 o = k == 0 ? vec2(w, 0.0) : k == 1 ? vec2(-w, 0.0) : k == 2 ? vec2(0.0, w) : vec2(0.0, -w);
+        float q = ownerAt(vWorld + o);
+        if (q > 0.5 && abs(q - id) > 0.5) edge = 1.0;
+      }
+      float zoomedIn = clamp((1.0 / cpp - 3.0) / 6.0, 0.0, 1.0);
+      if (edge > 0.5) col = mix(col, pc * 1.1 + 0.08, (0.9 - 0.35 * zoomedIn) * isLand);
       // 最近占領されたところは斜線
-      if (texture2D(uOwner, (floor(vWorld) + 0.5) / uGrid).g > 0.5) {
+      if (texture2D(uOwner, (floor(vWorld) + 0.5) / uGrid).a > 0.5) {
         float s = step(0.5, fract((gl_FragCoord.x + gl_FragCoord.y) / 12.0));
         col = mix(col, pc, s * 0.35);
       }
@@ -463,11 +469,14 @@ void main(){
 }`;
 const MESH_FS = `
 precision mediump float;
+uniform float uAlpha;   // 影は半透明
+uniform float uFlat;    // 影は陰影をつけない
 varying vec3 vN;
 varying vec3 vC;
 void main(){
-  float l = 0.5 + 0.6 * max(dot(normalize(vN), normalize(vec3(-0.55, 0.75, -0.45))), 0.0);
-  gl_FragColor = vec4(vC * l, 1.0);
+  vec3 n = normalize(vN);
+  float l = 0.42 + 0.68 * max(dot(n, normalize(vec3(-0.55, 0.75, -0.45))), 0.0) + 0.08 * n.y;
+  gl_FragColor = vec4(mix(vC * l, vC, uFlat), uAlpha);
 }`;
 const INST_FLOATS = 10;
 
@@ -530,6 +539,15 @@ function buildMeshes() {
   }
   meshes.cone = cone;
   meshes.cyl = cyl;
+  // 球（底が y=0、高さ1）：ドーム・広葉樹の葉・サイロの屋根
+  const sph = [], ST = 6, SL = 10;
+  const sp = (i, j) => { const th = i / ST * Math.PI, ph = j / SL * Math.PI * 2; return [Math.sin(th) * Math.cos(ph) * h, 0.5 + Math.cos(th) * h, Math.sin(th) * Math.sin(ph) * h]; };
+  for (let i = 0; i < ST; i++) for (let j = 0; j < SL; j++) {
+    const a = sp(i, j), b = sp(i + 1, j), c = sp(i + 1, j + 1), d = sp(i, j + 1);
+    // 球は面の法線ではなく中心からの向きを法線にする（なめらかに見える）
+    for (const p of [a, b, c, a, c, d]) { const nx = p[0], ny = p[1] - 0.5, nz = p[2], L = Math.hypot(nx, ny, nz) || 1; sph.push(p[0], p[1], p[2], nx / L, ny / L, nz / L); }
+  }
+  meshes.sphere = sph;
   return meshes;
 }
 
@@ -634,24 +652,23 @@ class Renderer {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 64, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
     this.texParams(gl, false);
   }
-  /** 持ち主テクスチャ: R=持ち主, G=128 なら最近占領されたマス */
+  /** 持ち主テクスチャ（1マス2バイト）: L=持ち主, A=255 なら最近占領されたマス */
   attachGame(game, me) {
     this.game = game; this.me = me;
     this.dirty.clear();
     const { gl, map } = this;
     const { N, W, H } = map;
-    const data = new Uint8Array(N * 4);
-    for (let i = 0; i < N; i++) this.computeTexel(i, data, i * 4);
+    const data = new Uint8Array(N * 2);
+    for (let i = 0; i < N; i++) this.computeTexel(i, data, i * 2);
     gl.bindTexture(gl.TEXTURE_2D, this.ownerTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE_ALPHA, W, H, 0, gl.LUMINANCE_ALPHA, gl.UNSIGNED_BYTE, data);
     this.texParams(gl, false);
   }
   computeTexel(i, out, o) {
     const g = this.game, map = this.map;
     out[o] = g ? g.owner[i] : map.initPref[i];
-    out[o + 1] = g && g.isRecent(i) ? 128 : 0;
-    out[o + 2] = 0;
-    out[o + 3] = 0;
+    out[o + 1] = g && g.isRecent(i) ? 255 : 0;
   }
   cellChanged(i) { this.dirty.add(i); }
   flush() {
@@ -662,7 +679,7 @@ class Renderer {
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     for (const i of this.dirty) {
       this.computeTexel(i, this.texel, 0);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, i % map.W, (i / map.W) | 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.texel);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, i % map.W, (i / map.W) | 0, 1, 1, gl.LUMINANCE_ALPHA, gl.UNSIGNED_BYTE, this.texel);
     }
     this.dirty.clear();
   }
@@ -769,18 +786,26 @@ class Renderer {
     draw('inset', 1.5, [1, 1, 1, 0.5], 10);
     for (const k of ['aA', 'aB', 'aInfo']) gl.disableVertexAttribArray(L.a[k]);
     gl.disable(gl.BLEND);
-    // --- 建物・兵士・木（インスタンス描画）
+    // --- 建物・兵士・木（インスタンス描画）。先に半透明の影、つぎに本体
     const meshes = opt.meshes;
     if (meshes) {
       const M = this.mesh, ext = this.instExt;
       gl.useProgram(M.p);
-      gl.enable(gl.DEPTH_TEST);
-      gl.clear(gl.DEPTH_BUFFER_BIT);
       gl.uniformMatrix4fv(M.u.uVP, false, vp);
       const attrs = [[M.a.iOff, 3, 0], [M.a.iScale, 3, 12], [M.a.iColor, 4, 24]];
-      for (const [name, inst] of Object.entries(meshes)) {
+      const order = Object.keys(meshes).sort((a, b) => (b === 'shadow') - (a === 'shadow'));
+      for (const name of order) {
+        const inst = meshes[name];
         if (!inst || !inst.count) continue;
-        const mb = this.meshBufs[name];
+        const shadow = name === 'shadow';
+        if (shadow) {
+          gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+          gl.uniform1f(M.u.uAlpha, 0.28); gl.uniform1f(M.u.uFlat, 1);
+        } else {
+          if (!this._solid) { gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST); gl.clear(gl.DEPTH_BUFFER_BIT); this._solid = true; }
+          gl.uniform1f(M.u.uAlpha, 1); gl.uniform1f(M.u.uFlat, 0);
+        }
+        const mb = this.meshBufs[shadow ? 'cyl' : name];
         gl.bindBuffer(gl.ARRAY_BUFFER, mb.buf);
         gl.enableVertexAttribArray(M.a.aPos); gl.enableVertexAttribArray(M.a.aNrm);
         gl.vertexAttribPointer(M.a.aPos, 3, gl.FLOAT, false, 24, 0);
@@ -807,7 +832,8 @@ class Renderer {
         }
         gl.disableVertexAttribArray(M.a.aPos); gl.disableVertexAttribArray(M.a.aNrm);
       }
-      gl.disable(gl.DEPTH_TEST);
+      this._solid = false;
+      gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND);
     }
   }
 }
