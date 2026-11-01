@@ -7,49 +7,57 @@
 // CONFIG（調整値）
 // =====================================================================
 const CONFIG = {
+  // =================================================================
+  // 7日間（24時間ずっと進む）のシーズン向けのバランス
+  //   目安：兵士は県をまたぐのに数分・兵舎は15分に1人・建物は30〜60分に1つ・
+  //         町の占領は10人で約15分・県庁は約40分
+  // =================================================================
+  SEASON_DAYS: 7,                // 7日たったら、その時点で領土1位の県が優勝
+  WIN_RATIO: 0.5,                // それより前に全国の50%を取れば即優勝
   // ---- 参加者（全国で約1000人。今はプレイヤー以外をAIが担当）
   PARTICIPANTS_PER_MILLION: 8,
   MIN_PARTICIPANTS: 3,
   // ---- 進行
-  TICK: 0.1,                     // シミュレーションの固定刻み（秒）
-  WIN_RATIO: 0.5,
+  TICK: 0.25,                    // シミュレーションの刻み（秒）
+  MAX_TICK: 4,                   // 早送り・サーバーでの最大の刻み
   PATH_BUDGET: 20,               // 1刻みあたりの経路探索の上限
-  // ---- 資源（1人あたり）
+  THINK_INTERVAL: 3,             // 兵士が次の行動を考える間隔（秒）
+  // ---- 資源（1人あたり。/秒。かっこ内は1時間あたり）
   START_RES: { food: 300, wood: 400, gold: 200 },
-  BASE_INCOME: { food: 1, wood: 1.2, gold: 0.6 },    // 毎秒の基本収入
-  CAPITAL_MAKE: { food: 1, wood: 1, gold: 1 },       // 県庁の収入（県のAIへ）
-  LUMBER_PER_FOREST: 0.06,       // 製材所：周りの森1か所あたりの木材/秒
-  LUMBER_MAX: 2,
+  BASE_INCOME: { food: 0.033, wood: 0.04, gold: 0.02 },   // (120 / 144 / 72)
+  CAPITAL_MAKE: { food: 0.033, wood: 0.033, gold: 0.033 }, // 県庁の収入（県のAIへ）
+  LUMBER_PER_FOREST: 0.002,      // 製材所：周りの森1か所あたりの木材
+  LUMBER_MAX: 0.067,             // (240)
   LUMBER_MIN_FOREST: 8,
   // ---- 兵士
   UNIT_HP: 100,
-  UNIT_SPEED: 7.5,               // マス/秒（1マス≒0.5km）
-  UNIT_DPS: 12,
+  UNIT_SPEED: 0.6,               // マス/秒（1マス≒0.5km。県をまたぐのに数分）
+  UNIT_DPS: 1.6,                 // 1対1で約1分で決着
   ATTACK_RANGE: 2.5,
   AGGRO_RANGE: 12,
   HOME_BONUS: 1.25,
-  ATTRITION: 0.6,
-  REGEN: 3,
-  BUILDING_DPS_MULT: 0.6,        // 兵士が建物を壊すときの攻撃力の倍率
-  START_UNITS_RATIO: 0.5,        // 開始時の兵士＝参加者数×これ
-  UNIT_CAP_PER_PARTICIPANT: 2,   // 兵士の上限＝参加者×2＋拠点×1
+  ATTRITION: 0.05,               // 敵の領土にいると減るHP/秒
+  REGEN: 0.25,                   // 自県の領土で休むと回復するHP/秒
+  BUILDING_DPS_MULT: 0.6,
+  START_UNITS_RATIO: 0.5,
+  UNIT_CAP_PER_PARTICIPANT: 2,
   UNIT_CAP_PER_NODE: 1,
-  CAPITAL_RANGE: 13, CAPITAL_DPS: 18,
+  CAPITAL_RANGE: 13, CAPITAL_DPS: 2.4,
   // ---- 拠点（県庁・町・砦）
   CAPTURE_RADIUS: 7,
-  CAPTURE_NEED: { capital: 150, town: 60, fort: 80 },
+  CAPTURE_NEED: { capital: 22500, town: 9000, fort: 12000 },   // 攻撃側の兵士1人×1秒で1ポイント
   CAPTURE_MAX_RATE: 20,
-  CAPTURE_DECAY: 15,
-  RECENT_HATCH: 15,
-  NODE_RADIUS: 36,               // 町・砦が国境を押し出す距離
-  NODE_MIN_DIST: 24,             // 町・砦はほかの拠点からこれ以上離す
+  CAPTURE_DECAY: 0.5,
+  RECENT_HATCH: 1800,            // 占領されてから30分は斜線
+  NODE_RADIUS: 36,
+  NODE_MIN_DIST: 24,
   // ---- 建物
-  BUILD_GAP: 2.2,                // 建物どうしの最小間隔（マス）
+  BUILD_GAP: 2.2,
   MAX_BUILDINGS_PER_PARTICIPANT: 5,
   // ---- AI
-  AI_BUILD_INTERVAL: 3,          // 県のAI参加者10人で、この秒数に1回建てる
-  AI_PLAN_INTERVAL: 4,
-  AI_TARGET_TIMEOUT: 120,
+  AI_BUILD_INTERVAL: 90,         // 県のAI参加者10人で、この秒数に1回建てる
+  AI_PLAN_INTERVAL: 30,
+  AI_TARGET_TIMEOUT: 3600,
   AI_DEFENDER_RATIO: 0.25,
   // ---- 画面
   CAMERA_PITCH: 42, TOP_PITCH: 90, TITLE_PITCH: 75, FOV: 34,
@@ -63,13 +71,13 @@ const RES_ICON = { food: '🌾', wood: '🪵', gold: '💰' };
 const RES_NAME = { food: '食料', wood: '木材', gold: '金' };
 /** 建物の種類 */
 const BUILDINGS = {
-  farm: { name: '農場', icon: '🌾', cost: { wood: 60 }, hp: 150, desc: '食料 +1.2/秒（森を切り開くと半分・山には建てられない）', make: { food: 1.2 } },
-  lumber: { name: '製材所', icon: '🪓', cost: { wood: 40, gold: 20 }, hp: 150, desc: '周りの森から木材（最大 +2/秒）', forest: true },
-  market: { name: '市場', icon: '🏪', cost: { wood: 120 }, hp: 200, desc: '金 +1/秒', make: { gold: 1 } },
-  barracks: { name: '兵舎', icon: '⚔️', cost: { wood: 150, gold: 50 }, hp: 350, desc: '食料30で兵士を訓練（8秒ごと）', train: 8, trainFood: 30 },
-  tower: { name: '見張り塔', icon: '🗼', cost: { wood: 80, gold: 60 }, hp: 450, desc: '近くの敵兵を撃つ', range: 11, dps: 14 },
-  town: { name: '町', icon: '🏘️', cost: { wood: 250, gold: 150 }, desc: '国境を広げる・金 +0.8/秒', node: true, make: { gold: 0.8 } },
-  fort: { name: '砦', icon: '🏰', cost: { wood: 150, gold: 300 }, desc: '国境を広げ、近くの敵兵を撃つ', node: true, range: 13, dps: 22 },
+  farm: { name: '農場', icon: '🌾', cost: { wood: 60 }, hp: 150, desc: '食料 +144/時（森を切り開くと半分・山には建てられない）', make: { food: 0.04 } },
+  lumber: { name: '製材所', icon: '🪓', cost: { wood: 40, gold: 20 }, hp: 150, desc: '周りの森から木材（最大 +240/時）', forest: true },
+  market: { name: '市場', icon: '🏪', cost: { wood: 120 }, hp: 200, desc: '金 +120/時', make: { gold: 0.033 } },
+  barracks: { name: '兵舎', icon: '⚔️', cost: { wood: 150, gold: 50 }, hp: 350, desc: '食料30で兵士を訓練（15分ごと）', train: 900, trainFood: 30 },
+  tower: { name: '見張り塔', icon: '🗼', cost: { wood: 80, gold: 60 }, hp: 450, desc: '近くの敵兵を撃つ', range: 11, dps: 1.9 },
+  town: { name: '町', icon: '🏘️', cost: { wood: 250, gold: 150 }, desc: '国境を広げる・金 +96/時', node: true, make: { gold: 0.027 } },
+  fort: { name: '砦', icon: '🏰', cost: { wood: 150, gold: 300 }, desc: '国境を広げ、近くの敵兵を撃つ', node: true, range: 13, dps: 2.9 },
 };
 const BUILD_ORDER = ['farm', 'lumber', 'market', 'barracks', 'tower', 'town', 'fort'];
 const WASTE = 48;             // 焦土（持ち主なし）を表す持ち主ID
@@ -460,6 +468,7 @@ attribute vec3 aNrm;
 attribute vec3 iOff;
 attribute vec3 iScale;
 attribute vec4 iColor;   // rgb + 向き(ラジアン)
+attribute float iTilt;   // 横軸まわりの傾き（手足の振り・倒れた姿など）
 uniform mat4 uVP;
 varying vec3 vN;
 varying vec3 vC;
@@ -469,8 +478,11 @@ void main(){
   float c = cos(iColor.w), s = sin(iColor.w);
   vec3 p = aPos * iScale;
   vL = p;
+  float ct = cos(iTilt), st = sin(iTilt);
+  p = vec3(p.x, ct * p.y - st * p.z, st * p.y + ct * p.z);
+  vec3 nn = vec3(aNrm.x, ct * aNrm.y - st * aNrm.z, st * aNrm.y + ct * aNrm.z);
   p = vec3(c * p.x - s * p.z, p.y, s * p.x + c * p.z);
-  vN = vec3(c * aNrm.x - s * aNrm.z, aNrm.y, s * aNrm.x + c * aNrm.z);
+  vN = vec3(c * nn.x - s * nn.z, nn.y, s * nn.x + c * nn.z);
   vC = iColor.rgb;
   vW = p + iOff;
   gl_Position = uVP * vec4(p + iOff, 1.0);
@@ -525,7 +537,7 @@ void main(){
   float l = 0.45 + 0.62 * max(dot(n, normalize(vec3(-0.45, 0.8, 0.5))), 0.0) + 0.06 * n.y;
   gl_FragColor = vec4(mix(c * l, c, uFlat), uAlpha);
 }`;
-const INST_FLOATS = 10;
+const INST_FLOATS = 11;
 /** インスタンスの種類 → 表面の模様（名前の大文字以降は同じ形で模様違い：boxW=板目の箱 など） */
 const MESH_MAT = { roof: 1, boxW: 2, coneT: 3, sphereT: 4, cylW: 5, pad: 6, roofT: 1 };
 
@@ -841,7 +853,7 @@ class Renderer {
       const M = this.mesh, ext = this.instExt;
       gl.useProgram(M.p);
       gl.uniformMatrix4fv(M.u.uVP, false, vp);
-      const attrs = [[M.a.iOff, 3, 0], [M.a.iScale, 3, 12], [M.a.iColor, 4, 24]];
+      const attrs = [[M.a.iOff, 3, 0], [M.a.iScale, 3, 12], [M.a.iColor, 4, 24], [M.a.iTilt, 1, 40]];
       // 地面に敷くもの（土の敷物 → 影）を先に、つぎに立体
       const rank = (n) => (n === 'pad' ? 0 : n === 'shadow' ? 1 : 2);
       const order = Object.keys(meshes).sort((a, b) => rank(a) - rank(b));
@@ -881,6 +893,7 @@ class Renderer {
             gl.vertexAttrib3f(attrs[0][0], d[o], d[o + 1], d[o + 2]);
             gl.vertexAttrib3f(attrs[1][0], d[o + 3], d[o + 4], d[o + 5]);
             gl.vertexAttrib4f(attrs[2][0], d[o + 6], d[o + 7], d[o + 8], d[o + 9]);
+            gl.vertexAttrib1f(attrs[3][0], d[o + 10]);
             gl.drawArrays(gl.TRIANGLES, 0, mb.count);
           }
         }
@@ -896,13 +909,13 @@ class Renderer {
 class InstanceList {
   constructor() { this.data = new Float32Array(INST_FLOATS * 1024); this.count = 0; }
   clear() { this.count = 0; }
-  push(x, y, z, sx, sy, sz, c, rot) {
+  push(x, y, z, sx, sy, sz, c, rot, tilt) {
     if ((this.count + 1) * INST_FLOATS > this.data.length) {
       const d = new Float32Array(this.data.length * 2); d.set(this.data); this.data = d;
     }
     const o = this.count * INST_FLOATS, d = this.data;
     d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = sx; d[o + 4] = sy; d[o + 5] = sz;
-    d[o + 6] = c[0]; d[o + 7] = c[1]; d[o + 8] = c[2]; d[o + 9] = rot || 0;
+    d[o + 6] = c[0]; d[o + 7] = c[1]; d[o + 8] = c[2]; d[o + 9] = rot || 0; d[o + 10] = tilt || 0;
     this.count++;
   }
 }

@@ -91,6 +91,7 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
 .res small { font-size: 10px; color: var(--green); }
 #topbar .row3 { color: var(--parch-dk); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #topbar .row3 b { color: var(--parch); }
+#topbar .row3 .left { color: var(--gold-hi); font-weight: 700; }
 #h-delta.up { color: var(--green); } #h-delta.down { color: var(--red); }
 
 #minimap { position: absolute; left: 8px; top: calc(98px + var(--sat)); width: 118px; height: 124px; border-radius: 4px; background: #173a52; touch-action: none; border-color: var(--gold); }

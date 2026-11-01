@@ -126,6 +126,8 @@ const App = {
     const seedParam = new URLSearchParams(location.search).get('seed');
     const seed = seedParam ? +seedParam : (Date.now() & 0x7fffffff);
     this.game = new Sim(this.map, p, seed);
+    // 確認用の早送り（例：?speed=600 で 1秒＝10分）
+    this.speed = clamp(+(new URLSearchParams(location.search).get('speed') || 1), 1, 5000);
     this.renderer.attachGame(this.game, p);
     this.setState(STATE.PLAYING);
   },
@@ -153,6 +155,11 @@ const App = {
       if (!e.byPlayer) return;
       const def = BUILDINGS[e.type];
       this.log(`${def.icon} ${def.name}を建てました`, 'good', (e.building || e.node).cell);
+    });
+    this.corpses = []; this.anim = new Map();
+    g.on('death', (u) => {
+      const s = this.anim && this.anim.get(u.id);
+      if (this.corpses.length < 300) this.corpses.push({ x: u.x, z: u.y, yaw: s ? s.yaw : 0, col: this.colCache ? this.colCache[u.pref] : [0.5, 0.5, 0.5], t: this.clock });
     });
     g.on('destroyed', (b) => { if (b.owner === this.me) this.log(`🔥 ${BUILDINGS[b.type].name}が壊されました`, 'bad', b.cell); if (this.sel && this.sel.b === b) this.hidePanel(); });
     g.on('flipped', (e) => { if (e.from === this.me) this.log(`⚠ ${BUILDINGS[e.building.type].name}を${map.prefs[e.to].name}に奪われました`, 'bad', e.building.cell); });
@@ -243,7 +250,15 @@ const App = {
       { label: 'タイトルへ', cls: 'warn', fn: () => { this.closeModal(); this.setState(STATE.TITLE); } },
     ]);
   },
-  fmtTime(t) { const s = Math.floor(t); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; },
+  /** ゲーム内の時刻（DAY 3 14:05） */
+  fmtTime(t) {
+    const s = Math.floor(t), d = Math.floor(s / 86400) + 1, h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+    return `DAY${d} ${h}:${String(m).padStart(2, '0')}`;
+  },
+  fmtLeft(t) {
+    const left = Math.max(0, CONFIG.SEASON_DAYS * 86400 - t), d = Math.floor(left / 86400), h = Math.floor((left % 86400) / 3600);
+    return d ? `残り${d}日${h}時間` : `残り${h}時間${Math.floor((left % 3600) / 60)}分`;
+  },
 
   // ------------------------------------------------ GAMEOVER
   enterGAMEOVER(signal) {
@@ -252,7 +267,11 @@ const App = {
     let head, cls, detail;
     if (o.win) { head = '天下統一！'; cls = 'win'; detail = `${map.prefs[this.me].name}が全国の${Math.round(CONFIG.WIN_RATIO * 100)}%を支配しました。`; }
     else if (o.reason === 'rival') { head = '敗北…'; cls = 'lose'; detail = `${map.prefs[o.rival].name}が全国の${Math.round(CONFIG.WIN_RATIO * 100)}%を支配しました。`; }
-    else { head = '敗北…'; cls = 'lose'; detail = `${map.prefs[this.me].name}は全ての拠点を失いました。`; }
+    else if (o.reason === 'season') {
+      head = o.win ? 'シーズン優勝！' : 'シーズン終了';
+      cls = o.win ? 'win' : 'lose';
+      detail = o.win ? `${CONFIG.SEASON_DAYS}日間を戦い抜き、${map.prefs[this.me].name}が全国1位になりました。` : `${CONFIG.SEASON_DAYS}日間が終わりました。優勝は${map.prefs[o.rival].name}です。`;
+    } else { head = '敗北…'; cls = 'lose'; detail = `${map.prefs[this.me].name}は全ての拠点を失いました。`; }
     const body = `<div class="result-big ${cls}">${head}</div><p style="text-align:center">${detail}<br>経過 ${this.fmtTime(o.time)}・最終領土 ${fmt(g.counts[this.me])}マス・${g.rankOf(this.me)}位<br>あなたが建てた建物 ${g.myBuildings()}</p>`;
     this.openModal('ゲーム終了', body, [{ label: 'タイトルへ', cls: 'primary', fn: () => this.setState(STATE.TITLE) }]);
     signal.addEventListener('abort', () => { this.closeModal(); $('hud').classList.add('hidden'); });
@@ -265,11 +284,12 @@ const App = {
     if (!force && this.clock - (this.hudT || 0) < CONFIG.HUD_REFRESH) return;
     this.hudT = this.clock;
     const me = this.me;
-    $('h-time').textContent = '⏱ ' + this.fmtTime(g.time);
+    $('h-time').textContent = `⏱ ${this.fmtTime(g.time)}`;
+    $('h-left').textContent = this.fmtLeft(g.time) + (this.speed > 1 ? `（×${this.speed}）` : '');
     $('h-rank').textContent = g.rankOf(me) + '位';
     for (const r of RES_KEYS) {
       $('r-' + r).textContent = fmt(Math.floor(g.res[r][0]));
-      $('ri-' + r).textContent = `+${g.income[r].toFixed(1)}`;
+      $('ri-' + r).textContent = `+${Math.round(g.income[r] * 3600)}/時`;   // 1時間あたりの収入
     }
     $('r-units').textContent = `${g.myUnits()}`;
     const c = g.counts[me], d = c - this.map.initCounts[me];
@@ -309,7 +329,7 @@ const App = {
       let note = '';
       if (b.type === 'barracks') note = `訓練 ${Math.min(100, Math.floor(b.t / d.train * 100))}%（食料${d.trainFood}）`;
       if (b.type === 'farm' && b.mul < 1) note = '森を切り開いた農場（収穫は半分）';
-      if (b.type === 'lumber') note = `周りの森 ${b.forest}か所 → 木材 +${Math.min(CONFIG.LUMBER_MAX, b.forest * CONFIG.LUMBER_PER_FOREST).toFixed(1)}/秒`;
+      if (b.type === 'lumber') note = `周りの森 ${b.forest}か所 → 木材 +${Math.round(Math.min(CONFIG.LUMBER_MAX, b.forest * CONFIG.LUMBER_PER_FOREST) * 3600)}/時`;
       $('cp-note').textContent = note;
     }
   },
@@ -351,9 +371,9 @@ const App = {
     };
     let cx = 0, cz = 0, rot = 0, cs = 1, sn = 0, S = 1, OC = C.red;
     const at = (x, z, r, s, oc) => { cx = x; cz = z; rot = r; cs = Math.cos(r); sn = Math.sin(r); S = s; OC = oc || C.red; };
-    const P = (mesh, lx, ly, lz, sx, sy, sz, c, r2) => {
+    const P = (mesh, lx, ly, lz, sx, sy, sz, c, r2, tilt) => {
       const wx = cx + (lx * cs - lz * sn) * S, wz = cz + (lx * sn + lz * cs) * S;
-      I[mesh].push(wx, ly * S, wz, sx * S, sy * S, sz * S, c, rot + (r2 || 0));
+      I[mesh].push(wx, ly * S, wz, sx * S, sy * S, sz * S, c, rot + (r2 || 0), tilt || 0);
     };
     const pad = (lx, lz, w, d, c) => P('pad', lx, 0.015, lz, w, 0.01, d, c || C.dirt);
     const shadow = (w, d) => I.shadow.push(cx + 0.35 * S, 0.02, cz - 0.4 * S, w * 1.25 * S, 0.01, d * 1.25 * S, [0, 0, 0], rot);   // 影は奥・右へ
@@ -514,37 +534,162 @@ const App = {
             break;
         }
       }
-      // ---- 兵士
-      const a = clamp(g.acc / CONFIG.TICK, 0, 1);
-      if (detail) {
-        const sU = 0.55;
-        for (const u of g.units) {
-          const x = u.px + (u.x - u.px) * a, z = u.py + (u.y - u.py) * a;
-          if (!visible(x, z)) continue;
-          const dir = Math.atan2(u.y - u.py, u.x - u.px) || 0, moving = u.x !== u.px || u.y !== u.py;
-          const sw = moving ? Math.sin(t * 12 + u.id) * 0.12 : 0;
-          at(x, z, -dir + Math.PI / 2, sU, col[u.pref]);
-          I.shadow.push(x + 0.1, 0.02, z - 0.12, 0.45 * sU, 0.01, 0.3 * sU, [0, 0, 0], 0);
-          P('box', -0.09, 0, sw, 0.12, 0.42, 0.12, C.dark);
-          P('box', 0.09, 0, -sw, 0.12, 0.42, 0.12, C.dark);
-          P('box', 0, 0.42, 0, 0.36, 0.42, 0.22, col[u.pref]);
-          P('sphere', 0, 0.84, 0, 0.22, 0.22, 0.22, C.skin);
-          P('cone', 0, 0.95, 0, 0.42, 0.14, 0.42, u.fromPlayer ? [1, 0.84, 0.25] : C.dark);   // 陣笠
-          P('box', 0.2, 0.5, 0.16, 0.05, 0.05, 0.55, C.gun);
-          if (u.id % 6 === 0) { P('cylW', -0.2, 0.3, -0.1, 0.03, 1.1, 0.03, C.woodDk); P('box', -0.12, 1.0, -0.1, 0.16, 0.4, 0.02, col[u.pref]); }   // 背中の旗指物
-        }
-      } else {
-        const sU = clamp(cam.dist * 0.0022, 0.6, 16);
-        for (const u of g.units) {
-          const x = u.px + (u.x - u.px) * a, z = u.py + (u.y - u.py) * a;
-          if (!visible(x, z)) continue;
-          I.box.push(x, 0, z, sU * 0.45, sU * 0.85, sU * 0.35, col[u.pref], 0);
-          I.box.push(x, sU * 0.85, z, sU * 0.3, sU * 0.3, sU * 0.3, u.fromPlayer ? [1, 0.84, 0.25] : C.skin, 0);
-        }
-      }
+      // ---- 兵士（足軽：鉄砲隊と槍隊）
+      this.drawSoldiers(I, g, cpx, visible, col, C, at, P);
     }
     if (cpx > 1.4) this.addTrees(I, cpx);
     return I;
+  },
+  /**
+   * 兵士の描画。拡大するほど細かく：
+   *   遠景：色つきの小さな印 / 中景：脚が動く簡単な人形 / 近景：関節のある手足・鎧・陣笠・鉄砲や槍・旗指物
+   * 歩く動きは「進んだ距離」で進めるので、足が地面を滑らない。戦闘中は敵の方を向いて構える。
+   */
+  drawSoldiers(I, g, cpx, visible, col, C, at, P) {
+    const a = clamp(g.acc / CONFIG.TICK, 0, 1), t = this.clock;
+    if (!this.anim) this.anim = new Map();
+    const anim = this.anim;
+    const level = cpx > 5 ? 2 : cpx > 2.2 ? 1 : 0;
+    const sU = 0.58;
+    const idx = g.unitIndex;
+    const seen = this.animSeen = (this.animSeen || 0) + 1;
+    // 足軽の装備の色（県の色は旗指物・胴の縅（おどし）・陣笠の紋に）
+    const CLOTH = [[0.2, 0.22, 0.32], [0.3, 0.25, 0.2], [0.24, 0.27, 0.24]];
+    const LACQ = [0.24, 0.16, 0.12], SKINS = [[0.88, 0.72, 0.56], [0.8, 0.64, 0.48], [0.92, 0.77, 0.62]];
+    const mixc = (p, q, k) => [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k, p[2] + (q[2] - p[2]) * k];
+    for (const u of g.units) {
+      const x = u.px + (u.x - u.px) * a, z = u.py + (u.y - u.py) * a;
+      if (!visible(x, z)) continue;
+      // 向きと歩みの位相（ユニットごとに保持）
+      let s = anim.get(u.id);
+      if (!s) { s = { phase: (u.id * 1.7) % 6.28, yaw: (u.id * 2.3) % 6.28, x, z, fire: 0 }; anim.set(u.id, s); }
+      const dx = x - s.x, dz = z - s.z, moved = Math.hypot(dx, dz);
+      s.x = x; s.z = z; s.seen = seen;
+      const e = u.engaged >= 0 && idx ? idx.get(u.engaged) : null;
+      let target = s.yaw;
+      if (e) target = Math.atan2(e.x - x, e.y - z);
+      else if (moved > 1e-4) target = Math.atan2(dx, dz);
+      let dy = ((target - s.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      s.yaw += dy * 0.25;
+      s.phase += moved * 7.5;
+      const walking = moved > 1e-4 && !e;
+      const sw = walking ? Math.sin(s.phase) : 0;
+      const pc = col[u.pref];
+      if (level === 0) {
+        const sz = clamp(this.cam.dist * 0.0022, 0.6, 16);
+        I.box.push(x, 0, z, sz * 0.45, sz * 0.85, sz * 0.35, pc, 0);
+        I.box.push(x, sz * 0.85, z, sz * 0.3, sz * 0.3, sz * 0.3, u.fromPlayer ? [1, 0.84, 0.25] : C.skin, 0);
+        continue;
+      }
+      const gunner = u.id % 3 !== 0;     // 2/3 が鉄砲隊、1/3 が槍隊
+      const cloth = CLOTH[u.id % 3], skin = SKINS[(u.id >> 2) % 3];
+      const armor = mixc(LACQ, pc, 0.45);
+      at(x, z, -s.yaw, sU, pc);   // 部品の座標系は +z が正面
+      I.shadow.push(x + 0.12, 0.02, z - 0.14, 0.5 * sU, 0.01, 0.34 * sU, [0, 0, 0], 0);
+      if (level === 1) {
+        // 中景：脚・胴・頭・笠・武器
+        P('box', -0.08, 0.5, 0, 0.11, -0.5, 0.11, cloth, 0, sw * 0.6);
+        P('box', 0.08, 0.5, 0, 0.11, -0.5, 0.11, cloth, 0, -sw * 0.6);
+        P('box', 0, 0.48, 0, 0.32, 0.36, 0.2, armor);
+        P('sphere', 0, 0.84, 0, 0.19, 0.2, 0.19, skin);
+        P('cone', 0, 0.97, 0, 0.42, 0.11, 0.42, u.fromPlayer ? [1, 0.84, 0.25] : LACQ);
+        if (gunner) P('box', 0.17, 0.68, 0.05, 0.04, 0.04, 0.75, C.woodDk, 0, e ? 0 : -0.9);
+        else P('cyl', 0.2, 0.05, 0, 0.035, 1.75, 0.035, C.woodDk, 0, e ? 1.1 : 0.12);
+        if (u.id % 3 === 1) { P('cyl', 0, 0.55, -0.12, 0.025, 0.95, 0.025, C.woodDk); P('box', 0, 1.15, -0.12, 0.02, 0.36, 0.18, pc); }
+        continue;
+      }
+      // ---- 近景：関節のある人形
+      const hip = 0.5, L1 = 0.25, L2 = 0.25;
+      const leg = (side, ph) => {
+        const a1 = walking ? Math.sin(ph) * 0.55 : (e ? side * 0.18 : 0);
+        const bend = walking ? Math.max(0, Math.sin(ph - 1.2)) * 0.9 : (e ? 0.25 : 0.05);
+        const a2 = a1 + bend;
+        const lx = side * 0.085;
+        P('cyl', lx, hip, 0, 0.11, -L1, 0.11, cloth, 0, a1);                                   // 太もも
+        const ky = hip - L1 * Math.cos(a1), kz = -L1 * Math.sin(a1);
+        P('cyl', lx, ky, kz, 0.09, -L2, 0.09, [0.85, 0.82, 0.74], 0, a2);                      // すね（脚絆）
+        const fy = ky - L2 * Math.cos(a2), fz = kz - L2 * Math.sin(a2);
+        P('box', lx, Math.max(0, fy - 0.02), fz + 0.03, 0.1, 0.05, 0.17, [0.28, 0.2, 0.14]);  // 草鞋
+      };
+      leg(-1, s.phase);
+      leg(1, s.phase + Math.PI);
+      // 胴：着物の腰回り・胴丸（鎧）・縅（県の色の帯）
+      P('box', 0, hip - 0.06, 0, 0.3, 0.14, 0.2, cloth);
+      P('box', 0, hip + 0.06, 0, 0.32, 0.26, 0.21, armor);
+      P('box', 0, hip + 0.2, 0.002, 0.33, 0.04, 0.215, pc);
+      P('box', 0, hip + 0.06, 0.002, 0.33, 0.03, 0.215, [0.75, 0.62, 0.3]);
+      P('box', 0, hip + 0.32, 0, 0.26, 0.06, 0.18, armor);                                     // 肩
+      P('box', -0.19, hip + 0.28, 0, 0.1, 0.07, 0.17, armor);                                   // 袖（左）
+      P('box', 0.19, hip + 0.28, 0, 0.1, 0.07, 0.17, armor);                                    // 袖（右）
+      if (u.id % 4 === 0) P('box', 0, hip + 0.12, -0.14, 0.2, 0.18, 0.09, [0.4, 0.33, 0.24]);  // 背負い袋
+      // 頭：首・顔・陣笠（県の色の紋）
+      P('cyl', 0, hip + 0.37, 0, 0.08, 0.05, 0.08, skin);
+      P('sphere', 0, hip + 0.38, 0, 0.17, 0.2, 0.18, skin);
+      P('box', 0, hip + 0.48, 0.085, 0.09, 0.02, 0.01, [0.15, 0.12, 0.1]);                     // 目元の影
+      P('cone', 0, hip + 0.53, 0, 0.44, 0.11, 0.44, u.fromPlayer ? [0.85, 0.68, 0.2] : LACQ);
+      P('cyl', 0, hip + 0.6, 0, 0.07, 0.015, 0.07, pc);
+      // 腕と武器
+      const shoulderY = hip + 0.3;
+      const arm = (side, aUp, aLow) => {
+        const lx = side * 0.21;
+        P('cyl', lx, shoulderY, 0, 0.075, -0.2, 0.075, cloth, 0, aUp);
+        const ey = shoulderY - 0.2 * Math.cos(aUp), ez = -0.2 * Math.sin(aUp);
+        P('cyl', lx, ey, ez, 0.065, -0.19, 0.065, cloth, 0, aLow);
+        const hy = ey - 0.19 * Math.cos(aLow), hz = ez - 0.19 * Math.sin(aLow);
+        P('sphere', lx, hy - 0.04, hz, 0.07, 0.07, 0.07, skin);
+        return [lx, hy, hz];
+      };
+      if (e && gunner) {
+        // 射撃の構え：両腕を前へ、鉄砲を水平に。撃つたびに少し反動
+        const kick = ((t * 1.3 + u.id * 0.37) % 1) < 0.08 ? 0.05 : 0;
+        arm(-1, -1.35, -1.55);
+        arm(1, -0.9, -1.4);
+        P('box', 0.04, shoulderY - 0.02, 0.2 - kick, 0.045, 0.045, 0.85, C.woodDk);
+        P('box', 0.04, shoulderY - 0.01, 0.52 - kick, 0.03, 0.03, 0.3, [0.3, 0.3, 0.32]);       // 銃身
+      } else if (e) {
+        // 槍の突き
+        const th = Math.sin(t * 5 + u.id) * 0.12;
+        arm(-1, -0.7 - th, -1.2);
+        arm(1, -0.5 - th, -1.0);
+        P('cyl', 0.06, shoulderY - 0.1, -0.5 + th, 0.035, 2.0, 0.035, C.woodDk, 0, 1.45);
+        P('cone', 0.06, shoulderY - 0.1 + 2.0 * Math.cos(1.45) , -0.5 + th + 2.0 * Math.sin(1.45), 0.06, 0.18, 0.06, [0.75, 0.75, 0.78], 0, 1.45);
+      } else if (gunner) {
+        // 鉄砲を肩に担ぐ
+        arm(-1, -sw * 0.45, -sw * 0.45 - 0.2);
+        arm(1, -0.25, -1.9);
+        P('box', 0.21, shoulderY + 0.02, -0.05, 0.045, 0.045, 0.9, C.woodDk, 0, -0.95);
+      } else {
+        // 槍を立てて持つ
+        arm(-1, -sw * 0.45, -sw * 0.45 - 0.2);
+        arm(1, -0.35, -0.9);
+        P('cyl', 0.22, 0.02, 0.18, 0.033, 2.0, 0.033, C.woodDk, 0, 0.08);
+        P('cone', 0.22, 2.0, 0.18 + 2.0 * Math.sin(0.08), 0.06, 0.18, 0.06, [0.75, 0.75, 0.78], 0, 0.08);
+      }
+      // 旗指物（3人に1人）
+      if (u.id % 3 === 1) {
+        P('cyl', 0, hip + 0.1, -0.13, 0.022, 1.0, 0.022, C.woodDk);
+        P('box', 0.0, hip + 0.62, -0.13, 0.02, 0.46, 0.2, pc);
+        P('box', 0.0, hip + 1.07, -0.13, 0.02, 0.025, 0.22, C.woodDk);
+      }
+    }
+    // 亡骸（倒れてからしばらく残る）
+    if (this.corpses && this.corpses.length) {
+      const keep = [];
+      for (const c of this.corpses) {
+        const age = t - c.t;
+        if (age > 8) continue;
+        keep.push(c);
+        if (level < 2 || !visible(c.x, c.z)) continue;
+        const fall = Math.min(1, age * 3) * 1.45;
+        at(c.x, c.z, -c.yaw, sU, c.col);
+        P('box', 0, 0.02, 0, 0.32, 0.55, 0.22, mixc(LACQ, c.col, 0.45), 0, fall);
+        P('sphere', 0, 0.02 + 0.6 * Math.cos(fall), -0.6 * Math.sin(fall), 0.18, 0.2, 0.18, SKINS[0]);
+        P('box', 0.25, 0.02, -0.2, 0.045, 0.045, 0.85, C.woodDk, 0.7);
+      }
+      this.corpses = keep;
+    }
+    // 見えなくなったユニットの記録を時々片付ける
+    if (seen % 300 === 0) for (const [id, s] of anim) if (seen - s.seen > 300) anim.delete(id);
   },
   /** 森のマスに木を並べる（場所から決まる乱数。高いところ・北は針葉樹、低いところは広葉樹） */
   addTrees(I, cpx) {
@@ -783,7 +928,7 @@ const App = {
       this.keyPan(dt);
       this.cam.update(dt);
       if (this.state === STATE.PLAYING && this.game && !this.paused) {
-        this.game.update(dt);
+        this.game.update(dt, this.speed);
         this.updateHud(false);
       }
       const mixT = clamp((this.cam.pitch - CONFIG.CAMERA_PITCH) / (CONFIG.TOP_PITCH - CONFIG.CAMERA_PITCH), 0, 1);

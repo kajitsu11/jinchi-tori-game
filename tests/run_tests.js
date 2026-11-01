@@ -1,6 +1,6 @@
 // Playwright による自動テスト（RTS版）
 //   python3 tools/build.py && node tests/run_tests.js
-//   MINUTES=20 node tests/run_tests.js   （長時間テストのゲーム内分数を変更）
+//   HOURS=24 node tests/run_tests.js   （長時間テストのゲーム内時間を変更。7日間の確認は tools/season_sim.js）
 // スクリーンショットは test-results/ に保存される。
 const path = require('path');
 const fs = require('fs');
@@ -9,7 +9,7 @@ const { chromium } = require('playwright');
 const ROOT = path.resolve(__dirname, '..');
 const URL = 'file://' + path.join(ROOT, 'index.html') + '?seed=12345';
 const OUT = path.join(ROOT, 'test-results');
-const MINUTES = +(process.env.MINUTES || 10);
+const HOURS = +(process.env.HOURS || 6);
 fs.mkdirSync(OUT, { recursive: true });
 
 let passed = 0, failed = 0;
@@ -25,7 +25,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
   const shot = (name) => page.screenshot({ path: path.join(OUT, name + '.png') });
   const ev = (fn, arg) => page.evaluate(fn, arg);
   /** ゲーム内時間を sec 秒ぶん即座に進める（描画とは無関係に Sim.step を回す） */
-  const advance = (sec) => ev((sec) => { const g = window.__jinchi.game; for (let k = 0; k < Math.round(sec / 0.1); k++) g.step(0.1); }, sec);
+  const advance = (sec) => ev((sec) => { const g = window.__jinchi.game; for (let k = 0; k < Math.round(sec / 0.5); k++) g.step(0.5); }, sec);
   /** ワールド座標(x,z)をカメラに収めて、その画面座標を返す */
   const toScreen = (x, z, dist = 60) => ev(({ x, z, dist }) => {
     const { App } = window.__jinchi;
@@ -181,7 +181,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
       const g = window.__jinchi.game;
       const r = g.playerBuild('barracks', site);
       const u0 = g.myUnits(), f0 = g.res.food[0];
-      for (let k = 0; k < 200; k++) g.step(0.1);
+      for (let k = 0; k < 1100; k++) g.step(1);   // 兵舎の訓練は15分ごと
       return { ok: r.ok, u0, u1: g.myUnits(), spent: f0 - g.res.food[0] };
     }, site);
     assert(s.ok && s.u1 > s.u0, JSON.stringify(s));
@@ -215,7 +215,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
       e.x = e.px = b.x + 4; e.y = e.py = b.y; e.hp = 100; e.thinkAt = 1e9; e.path = null; e.dest = null;
       for (const u of g.units) if (u !== e && Math.hypot(u.x - b.x, u.y - b.y) < 12) { u.x = u.px = u.x + 300; }
       let minHp = 100;
-      for (let k = 0; k < 20; k++) { e.x = b.x + 4; e.y = b.y; g.step(0.1); if (!e.alive) { minHp = 0; break; } minHp = Math.min(minHp, e.hp); }
+      for (let k = 0; k < 40; k++) { e.x = b.x + 4; e.y = b.y; g.step(0.5); if (!e.alive) { minHp = 0; break; } minHp = Math.min(minHp, e.hp); }
       return { ok: r.ok, hp: minHp };
     }, site);
     assert(s.ok && s.hp < 100, JSON.stringify(s));
@@ -229,9 +229,9 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
       for (const u of g.units) if (u.pref === g.me && Math.hypot(u.x - b.x, u.y - b.y) < 15) { u.x = u.px = u.x + 300; }
       let destroyed = false;
       g.on('destroyed', (q) => { if (q === b) destroyed = true; });
-      for (let k = 0; k < 400 && !destroyed; k++) {
+      for (let k = 0; k < 900 && !destroyed; k++) {
         for (const e of ens) { if (!e.alive) continue; e.x = e.px = b.x + 1.5; e.y = e.py = b.y; e.hp = 100; e.thinkAt = 1e9; }
-        g.step(0.1);
+        g.step(1);
       }
       for (const e of ens) e.thinkAt = 0;
       return { destroyed, inList: g.buildings.includes(b) };
@@ -266,7 +266,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     await page.mouse.click(v[0], v[1]);
     const s = await ev((id) => {
       const g = window.__jinchi.game;
-      for (let k = 0; k < 40; k++) g.step(0.1);
+      for (let k = 0; k < 40; k++) g.step(0.5);
       const mine = g.units.filter((u) => u.fromPlayer);
       return { rally: g.rally, n: mine.length, going: mine.filter((u) => u.goalNode === id || u.chase >= 0 || u.engaged >= 0).length };
     }, tgt[0]);
@@ -349,14 +349,14 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     assert(await page.isHidden('#modal'), 'closed');
   });
 
-  await test(`${MINUTES}分間進めてもエラーなし・整合性OK`, async () => {
+  await test(`${HOURS}時間進めてもエラーなし・整合性OK`, async () => {
     await ev(() => { const g = window.__jinchi.game; for (let p = 1; p <= 47; p++) g.aiBuildAt[p] = g.time + Math.random() * 3; });
     const r = await ev((min) => {
       const g = window.__jinchi.game, m = g.map;
       const t = performance.now();
-      const steps = min * 600;
+      const steps = min * 3600 / 2;   // 2秒刻み（サーバーや早送りと同じ）
       let worst = 0;
-      for (let k = 0; k < steps && !g.over; k++) { const s = performance.now(); g.step(0.1); worst = Math.max(worst, performance.now() - s); }
+      for (let k = 0; k < steps && !g.over; k++) { const s = performance.now(); g.step(2); worst = Math.max(worst, performance.now() - s); }
       const ms = performance.now() - t;
       let sum = 0; for (let p = 1; p <= 47; p++) sum += g.counts[p];
       const cnt = new Int32Array(49), nc = new Int32Array(49);
@@ -369,11 +369,11 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
       for (const r of ['food', 'wood', 'gold']) for (let w = 0; w <= 47; w++) if (!Number.isFinite(g.res[r][w]) || g.res[r][w] < -1e-6) badRes++;
       return { sum, land: m.landCells, badOwner, badCnt, badPos, badB, badRes, perStep: +(ms / steps).toFixed(2), worst: +worst.toFixed(1),
         stats: g.stats, units: g.units.length, buildings: g.buildings.length, nodes: g.nodes.length, time: Math.round(g.time), over: g.over };
-    }, MINUTES);
+    }, HOURS);
     console.log(`      ${JSON.stringify(r)}`);
     assert(r.sum === r.land, 'sum');
     assert(!r.badOwner && !r.badCnt && !r.badPos && !r.badB && !r.badRes, 'consistency ' + JSON.stringify(r));
-    assert(r.stats.captures > 30 && r.stats.built > 500 && r.stats.trained > 500, 'activity');
+    assert(r.stats.captures > 3 && r.stats.built > 300 && r.stats.trained > 100, 'activity');
     assert(r.perStep < 15, 'performance ' + r.perStep);
     await ev(() => { const { App } = window.__jinchi; App.cam.goal = null; App.cam.dist = 900; App.updateHud(true); });
     await page.waitForTimeout(600);
@@ -388,7 +388,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
       const g = window.__jinchi.game, victim = g.me === 31 ? 30 : 31, by = victim === 31 ? 32 : 29;
       for (const n of g.nodes) if (n.owner === victim) g.capture(n, by);
       const log = [...document.querySelectorAll('#log div')].some((d) => d.textContent.includes('脱落'));
-      for (let k = 0; k < 100; k++) g.step(0.1);
+      for (let k = 0; k < 100; k++) g.step(0.5);
       return { elim: g.eliminated.has(victim), nodes: g.nodeCount[victim], cells: g.counts[victim], alive: g.units.filter((u) => u.pref === victim).length, log };
     });
     assert(r.elim && r.nodes === 0 && r.cells === 0 && r.alive === 0 && r.log, JSON.stringify(r));

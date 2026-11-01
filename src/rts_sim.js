@@ -305,18 +305,21 @@ class Sim {
   isRecent(i) { const n = this.nodes[this.nodeOf[i]]; return n && this.time - n.capturedAt < CONFIG.RECENT_HATCH; }
 
   // ---------------------------------------------------------- 進行
-  update(dt) {
+  /** 実時間 dt 秒ぶん進める。speed>1 は早送り（確認用）：刻みを長くして回数を抑える */
+  update(dt, speed = 1) {
     if (this.over) return;
-    this.acc += dt;
+    const tick = Math.min(CONFIG.TICK * Math.max(1, speed / 8), CONFIG.MAX_TICK);
+    this.acc += dt * speed;
     let steps = 0;
-    while (this.acc >= CONFIG.TICK && steps < 5 && !this.over) { this.step(CONFIG.TICK); this.acc -= CONFIG.TICK; steps++; }
-    if (steps >= 5) this.acc = 0;
+    while (this.acc >= tick && steps < 8 && !this.over) { this.step(tick); this.acc -= tick; steps++; }
+    if (steps >= 8) this.acc = 0;
+    this.lastTick = tick;
   }
   step(dt) {
     this.time += dt;
     this.pathBudget = CONFIG.PATH_BUDGET;
     this.incomeT += dt;
-    if (this.incomeT >= 1) { this.incomeT -= 1; this.produce(1); }
+    if (this.incomeT >= 1) { const s = Math.floor(this.incomeT); this.incomeT -= s; this.produce(s); }   // 刻みが1秒より長くても収入を取りこぼさない
     this.buildHash();
     this.planAll();
     this.aiBuildAll();
@@ -326,6 +329,7 @@ class Sim {
     this.moveAll(dt);
     this.updateNodes(dt);
     this.updateRecent();
+    if (this.time >= CONFIG.SEASON_DAYS * 86400) this.checkEnd();
     // 倒れた兵士は片付ける（兵舎から補充される）。空間ハッシュの番号がずれないよう、刻みの最後に行う
     if (this.units.some((u) => !u.alive)) this.units = this.units.filter((u) => u.alive);
   }
@@ -626,7 +630,7 @@ class Sim {
   thinkAll() {
     for (const u of this.units) {
       if (!u.alive || this.time < u.thinkAt) continue;
-      u.thinkAt = this.time + 0.8 + this.rng() * 0.6;
+      u.thinkAt = this.time + CONFIG.THINK_INTERVAL * (0.8 + this.rng() * 0.6);
       this.think(u);
     }
   }
@@ -796,6 +800,11 @@ class Sim {
     if (this.nodeCount[this.me] === 0) this.over = { win: false, reason: 'lost' };
     else if (this.counts[this.me] >= need) this.over = { win: true, reason: 'majority' };
     else for (let p = 1; p <= 47; p++) if (p !== this.me && this.counts[p] >= need) { this.over = { win: false, reason: 'rival', rival: p }; break; }
+    // シーズン終了：その時点で領土が一番広い県の勝ち
+    if (!this.over && this.time >= CONFIG.SEASON_DAYS * 86400) {
+      const top = this.ranking()[0];
+      this.over = { win: top === this.me, reason: 'season', rival: top };
+    }
     if (this.over) { this.over.time = this.time; this.emit('over', this.over); }
   }
 
