@@ -336,7 +336,7 @@ const CONFIG = {
   AI_TARGET_TIMEOUT: 120,
   AI_DEFENDER_RATIO: 0.25,
   // ---- 画面
-  CAMERA_PITCH: 46, TOP_PITCH: 90, TITLE_PITCH: 75, FOV: 34,
+  CAMERA_PITCH: 42, TOP_PITCH: 90, TITLE_PITCH: 75, FOV: 34,
   ZOOM_MIN: 6, ZOOM_MAX: 13500,
   FILL: 0.1, FILL_TOP: 0.78,      // 領土の塗りの濃さ（斜め／真上）
   TREE_MAX: 9000,
@@ -658,7 +658,11 @@ void main(){
   vec3 n = normalize(vec3((hL - hR) * 9.0, 1.0, (hU - hD) * 9.0));
   float shade = clamp(0.55 + 0.6 * dot(n, normalize(vec3(-0.55, 0.75, -0.45))), 0.45, 1.25);
   // 草原らしい細かいゆらぎ（拡大すると見える）
-  float nz = noise(vWorld * 0.35) * 0.45 + noise(vWorld * 1.6) * 0.35 + noise(vWorld * 6.0) * 0.2 * clamp(1.5 - cpp * 2.0, 0.0, 1.0);
+  float zin = clamp(1.5 - cpp * 2.0, 0.0, 1.0);
+  float nz = noise(vWorld * 0.35) * 0.45 + noise(vWorld * 1.6) * 0.35 + noise(vWorld * 6.0) * 0.2 * zin;
+  // 拡大したときの草（細かいまだらと、暗い草の株）
+  float fine = clamp(0.5 - cpp * 3.0, 0.0, 1.0);
+  nz += (noise(vWorld * 17.0) - 0.5) * 0.35 * fine + (noise(vWorld * 41.0) - 0.5) * 0.25 * fine;
   vec3 land = t.rgb * (0.82 + 0.36 * nz);
   // 低い周波数の「土の色の斑」と「濃い緑の斑」（草原のむら）
   float patch = noise(vWorld * 0.06 + 7.3), patch2 = noise(vWorld * 0.11 - 3.1);
@@ -743,26 +747,71 @@ attribute vec4 iColor;   // rgb + 向き(ラジアン)
 uniform mat4 uVP;
 varying vec3 vN;
 varying vec3 vC;
+varying vec3 vL;    // 部品の中の位置（ワールドの長さ。模様の細かさをそろえるため）
+varying vec3 vW;    // ワールド座標（模様のゆらぎ用）
 void main(){
   float c = cos(iColor.w), s = sin(iColor.w);
   vec3 p = aPos * iScale;
+  vL = p;
   p = vec3(c * p.x - s * p.z, p.y, s * p.x + c * p.z);
   vN = vec3(c * aNrm.x - s * aNrm.z, aNrm.y, s * aNrm.x + c * aNrm.z);
   vC = iColor.rgb;
+  vW = p + iOff;
   gl_Position = uVP * vec4(p + iOff, 1.0);
 }`;
 const MESH_FS = `
 precision mediump float;
 uniform float uAlpha;   // 影は半透明
-uniform float uFlat;    // 影は陰影をつけない
+uniform float uFlat;    // 影・地面の敷物は陰影をつけない
+uniform float uMat;     // 表面の模様 0:なし 1:屋根(瓦・茅) 2:壁(板目) 3:針葉樹 4:広葉樹 5:幹・柱(木目) 6:土の敷物
+uniform float uDetail;  // 拡大したときだけ模様を出す（0..1）
 varying vec3 vN;
 varying vec3 vC;
+varying vec3 vL;
+varying vec3 vW;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 15731.7); }
+float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y); }
 void main(){
   vec3 n = normalize(vN);
-  float l = 0.42 + 0.68 * max(dot(n, normalize(vec3(-0.55, 0.75, -0.45))), 0.0) + 0.08 * n.y;
-  gl_FragColor = vec4(mix(vC * l, vC, uFlat), uAlpha);
+  vec3 c = vC;
+  float d = uDetail;
+  if (d > 0.01) {
+    if (uMat < 1.5) {
+      // 屋根：段になった瓦・茅の筋と、細かいざらつき
+      float row = fract(vL.y * 9.0);
+      c *= 1.0 - d * (0.22 * smoothstep(0.75, 1.0, row) + 0.1 * vn(vW.xz * 30.0 + vL.y * 20.0));
+      if (uMat > 0.5 && abs(n.y) < 0.3) c *= 1.0 - 0.12 * d;
+    } else if (uMat < 2.5) {
+      // 壁：縦の板目と、柱・梁の帯（上面は少し明るく）
+      if (abs(n.y) < 0.5) {
+        float u = abs(n.x) > abs(n.z) ? vL.z : vL.x;
+        float plank = smoothstep(0.85, 1.0, fract(u * 11.0));
+        float beam = smoothstep(0.9, 1.0, fract(vL.y * 3.2));
+        c *= 1.0 - d * (0.16 * plank + 0.22 * beam + 0.08 * vn(vW.xz * 22.0 + vL.y * 9.0));
+      } else c *= 1.0 + 0.06 * d;
+    } else if (uMat < 3.5) {
+      // 針葉樹：枝の段
+      c *= 1.0 - d * (0.28 * smoothstep(0.55, 1.0, fract(vL.y * 4.5)) + 0.18 * vn(vW.xz * 18.0 + vL.y * 7.0));
+    } else if (uMat < 4.5) {
+      // 広葉樹：葉のかたまり
+      float k = vn(vW.xz * 12.0 + vW.y * 9.0) * 0.6 + vn(vW.xz * 31.0 - vW.y * 17.0) * 0.4;
+      c *= 0.72 + 0.5 * k * d + (1.0 - d) * 0.28;
+    } else if (uMat < 5.5) {
+      float u = abs(n.x) > abs(n.z) ? vL.z : vL.x;
+      c *= 1.0 - d * 0.2 * vn(vec2(u * 40.0, vL.y * 4.0));
+    } else {
+      // 土の敷物：まだら
+      c *= 0.86 + 0.24 * vn(vW.xz * 6.0) * (0.4 + 0.6 * d);
+    }
+  }
+  // 光は手前左上から（見えている壁が明るくなるように）
+  float l = 0.45 + 0.62 * max(dot(n, normalize(vec3(-0.45, 0.8, 0.5))), 0.0) + 0.06 * n.y;
+  gl_FragColor = vec4(mix(c * l, c, uFlat), uAlpha);
 }`;
 const INST_FLOATS = 10;
+/** インスタンスの種類 → 表面の模様（名前の大文字以降は同じ形で模様違い：boxW=板目の箱 など） */
+const MESH_MAT = { roof: 1, boxW: 2, coneT: 3, sphereT: 4, cylW: 5, pad: 6, roofT: 1 };
 
 function compile(gl, vs, fs, defs) {
   const mk = (type, src) => {
@@ -1077,19 +1126,24 @@ class Renderer {
       gl.useProgram(M.p);
       gl.uniformMatrix4fv(M.u.uVP, false, vp);
       const attrs = [[M.a.iOff, 3, 0], [M.a.iScale, 3, 12], [M.a.iColor, 4, 24]];
-      const order = Object.keys(meshes).sort((a, b) => (b === 'shadow') - (a === 'shadow'));
+      // 地面に敷くもの（土の敷物 → 影）を先に、つぎに立体
+      const rank = (n) => (n === 'pad' ? 0 : n === 'shadow' ? 1 : 2);
+      const order = Object.keys(meshes).sort((a, b) => rank(a) - rank(b));
+      gl.uniform1f(M.u.uDetail, clamp((cam.cellPx() - 4) / 10, 0, 1));
       for (const name of order) {
         const inst = meshes[name];
         if (!inst || !inst.count) continue;
-        const shadow = name === 'shadow';
-        if (shadow) {
+        const flat = name === 'shadow' || name === 'pad';
+        if (flat) {
           gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-          gl.uniform1f(M.u.uAlpha, 0.28); gl.uniform1f(M.u.uFlat, 1);
+          gl.uniform1f(M.u.uAlpha, name === 'pad' ? 0.85 : 0.28); gl.uniform1f(M.u.uFlat, 1);
         } else {
           if (!this._solid) { gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST); gl.clear(gl.DEPTH_BUFFER_BIT); this._solid = true; }
           gl.uniform1f(M.u.uAlpha, 1); gl.uniform1f(M.u.uFlat, 0);
         }
-        const mb = this.meshBufs[shadow ? 'cyl' : name];
+        const base = name.replace(/[A-Z].*$/, '');   // roofT → roof など（模様だけ違う同じ形）
+        gl.uniform1f(M.u.uMat, MESH_MAT[name] || 0);
+        const mb = this.meshBufs[flat ? 'cyl' : base];
         gl.bindBuffer(gl.ARRAY_BUFFER, mb.buf);
         gl.enableVertexAttribArray(M.a.aPos); gl.enableVertexAttribArray(M.a.aNrm);
         gl.vertexAttribPointer(M.a.aPos, 3, gl.FLOAT, false, 24, 0);
@@ -2103,7 +2157,7 @@ const App = {
     $('h-chip').style.background = pr.color;
     $('h-pref').textContent = pr.name;
     this.buildMenu();
-    this.goHome(260);
+    this.goHome(48);   // 最初は自県の都を大きく映す
     // シミュレーションのイベント
     g.on('cells', (cells) => { for (const i of cells) this.renderer.cellChanged(i); this.minimapDirty = true; });
     g.on('capture', (e) => this.onCapture(e));
@@ -2285,10 +2339,11 @@ const App = {
     this.openModal(`戦況（${this.fmtTime(g.time)}）`, rows, [{ label: '閉じる', fn: () => this.closeModal() }]);
   },
 
-  // ------------------------------------------------ 3D：建物・兵士・木
+  // ------------------------------------------------ 3D：建物・兵士・木（日本風）
   buildScene() {
     const g = this.game, map = this.map, cam = this.cam;
-    if (!this.inst) this.inst = { shadow: new InstanceList(), box: new InstanceList(), roof: new InstanceList(), cone: new InstanceList(), cyl: new InstanceList(), sphere: new InstanceList() };
+    const KINDS = ['pad', 'shadow', 'box', 'boxW', 'roof', 'roofT', 'cone', 'coneT', 'cyl', 'cylW', 'sphere', 'sphereT'];
+    if (!this.inst) { this.inst = {}; for (const k of KINDS) this.inst[k] = new InstanceList(); }
     const I = this.inst;
     for (const k in I) I[k].clear();
     this.smoke = [];
@@ -2299,41 +2354,59 @@ const App = {
     const cpx = cam.cellPx();
     const detail = cpx > 2.6;                         // 拡大したときだけ細かいモデル
     const big = clamp(cam.dist * 0.0016, 0.9, 7);    // 引いているときは大きめに（見つけやすく）
-    // 色
     const C = {
-      plaster: [0.9, 0.85, 0.72], plaster2: [0.84, 0.76, 0.62], brick: [0.64, 0.36, 0.26], stone: [0.68, 0.66, 0.6], stoneDk: [0.5, 0.48, 0.45],
-      roofRed: [0.66, 0.27, 0.18], roofDk: [0.33, 0.29, 0.27], roofSlate: [0.36, 0.4, 0.46], copper: [0.45, 0.66, 0.56], wood: [0.5, 0.34, 0.2],
-      woodLt: [0.68, 0.52, 0.32], straw: [0.86, 0.76, 0.42], crop: [0.44, 0.62, 0.22], crop2: [0.8, 0.7, 0.3], soil: [0.5, 0.38, 0.24],
-      win: [0.16, 0.14, 0.13], smoke: [0.3, 0.3, 0.3], white: [0.95, 0.94, 0.9], skin: [0.92, 0.78, 0.62], gun: [0.18, 0.16, 0.14],
+      wood: [0.42, 0.29, 0.18], woodDk: [0.3, 0.2, 0.13], woodLt: [0.66, 0.5, 0.32], plaster: [0.93, 0.9, 0.82],
+      thatch: [0.7, 0.58, 0.34], thatchDk: [0.56, 0.45, 0.28], kawara: [0.38, 0.39, 0.43], stone: [0.66, 0.64, 0.58], stoneDk: [0.5, 0.48, 0.44],
+      dirt: [0.58, 0.48, 0.32], dirt2: [0.66, 0.58, 0.42], crop: [0.48, 0.64, 0.22], crop2: [0.84, 0.72, 0.3], hay: [0.9, 0.74, 0.32],
+      water: [0.3, 0.5, 0.55], skin: [0.92, 0.78, 0.62], gun: [0.18, 0.16, 0.14], dark: [0.15, 0.13, 0.12], lantern: [0.95, 0.75, 0.4],
+      red: [0.72, 0.2, 0.15], green: [0.3, 0.55, 0.2],
     };
-    // 部品を置く：建物の中心 (cx,cz)・向き rot・大きさ s の座標系で
-    let cx = 0, cz = 0, rot = 0, cs = 1, sn = 0, S = 1;
-    const at = (x, z, r, s) => { cx = x; cz = z; rot = r; cs = Math.cos(r); sn = Math.sin(r); S = s; };
+    let cx = 0, cz = 0, rot = 0, cs = 1, sn = 0, S = 1, OC = C.red;
+    const at = (x, z, r, s, oc) => { cx = x; cz = z; rot = r; cs = Math.cos(r); sn = Math.sin(r); S = s; OC = oc || C.red; };
     const P = (mesh, lx, ly, lz, sx, sy, sz, c, r2) => {
       const wx = cx + (lx * cs - lz * sn) * S, wz = cz + (lx * sn + lz * cs) * S;
       I[mesh].push(wx, ly * S, wz, sx * S, sy * S, sz * S, c, rot + (r2 || 0));
     };
-    const shadow = (w, d) => I.shadow.push(cx + 0.3 * S, 0.02, cz + 0.35 * S, w * 1.25 * S, 0.01, d * 1.25 * S, [0, 0, 0], rot);
+    const pad = (lx, lz, w, d, c) => P('pad', lx, 0.015, lz, w, 0.01, d, c || C.dirt);
+    const shadow = (w, d) => I.shadow.push(cx + 0.35 * S, 0.02, cz - 0.4 * S, w * 1.25 * S, 0.01, d * 1.25 * S, [0, 0, 0], rot);   // 影は奥・右へ
     const smokeAt = (lx, ly, lz) => { if (this.smoke.length < 80) this.smoke.push([cx + (lx * cs - lz * sn) * S, ly * S, cz + (lx * sn + lz * cs) * S]); };
-    // 家：壁・屋根・窓・煙突
-    const house = (lx, lz, w, d, h, wall, roofC, r2, chimney) => {
-      P('box', lx, 0, lz, w, h, d, wall, r2);
-      P('roof', lx, h, lz, w * 1.08, h * 0.65, d * 1.12, roofC, r2);
+    // 日本家屋：高床の縁側・板壁・持ち主の色の帯・深い軒の屋根（茅葺き or 瓦）
+    const minka = (lx, lz, w, d, h, roofC, r2, opt = {}) => {
+      if (detail) P('boxW', lx, 0, lz, w * 1.12, h * 0.12, d * 1.12, C.woodDk, r2);
+      P('boxW', lx, detail ? h * 0.12 : 0, lz, w, h * (detail ? 0.88 : 1), d, opt.wall || C.wood, r2);
       if (detail) {
-        P('box', lx, h * 0.45, lz + d * 0.51, w * 0.18, h * 0.28, 0.02, C.win, r2);
-        P('box', lx + w * 0.3, h * 0.45, lz + d * 0.51, w * 0.14, h * 0.28, 0.02, C.win, r2);
-        P('box', lx - w * 0.3, h * 0.45, lz + d * 0.51, w * 0.14, h * 0.28, 0.02, C.win, r2);
-        if (chimney) { P('box', lx + w * 0.28, h, lz - d * 0.15, w * 0.12, h * 0.75, w * 0.12, C.brick, r2); smokeAt(lx + w * 0.28, h * 1.8, lz - d * 0.15); }
+        P('box', lx, h * 0.9, lz, w * 1.02, h * 0.08, d * 1.02, OC, r2);   // 持ち主の色の帯
+        // 戸・障子（明るい格子）
+        const ox = Math.cos(r2 || 0), oz = Math.sin(r2 || 0);
+        P('box', lx - oz * 0 + ox * 0, h * 0.18, lz + d * 0.505, w * 0.36, h * 0.5, 0.02, C.plaster, r2);
+        P('box', lx, h * 0.18, lz + d * 0.51, 0.02, h * 0.5, 0.02, C.woodDk, r2);
+        if (opt.lantern) { P('cylW', lx + w * 0.62, 0, lz + d * 0.7, 0.04, h * 0.7, 0.04, C.woodDk); P('sphere', lx + w * 0.62, h * 0.7, lz + d * 0.7, 0.16, 0.2, 0.16, C.lantern); }
       }
+      P('roofT', lx, h, lz, w * 1.3, h * 0.85, d * 1.35, roofC, r2);
+      if (detail) P('box', lx, h * 1.82, lz, w * 1.2, h * 0.07, 0.08, C.woodDk, r2);   // 棟
     };
-    const tower = (lx, lz, r, h, roofC) => {
-      P('cyl', lx, 0, lz, r, h, r, C.stone);
-      if (detail) for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; P('box', lx + Math.cos(a) * r * 0.45, h, lz + Math.sin(a) * r * 0.45, r * 0.16, r * 0.18, r * 0.16, C.stone); }
-      P('cone', lx, h + (detail ? r * 0.15 : 0), lz, r * 1.15, r * 0.9, r * 1.15, roofC);
+    const flag = (lx, lz, h, c) => {   // のぼり旗
+      P('cylW', lx, 0, lz, 0.05, h, 0.05, C.woodDk);
+      P('box', lx + 0.13, h * 0.45, lz, 0.22, h * 0.5, 0.02, c);
     };
-    const flag = (lx, lz, h, c) => {
-      P('cyl', lx, 0, lz, 0.05, h, 0.05, C.wood);
-      P('box', lx + 0.22, h - 0.32, lz, 0.42, 0.28, 0.02, c);
+    const yagura = (lx, lz, s2, roofC) => {   // 物見櫓（4本脚）
+      for (const [a, b] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) P('cylW', lx + a * 0.3 * s2, 0, lz + b * 0.3 * s2, 0.07 * s2, 1.7 * s2, 0.07 * s2, C.wood);
+      P('boxW', lx, 1.5 * s2, lz, 0.8 * s2, 0.4 * s2, 0.8 * s2, C.wood);
+      P('box', lx, 1.85 * s2, lz, 0.82 * s2, 0.06 * s2, 0.82 * s2, OC);
+      P('roofT', lx, 1.9 * s2, lz, 1.05 * s2, 0.45 * s2, 1.05 * s2, roofC);
+    };
+    const tenshu = (lx, lz, s2) => {   // 天守：石垣・白壁・黒瓦の三層
+      P('box', lx, 0, lz, 2.0 * s2, 0.55 * s2, 1.7 * s2, C.stone);
+      if (detail) P('box', lx, 0.5 * s2, lz, 2.06 * s2, 0.06 * s2, 1.76 * s2, C.stoneDk);
+      let y = 0.55 * s2, w = 1.6 * s2, d = 1.35 * s2;
+      for (let k = 0; k < 3; k++) {
+        const h = (k === 0 ? 0.6 : 0.45) * s2;
+        P('boxW', lx, y, lz, w, h, d, C.plaster);
+        if (detail) { P('box', lx, y + h * 0.45, lz + d * 0.505, w * 0.7, h * 0.18, 0.02, C.dark); P('box', lx, y + h * 0.88, lz, w * 1.02, h * 0.1, d * 1.02, OC); }
+        P('roof', lx, y + h, lz, w * 1.35, 0.35 * s2, d * 1.4, C.kawara);
+        y += h + 0.25 * s2; w *= 0.72; d *= 0.72;
+      }
+      if (detail) { P('box', lx - w * 0.6, y - 0.05 * s2, lz, 0.12 * s2, 0.2 * s2, 0.06 * s2, [0.85, 0.7, 0.25]); P('box', lx + w * 0.6, y - 0.05 * s2, lz, 0.12 * s2, 0.2 * s2, 0.06 * s2, [0.85, 0.7, 0.25]); }
     };
     // ---- 拠点
     const nodes = g ? g.nodes : map.prefs.filter(Boolean).map((p) => ({ x: (p.capital % map.W) + 0.5, y: ((p.capital / map.W) | 0) + 0.5, owner: p.id, type: 'capital' }));
@@ -2341,116 +2414,119 @@ const App = {
       if (!visible(n.x, n.y)) continue;
       const c = col[n.owner];
       if (n.type === 'capital') {
-        // 都：石畳の広場・宮殿（ドームと塔）・周りの街並み・工場の煙突
-        at(n.x, n.y, 0, big * 1.15);
-        shadow(4.6, 4.2);
-        P('box', 0, 0, 0, 4.4, 0.12, 4.0, C.stoneDk);
-        P('box', 0, 0.12, 0, 2.0, 1.0, 1.4, C.plaster);
-        P('box', 0, 1.12, 0, 1.4, 0.6, 1.0, C.plaster2);
-        P('sphere', 0, 1.65, 0, 0.9, 0.85, 0.9, C.copper);
-        P('cyl', 0, 2.4, 0, 0.05, 0.35, 0.05, C.gun);
-        tower(-1.25, -0.8, 0.5, 1.6, C.roofSlate);
-        tower(1.25, -0.8, 0.5, 1.6, C.roofSlate);
-        if (detail) for (let k = -2; k <= 2; k++) P('box', k * 0.36, 0.45, 0.71, 0.18, 0.4, 0.02, C.win);
-        const ring = detail ? 10 : 5;
+        // 都：堀・石垣の天守・城下町
+        at(n.x, n.y, 0, big * 1.15, c);
+        pad(0, 0, 6.2, 5.6, C.dirt2);
+        shadow(4.4, 4.0);
+        if (detail) { P('box', 0, 0.01, -1.9, 3.6, 0.03, 0.35, C.water); P('box', 0, 0.01, 1.9, 3.6, 0.03, 0.35, C.water); }
+        tenshu(0, -0.2, 1.0);
+        const ring = detail ? 12 : 6;
         for (let k = 0; k < ring; k++) {
-          const a = k / ring * Math.PI * 2 + 0.3, rr = 2.1 + (k % 2) * 0.25;
-          house(Math.cos(a) * rr, Math.sin(a) * rr, 0.7 + (k % 3) * 0.1, 0.55, 0.55 + (k % 4) * 0.12,
-            k % 3 === 0 ? C.brick : k % 3 === 1 ? C.plaster : C.plaster2, k % 2 ? C.roofRed : C.roofDk, -a, k % 3 === 0);
+          const a = k / ring * Math.PI * 2 + 0.25, rr = 2.35 + (k % 2) * 0.35;
+          minka(Math.cos(a) * rr, Math.sin(a) * rr, 0.7, 0.55, 0.5 + (k % 3) * 0.06, k % 3 ? C.kawara : C.thatch, -a + Math.PI / 2, { lantern: k % 4 === 0 });
+          if (k % 3 === 0) smokeAt(Math.cos(a) * rr, 1.0, Math.sin(a) * rr);
         }
-        if (detail) {
-          for (let k = 0; k < 3; k++) { P('cyl', 1.7 + k * 0.28, 0, 1.55, 0.16, 1.9, 0.16, C.brick); smokeAt(1.7 + k * 0.28, 2.0, 1.55); }
-          P('box', 1.95, 0, 1.6, 1.0, 0.7, 0.6, C.brick);
-        }
-        flag(0.9, 0.9, 2.2, c);
+        flag(1.15, 0.95, 1.9, c); flag(-1.15, 0.95, 1.9, c);
       } else if (n.type === 'town') {
-        // 町：教会と家々
-        at(n.x, n.y, (n.x * 7.1 + n.y) % 6.28, big * 0.9);
+        // 町：寺（本堂・五重塔）と町家
+        at(n.x, n.y, (n.x * 7.1 + n.y) % 6.28, big * 0.9, c);
+        pad(0, 0, 4.0, 3.6);
         shadow(3.0, 2.8);
-        P('box', 0, 0, 0, 0.7, 0.9, 1.2, C.plaster);
-        P('roof', 0, 0.9, 0, 0.78, 0.5, 1.28, C.roofDk, Math.PI / 2);
-        P('box', 0, 0, -0.75, 0.42, 1.5, 0.42, C.plaster);
-        P('cone', 0, 1.5, -0.75, 0.5, 0.7, 0.5, C.roofSlate);
+        minka(-0.25, -0.1, 1.1, 0.85, 0.7, C.kawara, 0);
+        // 五重塔
+        let y = 0, w = 0.62;
+        for (let k = 0; k < (detail ? 5 : 3); k++) {
+          P('boxW', 0.75, y, -0.6, w * 0.7, 0.3, w * 0.7, C.wood);
+          P('roof', 0.75, y + 0.3, -0.6, w * 1.25, 0.16, w * 1.25, C.kawara);
+          y += 0.42; w *= 0.88;
+        }
+        P('cylW', 0.75, y, -0.6, 0.04, 0.5, 0.04, [0.8, 0.65, 0.25]);
         const k0 = detail ? 8 : 4;
         for (let k = 0; k < k0; k++) {
-          const a = k / k0 * Math.PI * 2, rr = 1.25 + (k % 2) * 0.3;
-          house(Math.cos(a) * rr, Math.sin(a) * rr, 0.6, 0.48, 0.45 + (k % 3) * 0.08, k % 2 ? C.plaster2 : C.brick, k % 2 ? C.roofRed : C.roofDk, -a, k % 2 === 0);
+          const a = k / k0 * Math.PI * 2 + 0.6, rr = 1.45 + (k % 2) * 0.3;
+          minka(Math.cos(a) * rr, Math.sin(a) * rr, 0.6, 0.48, 0.42 + (k % 3) * 0.06, k % 2 ? C.thatch : C.kawara, -a + Math.PI / 2, { lantern: k === 2 });
         }
-        flag(0.55, 0.5, 1.6, c);
+        flag(-0.9, 0.7, 1.5, c);
       } else {
-        // 砦：石壁・角の丸い塔・天守
-        at(n.x, n.y, 0, big * 1.0);
+        // 砦：石垣の上の白い塀・四隅の櫓・中央の天守
+        at(n.x, n.y, 0, big * 1.0, c);
+        pad(0, 0, 4.0, 4.0, C.dirt2);
         shadow(3.3, 3.3);
         for (let k = 0; k < 4; k++) {
-          const a = k * Math.PI / 2;
-          P('box', Math.cos(a) * 1.3, 0, Math.sin(a) * 1.3, k % 2 ? 0.25 : 2.6, 0.75, k % 2 ? 2.6 : 0.25, C.stone);
-          if (detail) for (let q = -3; q <= 3; q++) P('box', Math.cos(a) * 1.3 + (k % 2 ? 0 : q * 0.36), 0.75, Math.sin(a) * 1.3 + (k % 2 ? q * 0.36 : 0), 0.14, 0.14, 0.14, C.stone);
+          const a = k * Math.PI / 2, ox = Math.cos(a) * 1.35, oz = Math.sin(a) * 1.35, wx = k % 2 ? 0.3 : 2.7, wz = k % 2 ? 2.7 : 0.3;
+          P('box', ox, 0, oz, wx, 0.4, wz, C.stone);
+          P('boxW', ox, 0.4, oz, wx * (k % 2 ? 0.6 : 1), 0.3, wz * (k % 2 ? 1 : 0.6), C.plaster);
+          P('roof', ox, 0.7, oz, wx * (k % 2 ? 0.9 : 1.02), 0.15, wz * (k % 2 ? 1.02 : 0.9), C.kawara, k % 2 ? Math.PI / 2 : 0);
         }
-        for (const [tx, tz] of [[1.3, 1.3], [-1.3, 1.3], [1.3, -1.3], [-1.3, -1.3]]) tower(tx, tz, 0.62, 1.15, c);
-        P('box', 0, 0, 0, 1.0, 1.4, 1.0, C.stoneDk);
-        P('roof', 0, 1.4, 0, 1.1, 0.5, 1.1, C.roofDk);
-        P('box', 0, 0, 1.3, 0.6, 0.95, 0.4, C.stoneDk);
-        flag(0, 0, 2.4, c);
+        for (const [tx, tz] of [[1.35, 1.35], [-1.35, 1.35], [1.35, -1.35], [-1.35, -1.35]]) yagura(tx, tz, 0.55, C.kawara);
+        tenshu(0, 0, 0.55);
+        flag(0.5, 0.9, 1.8, c);
       }
     }
     if (g) {
       // ---- 建物
       const t = this.clock;
       for (const b of g.buildings) {
-        if (cpx < 0.3 || !visible(b.x, b.y)) continue;   // 日本全体を見ているときは拠点だけ
+        if (cpx < 0.3 || !visible(b.x, b.y)) continue;
         const c = col[b.owner];
-        at(b.x, b.y, b.rot, big * 0.8);
+        at(b.x, b.y, b.rot, big * 0.8, c);
         switch (b.type) {
           case 'farm': {
+            // 区画に分かれた畑と稲わらの束、農家
+            pad(0, 0, 3.2, 2.6, C.dirt);
             shadow(1.4, 1.2);
-            P('box', 0, 0, 0, 2.8, 0.04, 2.2, C.soil);
-            if (detail) for (let k = 0; k < 7; k++) P('box', -1.15 + k * 0.33, 0.04, 0.15, 0.2, 0.08, 1.7, (k + b.id) % 3 ? C.crop : C.crop2);
-            else P('box', 0, 0.04, 0.15, 2.4, 0.06, 1.7, C.crop);
-            house(0.85, -0.85, 0.9, 0.6, 0.55, C.brick, C.roofRed, 0, false);
-            P('cyl', 1.25, 0, -0.25, 0.4, 1.0, 0.4, C.white);
-            P('sphere', 1.25, 0.8, -0.25, 0.42, 0.42, 0.42, C.roofSlate);
-            if (detail) for (let k = 0; k < 6; k++) P('box', -1.4 + k * 0.56, 0, 1.12, 0.04, 0.22, 0.04, C.woodLt);
+            for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) {
+              const px = -1.0 + i * 0.85, pz = -0.15 + j * 0.85, cc = (i + j + b.id) % 3 === 0 ? C.crop2 : C.crop;
+              P('box', px, 0.02, pz, 0.78, 0.05, 0.78, cc);
+              if (detail) for (let r = 0; r < 4; r++) P('box', px - 0.28 + r * 0.19, 0.06, pz, 0.08, 0.06, 0.7, [cc[0] * 0.8, cc[1] * 0.85, cc[2] * 0.8]);
+            }
+            if (detail) for (let k = 0; k < 4; k++) P('cylW', -0.9 + k * 0.6, 0.12, 1.15, 0.24, 0.5, 0.24, C.hay, Math.PI / 2);
+            minka(0.95, -0.95, 0.85, 0.6, 0.5, C.thatch, 0);
             break;
           }
           case 'lumber':
+            pad(0, 0, 2.6, 2.0);
             shadow(1.8, 1.4);
-            house(-0.2, 0, 1.1, 0.8, 0.6, C.woodLt, C.roofDk, 0, true);
-            for (let k = 0; k < 3; k++) for (let q = 0; q < 3 - k; q++) P('cyl', 0.95 + q * 0.2 + k * 0.1, 0.1 + k * 0.17, 0.6, 0.18, 0.95, 0.18, C.wood, Math.PI / 2);
-            if (detail) { P('cyl', -0.9, 0, 0.75, 0.3, 0.2, 0.3, C.woodLt); P('box', 0.9, 0, -0.5, 0.5, 0.35, 0.18, C.wood); }
+            minka(-0.3, -0.1, 1.0, 0.75, 0.55, C.thatchDk, 0);
+            for (let k = 0; k < 3; k++) for (let q = 0; q < 3 - k; q++) P('cylW', 0.9 + q * 0.2 + k * 0.1, 0.1 + k * 0.17, 0.6, 0.18, 0.95, 0.18, C.woodLt, Math.PI / 2);
+            if (detail) { P('cylW', -0.9, 0, 0.75, 0.32, 0.22, 0.32, C.woodLt); P('boxW', 0.9, 0, -0.55, 0.55, 0.3, 0.18, C.wood); }
             break;
           case 'market': {
+            pad(0, 0, 2.8, 2.4, C.dirt2);
             shadow(2.0, 1.8);
-            house(0, -0.35, 1.0, 0.8, 0.75, C.plaster, C.roofRed, 0, true);
-            const aw = [[0.85, 0.2, 0.2], [0.2, 0.45, 0.8], [0.9, 0.75, 0.2], [0.25, 0.6, 0.3]];
+            minka(0, -0.45, 1.1, 0.75, 0.6, C.kawara, 0, { lantern: true });
+            const aw = [[0.78, 0.22, 0.18], [0.22, 0.4, 0.7], [0.88, 0.75, 0.25], [0.25, 0.55, 0.3]];
             for (let k = 0; k < 4; k++) {
-              const sx = -0.9 + k * 0.6, sz = 0.75;
-              P('box', sx, 0, sz, 0.42, 0.3, 0.35, C.woodLt);
-              P('roof', sx, 0.42, sz, 0.55, 0.16, 0.5, aw[k]);
-              if (detail) { P('cyl', sx - 0.22, 0, sz + 0.2, 0.03, 0.42, 0.03, C.wood); P('cyl', sx + 0.22, 0, sz + 0.2, 0.03, 0.42, 0.03, C.wood); }
+              const sx = -0.9 + k * 0.6, sz = 0.7;
+              P('boxW', sx, 0, sz, 0.42, 0.28, 0.35, C.woodLt);
+              P('roof', sx, 0.42, sz, 0.55, 0.15, 0.5, aw[k]);
+              if (detail) { P('cylW', sx - 0.22, 0, sz + 0.2, 0.03, 0.42, 0.03, C.woodDk); P('cylW', sx + 0.22, 0, sz + 0.2, 0.03, 0.42, 0.03, C.woodDk);
+                P('sphere', sx, 0.28, sz, 0.18, 0.12, 0.18, k % 2 ? [0.85, 0.35, 0.2] : [0.6, 0.75, 0.3]); }
             }
             break;
           }
           case 'barracks':
+            // 兵舎：長屋と練兵場の柵
+            pad(0, 0.2, 3.0, 2.6, C.dirt2);
             shadow(2.4, 1.8);
-            P('box', 0, 0, -0.3, 2.2, 0.8, 0.9, C.brick);
-            P('roof', 0, 0.8, -0.3, 2.3, 0.45, 1.0, C.roofSlate);
+            minka(0, -0.45, 2.0, 0.8, 0.6, C.kawara, 0);
             if (detail) {
-              for (let k = -3; k <= 3; k++) P('box', k * 0.3, 0.35, 0.16, 0.14, 0.28, 0.02, C.win);
-              for (let k = 0; k < 9; k++) P('box', -1.1 + k * 0.275, 0, 1.05, 0.05, 0.25, 0.05, C.woodLt);
-              P('box', 0, 0.18, 1.05, 2.2, 0.03, 0.03, C.woodLt);
-              P('box', -1.1, 0.18, 0.62, 0.03, 0.03, 0.86, C.woodLt);
-              P('box', 1.1, 0.18, 0.62, 0.03, 0.03, 0.86, C.woodLt);
+              for (let k = 0; k < 9; k++) P('cylW', -1.1 + k * 0.275, 0, 1.15, 0.05, 0.28, 0.05, C.woodLt);
+              P('boxW', 0, 0.2, 1.15, 2.2, 0.04, 0.04, C.woodLt);
+              P('boxW', -1.1, 0.2, 0.7, 0.04, 0.04, 0.9, C.woodLt);
+              P('boxW', 1.1, 0.2, 0.7, 0.04, 0.04, 0.9, C.woodLt);
+              P('cylW', 0.5, 0, 0.6, 0.06, 0.5, 0.06, C.woodDk); P('sphere', 0.5, 0.42, 0.6, 0.18, 0.22, 0.18, C.hay);   // 巻藁
             }
-            flag(0.9, 0.7, 1.8, c);
+            flag(0.9, 0.7, 1.7, c); flag(-0.9, 0.7, 1.7, c);
             break;
           case 'tower':
+            pad(0, 0, 1.4, 1.4);
             shadow(0.9, 0.9);
-            tower(0, 0, 0.75, 2.4, c);
-            if (detail) P('box', 0, 0, 0.36, 0.22, 0.38, 0.06, C.wood);
+            yagura(0, 0, 1.1, C.thatchDk);
             break;
         }
       }
-      // ---- 兵士（拡大すると脚・胴・頭・銃。引きのときは色つきの印）
+      // ---- 兵士
       const a = clamp(g.acc / CONFIG.TICK, 0, 1);
       if (detail) {
         const sU = 0.55;
@@ -2459,14 +2535,15 @@ const App = {
           if (!visible(x, z)) continue;
           const dir = Math.atan2(u.y - u.py, u.x - u.px) || 0, moving = u.x !== u.px || u.y !== u.py;
           const sw = moving ? Math.sin(t * 12 + u.id) * 0.12 : 0;
-          at(x, z, -dir + Math.PI / 2, sU);
-          I.shadow.push(x + 0.08, 0.02, z + 0.1, 0.45 * sU, 0.01, 0.3 * sU, [0, 0, 0], 0);
-          P('box', -0.09, 0, sw, 0.12, 0.42, 0.12, C.roofDk);
-          P('box', 0.09, 0, -sw, 0.12, 0.42, 0.12, C.roofDk);
+          at(x, z, -dir + Math.PI / 2, sU, col[u.pref]);
+          I.shadow.push(x + 0.1, 0.02, z - 0.12, 0.45 * sU, 0.01, 0.3 * sU, [0, 0, 0], 0);
+          P('box', -0.09, 0, sw, 0.12, 0.42, 0.12, C.dark);
+          P('box', 0.09, 0, -sw, 0.12, 0.42, 0.12, C.dark);
           P('box', 0, 0.42, 0, 0.36, 0.42, 0.22, col[u.pref]);
           P('sphere', 0, 0.84, 0, 0.22, 0.22, 0.22, C.skin);
-          P('box', 0, 0.98, 0, 0.26, 0.08, 0.26, u.fromPlayer ? [1, 0.84, 0.25] : C.roofDk);
+          P('cone', 0, 0.95, 0, 0.42, 0.14, 0.42, u.fromPlayer ? [1, 0.84, 0.25] : C.dark);   // 陣笠
           P('box', 0.2, 0.5, 0.16, 0.05, 0.05, 0.55, C.gun);
+          if (u.id % 6 === 0) { P('cylW', -0.2, 0.3, -0.1, 0.03, 1.1, 0.03, C.woodDk); P('box', -0.12, 1.0, -0.1, 0.16, 0.4, 0.02, col[u.pref]); }   // 背中の旗指物
         }
       } else {
         const sU = clamp(cam.dist * 0.0022, 0.6, 16);
@@ -2478,11 +2555,10 @@ const App = {
         }
       }
     }
-    // ---- 木
     if (cpx > 1.4) this.addTrees(I, cpx);
     return I;
   },
-  /** 森のマスに木を並べる（場所から決まる乱数。標高が高い・北のほうは針葉樹、低いところは広葉樹） */
+  /** 森のマスに木を並べる（場所から決まる乱数。高いところ・北は針葉樹、低いところは広葉樹） */
   addTrees(I, cpx) {
     const map = this.map, cam = this.cam, W = map.W, t = map.terrain, ew = map.elevW, ev = map.elev;
     const pts = [[0, 0], [this.w, 0], [0, this.h], [this.w, this.h]].map(([x, y]) => cam.groundAt(x, y)).filter(Boolean);
@@ -2493,6 +2569,7 @@ const App = {
     const step = Math.max(1, Math.ceil(Math.sqrt(area / 70000)));
     const s = clamp(cam.dist * 0.002, 0.55, 2.6) * 1.2;
     const v = [0, 0];
+    const rich = cpx > 5;          // かなり拡大したら、木を段重ねにして立体的に
     const shadows = cpx > 3;
     let n = 0;
     for (let y = y0; y <= y1; y += step) {
@@ -2507,10 +2584,23 @@ const App = {
         const sz = s * (0.8 + h2 * 0.5), snow = t[i] & 8;
         const e = ev[(y >> 1) * ew + (x >> 1)];
         const conifer = snow || e > 120 || y < map.H * 0.3 || h3 > 0.75;
-        if (shadows) I.shadow.push(px + sz * 0.3, 0.02, pz + sz * 0.35, sz * 0.9, 0.01, sz * 0.7, [0, 0, 0], 0);
-        I.cyl.push(px, 0, pz, sz * 0.15, sz * 0.5, sz * 0.15, [0.36, 0.25, 0.15], 0);
-        if (conifer) I.cone.push(px, sz * 0.35, pz, sz * 0.95, sz * 1.5, sz * 0.95, snow ? [0.75, 0.82, 0.8] : [0.14 + h3 * 0.06, 0.34 + h2 * 0.1, 0.16], 0);
-        else I.sphere.push(px, sz * 0.35, pz, sz * 1.15, sz * 1.0, sz * 1.15, [0.24 + h3 * 0.12, 0.44 + h2 * 0.12, 0.16], 0);
+        if (shadows) I.shadow.push(px + sz * 0.35, 0.02, pz - sz * 0.4, sz * 0.9, 0.01, sz * 0.7, [0, 0, 0], 0);
+        I.cylW.push(px, 0, pz, sz * 0.15, sz * 0.55, sz * 0.15, [0.36, 0.25, 0.15], 0);
+        if (conifer) {
+          const cc = snow ? [0.75, 0.82, 0.8] : [0.14 + h3 * 0.06, 0.34 + h2 * 0.1, 0.16];
+          if (rich) {
+            I.coneT.push(px, sz * 0.3, pz, sz * 1.05, sz * 0.8, sz * 1.05, cc, h2 * 6);
+            I.coneT.push(px, sz * 0.75, pz, sz * 0.82, sz * 0.7, sz * 0.82, cc, h3 * 6);
+            I.coneT.push(px, sz * 1.15, pz, sz * 0.55, sz * 0.65, sz * 0.55, cc, h2 * 3);
+          } else I.coneT.push(px, sz * 0.35, pz, sz * 0.95, sz * 1.5, sz * 0.95, cc, 0);
+        } else {
+          const cc = [0.24 + h3 * 0.12, 0.44 + h2 * 0.12, 0.16];
+          if (rich) {
+            I.sphereT.push(px, sz * 0.4, pz, sz * 1.1, sz * 0.9, sz * 1.1, cc, 0);
+            I.sphereT.push(px + sz * 0.3, sz * 0.75, pz - sz * 0.15, sz * 0.75, sz * 0.7, sz * 0.75, cc, 0);
+            I.sphereT.push(px - sz * 0.28, sz * 0.7, pz + sz * 0.2, sz * 0.7, sz * 0.65, sz * 0.7, cc, 0);
+          } else I.sphereT.push(px, sz * 0.35, pz, sz * 1.15, sz * 1.0, sz * 1.15, cc, 0);
+        }
         if (++n >= CONFIG.TREE_MAX) return;
       }
     }

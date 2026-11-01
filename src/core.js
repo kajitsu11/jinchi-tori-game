@@ -52,7 +52,7 @@ const CONFIG = {
   AI_TARGET_TIMEOUT: 120,
   AI_DEFENDER_RATIO: 0.25,
   // ---- 画面
-  CAMERA_PITCH: 46, TOP_PITCH: 90, TITLE_PITCH: 75, FOV: 34,
+  CAMERA_PITCH: 42, TOP_PITCH: 90, TITLE_PITCH: 75, FOV: 34,
   ZOOM_MIN: 6, ZOOM_MAX: 13500,
   FILL: 0.1, FILL_TOP: 0.78,      // 領土の塗りの濃さ（斜め／真上）
   TREE_MAX: 9000,
@@ -374,7 +374,11 @@ void main(){
   vec3 n = normalize(vec3((hL - hR) * 9.0, 1.0, (hU - hD) * 9.0));
   float shade = clamp(0.55 + 0.6 * dot(n, normalize(vec3(-0.55, 0.75, -0.45))), 0.45, 1.25);
   // 草原らしい細かいゆらぎ（拡大すると見える）
-  float nz = noise(vWorld * 0.35) * 0.45 + noise(vWorld * 1.6) * 0.35 + noise(vWorld * 6.0) * 0.2 * clamp(1.5 - cpp * 2.0, 0.0, 1.0);
+  float zin = clamp(1.5 - cpp * 2.0, 0.0, 1.0);
+  float nz = noise(vWorld * 0.35) * 0.45 + noise(vWorld * 1.6) * 0.35 + noise(vWorld * 6.0) * 0.2 * zin;
+  // 拡大したときの草（細かいまだらと、暗い草の株）
+  float fine = clamp(0.5 - cpp * 3.0, 0.0, 1.0);
+  nz += (noise(vWorld * 17.0) - 0.5) * 0.35 * fine + (noise(vWorld * 41.0) - 0.5) * 0.25 * fine;
   vec3 land = t.rgb * (0.82 + 0.36 * nz);
   // 低い周波数の「土の色の斑」と「濃い緑の斑」（草原のむら）
   float patch = noise(vWorld * 0.06 + 7.3), patch2 = noise(vWorld * 0.11 - 3.1);
@@ -459,26 +463,71 @@ attribute vec4 iColor;   // rgb + 向き(ラジアン)
 uniform mat4 uVP;
 varying vec3 vN;
 varying vec3 vC;
+varying vec3 vL;    // 部品の中の位置（ワールドの長さ。模様の細かさをそろえるため）
+varying vec3 vW;    // ワールド座標（模様のゆらぎ用）
 void main(){
   float c = cos(iColor.w), s = sin(iColor.w);
   vec3 p = aPos * iScale;
+  vL = p;
   p = vec3(c * p.x - s * p.z, p.y, s * p.x + c * p.z);
   vN = vec3(c * aNrm.x - s * aNrm.z, aNrm.y, s * aNrm.x + c * aNrm.z);
   vC = iColor.rgb;
+  vW = p + iOff;
   gl_Position = uVP * vec4(p + iOff, 1.0);
 }`;
 const MESH_FS = `
 precision mediump float;
 uniform float uAlpha;   // 影は半透明
-uniform float uFlat;    // 影は陰影をつけない
+uniform float uFlat;    // 影・地面の敷物は陰影をつけない
+uniform float uMat;     // 表面の模様 0:なし 1:屋根(瓦・茅) 2:壁(板目) 3:針葉樹 4:広葉樹 5:幹・柱(木目) 6:土の敷物
+uniform float uDetail;  // 拡大したときだけ模様を出す（0..1）
 varying vec3 vN;
 varying vec3 vC;
+varying vec3 vL;
+varying vec3 vW;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 15731.7); }
+float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y); }
 void main(){
   vec3 n = normalize(vN);
-  float l = 0.42 + 0.68 * max(dot(n, normalize(vec3(-0.55, 0.75, -0.45))), 0.0) + 0.08 * n.y;
-  gl_FragColor = vec4(mix(vC * l, vC, uFlat), uAlpha);
+  vec3 c = vC;
+  float d = uDetail;
+  if (d > 0.01) {
+    if (uMat < 1.5) {
+      // 屋根：段になった瓦・茅の筋と、細かいざらつき
+      float row = fract(vL.y * 9.0);
+      c *= 1.0 - d * (0.22 * smoothstep(0.75, 1.0, row) + 0.1 * vn(vW.xz * 30.0 + vL.y * 20.0));
+      if (uMat > 0.5 && abs(n.y) < 0.3) c *= 1.0 - 0.12 * d;
+    } else if (uMat < 2.5) {
+      // 壁：縦の板目と、柱・梁の帯（上面は少し明るく）
+      if (abs(n.y) < 0.5) {
+        float u = abs(n.x) > abs(n.z) ? vL.z : vL.x;
+        float plank = smoothstep(0.85, 1.0, fract(u * 11.0));
+        float beam = smoothstep(0.9, 1.0, fract(vL.y * 3.2));
+        c *= 1.0 - d * (0.16 * plank + 0.22 * beam + 0.08 * vn(vW.xz * 22.0 + vL.y * 9.0));
+      } else c *= 1.0 + 0.06 * d;
+    } else if (uMat < 3.5) {
+      // 針葉樹：枝の段
+      c *= 1.0 - d * (0.28 * smoothstep(0.55, 1.0, fract(vL.y * 4.5)) + 0.18 * vn(vW.xz * 18.0 + vL.y * 7.0));
+    } else if (uMat < 4.5) {
+      // 広葉樹：葉のかたまり
+      float k = vn(vW.xz * 12.0 + vW.y * 9.0) * 0.6 + vn(vW.xz * 31.0 - vW.y * 17.0) * 0.4;
+      c *= 0.72 + 0.5 * k * d + (1.0 - d) * 0.28;
+    } else if (uMat < 5.5) {
+      float u = abs(n.x) > abs(n.z) ? vL.z : vL.x;
+      c *= 1.0 - d * 0.2 * vn(vec2(u * 40.0, vL.y * 4.0));
+    } else {
+      // 土の敷物：まだら
+      c *= 0.86 + 0.24 * vn(vW.xz * 6.0) * (0.4 + 0.6 * d);
+    }
+  }
+  // 光は手前左上から（見えている壁が明るくなるように）
+  float l = 0.45 + 0.62 * max(dot(n, normalize(vec3(-0.45, 0.8, 0.5))), 0.0) + 0.06 * n.y;
+  gl_FragColor = vec4(mix(c * l, c, uFlat), uAlpha);
 }`;
 const INST_FLOATS = 10;
+/** インスタンスの種類 → 表面の模様（名前の大文字以降は同じ形で模様違い：boxW=板目の箱 など） */
+const MESH_MAT = { roof: 1, boxW: 2, coneT: 3, sphereT: 4, cylW: 5, pad: 6, roofT: 1 };
 
 function compile(gl, vs, fs, defs) {
   const mk = (type, src) => {
@@ -793,19 +842,24 @@ class Renderer {
       gl.useProgram(M.p);
       gl.uniformMatrix4fv(M.u.uVP, false, vp);
       const attrs = [[M.a.iOff, 3, 0], [M.a.iScale, 3, 12], [M.a.iColor, 4, 24]];
-      const order = Object.keys(meshes).sort((a, b) => (b === 'shadow') - (a === 'shadow'));
+      // 地面に敷くもの（土の敷物 → 影）を先に、つぎに立体
+      const rank = (n) => (n === 'pad' ? 0 : n === 'shadow' ? 1 : 2);
+      const order = Object.keys(meshes).sort((a, b) => rank(a) - rank(b));
+      gl.uniform1f(M.u.uDetail, clamp((cam.cellPx() - 4) / 10, 0, 1));
       for (const name of order) {
         const inst = meshes[name];
         if (!inst || !inst.count) continue;
-        const shadow = name === 'shadow';
-        if (shadow) {
+        const flat = name === 'shadow' || name === 'pad';
+        if (flat) {
           gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-          gl.uniform1f(M.u.uAlpha, 0.28); gl.uniform1f(M.u.uFlat, 1);
+          gl.uniform1f(M.u.uAlpha, name === 'pad' ? 0.85 : 0.28); gl.uniform1f(M.u.uFlat, 1);
         } else {
           if (!this._solid) { gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST); gl.clear(gl.DEPTH_BUFFER_BIT); this._solid = true; }
           gl.uniform1f(M.u.uAlpha, 1); gl.uniform1f(M.u.uFlat, 0);
         }
-        const mb = this.meshBufs[shadow ? 'cyl' : name];
+        const base = name.replace(/[A-Z].*$/, '');   // roofT → roof など（模様だけ違う同じ形）
+        gl.uniform1f(M.u.uMat, MESH_MAT[name] || 0);
+        const mb = this.meshBufs[flat ? 'cyl' : base];
         gl.bindBuffer(gl.ARRAY_BUFFER, mb.buf);
         gl.enableVertexAttribArray(M.a.aPos); gl.enableVertexAttribArray(M.a.aNrm);
         gl.vertexAttribPointer(M.a.aPos, 3, gl.FLOAT, false, 24, 0);
