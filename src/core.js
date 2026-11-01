@@ -70,16 +70,73 @@ const RES_KEYS = ['food', 'wood', 'gold'];
 const RES_ICON = { food: '🌾', wood: '🪵', gold: '💰' };
 const RES_NAME = { food: '食料', wood: '木材', gold: '金' };
 /** 建物の種類 */
+/**
+ * 建物（36種類）。働きは項目で決まる（ルールは rts_sim.js）：
+ *   make: 資源/秒 ・ forest: 森から木材 ・ unit/train/trainFood: 兵の訓練（種類・秒・食料）
+ *   range/dps/hits/splash/rate: 敵を撃つ（hits: land=陸 sea=海 air=空、rate=何秒に1回まとめて撃つか）
+ *   aura: 周りの味方（または敵）への効果 ・ need: 建てる場所の条件（mountain=山の近く coast=海の近く plain=平地）
+ *   node: 拠点（国境を広げる）
+ */
 const BUILDINGS = {
-  farm: { name: '農場', icon: '🌾', cost: { wood: 60 }, hp: 150, desc: '食料 +144/時（森を切り開くと半分・山には建てられない）', make: { food: 0.04 } },
-  lumber: { name: '製材所', icon: '🪓', cost: { wood: 40, gold: 20 }, hp: 150, desc: '周りの森から木材（最大 +240/時）', forest: true },
-  market: { name: '市場', icon: '🏪', cost: { wood: 120 }, hp: 200, desc: '金 +120/時', make: { gold: 0.033 } },
-  barracks: { name: '兵舎', icon: '⚔️', cost: { wood: 150, gold: 50 }, hp: 350, desc: '食料30で兵士を訓練（10分ごと）', train: 600, trainFood: 30 },
-  tower: { name: '見張り塔', icon: '🗼', cost: { wood: 80, gold: 60 }, hp: 450, desc: '近くの敵兵を撃つ', range: 11, dps: 1.9 },
-  town: { name: '町', icon: '🏘️', cost: { wood: 250, gold: 150 }, desc: '国境を広げる・金 +43/時', node: true, make: { gold: 0.012 } },
-  fort: { name: '砦', icon: '🏰', cost: { wood: 150, gold: 300 }, desc: '国境を広げ、近くの敵兵を撃つ', node: true, range: 13, dps: 2.9 },
+  // ---- 経済
+  farm: { cat: 'eco', name: '農場', icon: '🌾', cost: { wood: 60 }, hp: 150, desc: '食料 +144/時（森を切り開くと半分・山には建てられない）', make: { food: 0.04 } },
+  lumber: { cat: 'eco', name: '製材所', icon: '🪓', cost: { wood: 40, gold: 20 }, hp: 150, desc: '周りの森から木材（最大 +240/時）', forest: true },
+  market: { cat: 'eco', name: '市場', icon: '🏪', cost: { wood: 120 }, hp: 200, desc: '金 +120/時', make: { gold: 0.033 } },
+  mine: { cat: 'eco', name: '金山', icon: '⛏️', cost: { wood: 100 }, hp: 250, desc: '金 +180/時（山の近くだけ）', make: { gold: 0.05 }, need: 'mountain' },
+  fishery: { cat: 'eco', name: '漁港', icon: '🐟', cost: { wood: 80 }, hp: 180, desc: '食料 +216/時（海の近くだけ）', make: { food: 0.06 }, need: 'coast' },
+  ranch: { cat: 'eco', name: '牧場', icon: '🐄', cost: { wood: 90 }, hp: 180, desc: '食料 +180/時（平地だけ）', make: { food: 0.05 }, need: 'plain' },
+  brewery: { cat: 'eco', name: '酒蔵', icon: '🍶', cost: { wood: 100, gold: 40 }, hp: 200, desc: '金 +144/時・木材 +36/時', make: { gold: 0.04, wood: 0.01 } },
+  storehouse: { cat: 'eco', name: '蔵', icon: '📦', cost: { wood: 120 }, hp: 300, desc: '周り10マスの味方の経済の建物の生産 +30%', aura: { r: 10, eco: 1.3 } },
+  mint: { cat: 'eco', name: '両替商', icon: '💴', cost: { wood: 150, gold: 100 }, hp: 220, desc: '金 +216/時', make: { gold: 0.06 } },
+  // ---- 兵の生産
+  barracks: { cat: 'mil', name: '兵舎', icon: '⚔️', cost: { wood: 150, gold: 50 }, hp: 350, desc: '足軽を訓練（10分ごと・食料30）', unit: 'ashigaru', train: 600, trainFood: 30 },
+  stable: { cat: 'mil', name: '厩舎', icon: '🐎', cost: { wood: 160, gold: 80 }, hp: 350, desc: '騎馬隊を訓練：足が速く強い（8分ごと・食料40）', unit: 'cavalry', train: 480, trainFood: 40 },
+  ninja: { cat: 'mil', name: '忍びの里', icon: '🥷', cost: { wood: 120, gold: 150 }, hp: 250, desc: '忍者を訓練：塔に見つからず、建物を壊すのが得意（10分ごと）', unit: 'ninja', train: 600, trainFood: 30 },
+  foundry: { cat: 'mil', name: '砲兵工廠', icon: '💣', cost: { wood: 200, gold: 200 }, hp: 450, desc: '大砲隊を訓練：遠くから建物と兵をまとめて砲撃（12分ごと）', unit: 'cannon', train: 720, trainFood: 40 },
+  gaslab: { cat: 'mil', name: '毒ガス研究所', icon: '☣️', cost: { wood: 150, gold: 250 }, hp: 300, desc: '毒ガス兵を訓練：敵の集まりに毒ガスを撒く（12分ごと）', unit: 'gas', train: 720, trainFood: 30 },
+  port: { cat: 'mil', name: '軍港', icon: '⚓', cost: { wood: 300, gold: 200 }, hp: 600, desc: '軍艦を造る：海を進み、海岸の敵を砲撃（15分ごと・海の近くだけ）', unit: 'ship', train: 900, trainFood: 60, need: 'coast' },
+  airfield: { cat: 'mil', name: '飛行場', icon: '✈️', cost: { wood: 300, gold: 300 }, hp: 500, desc: '戦闘機を造る：敵の飛行機を落とし、地上も撃つ（10分ごと）', unit: 'fighter', train: 600, trainFood: 40 },
+  bomberbase: { cat: 'mil', name: '爆撃機基地', icon: '🛩️', cost: { wood: 350, gold: 400 }, hp: 550, desc: '爆撃機を造る：敵の拠点の上から爆弾を落とす（15分ごと）', unit: 'bomber', train: 900, trainFood: 60 },
+  // ---- 防衛
+  tower: { cat: 'def', name: '見張り塔', icon: '🗼', cost: { wood: 80, gold: 60 }, hp: 450, desc: '近くの敵兵を撃つ', range: 11, dps: 1.9, hits: 'land' },
+  bunker: { cat: 'def', name: 'トーチカ', icon: '🧱', cost: { wood: 150, gold: 100 }, hp: 900, desc: '射程は短いが強力で頑丈', range: 7, dps: 4.5, hits: 'land' },
+  battery: { cat: 'def', name: '砲台', icon: '🎯', cost: { wood: 200, gold: 150 }, hp: 600, desc: '遠くの敵兵・軍艦をまとめて砲撃（範囲攻撃）', range: 16, dps: 3, hits: 'land,sea', splash: 2.5, rate: 3 },
+  rocket: { cat: 'def', name: 'ロケット陣地', icon: '🚀', cost: { wood: 250, gold: 300 }, hp: 400, desc: 'とても遠くへ大きな範囲攻撃（発射は遅い）', range: 28, dps: 3.5, hits: 'land', splash: 4, rate: 8 },
+  aagun: { cat: 'def', name: '高射砲', icon: '🎇', cost: { wood: 150, gold: 150 }, hp: 400, desc: '飛行機だけを撃つ（遠くまで届く）', range: 18, dps: 6, hits: 'air' },
+  coastgun: { cat: 'def', name: '沿岸砲', icon: '🌊', cost: { wood: 200, gold: 200 }, hp: 700, desc: '軍艦を遠くから撃つ（海の近くだけ）', range: 22, dps: 5, hits: 'sea,land', need: 'coast' },
+  wall: { cat: 'def', name: '石垣', icon: '🪨', cost: { wood: 100 }, hp: 2000, desc: 'とても頑丈。周り6マスの敵兵の足が半分に', aura: { r: 6, enemySlow: 0.5 } },
+  mines: { cat: 'def', name: '地雷原', icon: '💥', cost: { wood: 60, gold: 40 }, hp: 100, desc: '近くを通った敵兵に大きな被害（30秒で再装填）', mine: { r: 3, dmg: 60, every: 30 } },
+  gasshelter: { cat: 'def', name: '防毒壕', icon: '😷', cost: { wood: 100, gold: 60 }, hp: 300, desc: '周り12マスの味方は毒ガスの被害が1/5', aura: { r: 12, gasRes: 0.2 } },
+  radar: { cat: 'def', name: 'レーダー', icon: '📡', cost: { wood: 150, gold: 200 }, hp: 300, desc: '周り25マスで忍者を見つける・高射砲の威力 +50%', aura: { r: 25, detect: true, aa: 1.5 } },
+  trench: { cat: 'def', name: '塹壕', icon: '🪖', cost: { wood: 70 }, hp: 400, desc: '周り6マスの味方の受ける被害 −40%', aura: { r: 6, armor: 0.6 } },
+  // ---- 支援
+  hospital: { cat: 'sup', name: '診療所', icon: '⛑️', cost: { wood: 120, gold: 60 }, hp: 250, desc: '周り10マスの味方を回復（+3/秒）', aura: { r: 10, heal: 3 } },
+  shrine: { cat: 'sup', name: '神社', icon: '⛩️', cost: { wood: 100, gold: 100 }, hp: 300, desc: '周り12マスの味方の攻撃 +30%', aura: { r: 12, dps: 1.3 } },
+  beacon: { cat: 'sup', name: '狼煙台', icon: '🔥', cost: { wood: 80 }, hp: 200, desc: '周り12マスの味方の足 +40%', aura: { r: 12, spd: 1.4 } },
+  depot: { cat: 'sup', name: '兵站基地', icon: '🏕️', cost: { wood: 200, gold: 100 }, hp: 400, desc: '県の兵士の上限 +8', capPlus: 8 },
+  temple: { cat: 'sup', name: '寺', icon: '🛕', cost: { wood: 150, gold: 80 }, hp: 350, desc: '周り20マスの味方の拠点は占領されにくい（1.5倍）', aura: { r: 20, hold: 1.5 } },
+  lighthouse: { cat: 'sup', name: '灯台', icon: '🗼', cost: { wood: 100, gold: 50 }, hp: 250, desc: '周り25マスの味方の軍艦の攻撃 +40%（海の近くだけ）', aura: { r: 25, navy: 1.4 }, need: 'coast' },
+  // ---- 拠点
+  town: { cat: 'node', name: '町', icon: '🏘️', cost: { wood: 250, gold: 150 }, desc: '国境を広げる・金 +43/時', node: true, make: { gold: 0.012 } },
+  fort: { cat: 'node', name: '砦', icon: '🏰', cost: { wood: 150, gold: 300 }, desc: '国境を広げ、近くの敵兵を撃つ', node: true, range: 13, dps: 2.9, hits: 'land' },
+  castle: { cat: 'node', name: '城', icon: '🏯', cost: { wood: 400, gold: 600 }, desc: '広い国境（1.4倍）と強い守り。飛行機も撃つ', node: true, range: 15, dps: 3.5, hits: 'land,sea,air', radius: 1.4 },
 };
-const BUILD_ORDER = ['farm', 'lumber', 'market', 'barracks', 'tower', 'town', 'fort'];
+const BUILD_ORDER = Object.keys(BUILDINGS);
+const BUILD_CATS = [['eco', '経済'], ['mil', '兵の生産'], ['def', '防衛'], ['sup', '支援'], ['node', '拠点']];
+/**
+ * 兵種。dom: land=陸 sea=海 air=空。hits: 撃てる相手。vsB: 建物への攻撃の倍率。splash: 範囲攻撃の半径。
+ * fuel: 飛行機が飛べる秒数（切れると基地へ帰る＝いなくなる）。stealth: 塔などに狙われない（レーダーの近くは別）
+ */
+const UNITS = {
+  ashigaru: { name: '足軽', hp: 100, spd: 1, dps: 1.6, range: 2.5, dom: 'land', hits: 'land', vsB: 1 },
+  cavalry: { name: '騎馬隊', hp: 140, spd: 2.2, dps: 2.0, range: 2.0, dom: 'land', hits: 'land', vsB: 0.8 },
+  ninja: { name: '忍者', hp: 70, spd: 2.0, dps: 1.2, range: 2.0, dom: 'land', hits: 'land', vsB: 5, stealth: true },
+  gas: { name: '毒ガス兵', hp: 80, spd: 0.9, dps: 0.4, range: 7, dom: 'land', hits: 'land', vsB: 0.5, gas: { r: 4, dps: 2.5, life: 20, every: 8 } },
+  cannon: { name: '大砲隊', hp: 120, spd: 0.5, dps: 3.5, range: 9, dom: 'land', hits: 'land,sea', vsB: 3, splash: 2.5 },
+  ship: { name: '軍艦', hp: 400, spd: 1.5, dps: 4, range: 11, dom: 'sea', hits: 'land,sea,air', vsB: 2, splash: 2 },
+  fighter: { name: '戦闘機', hp: 150, spd: 6, dps: 3, range: 5, dom: 'air', hits: 'air,land', vsB: 0.3, fuel: 400 },
+  bomber: { name: '爆撃機', hp: 220, spd: 4.5, dps: 0, range: 0, dom: 'air', hits: '', vsB: 0, fuel: 300, bomb: { r: 3.5, dmg: 45, every: 5 } },
+};
 const WASTE = 48;             // 焦土（持ち主なし）を表す持ち主ID
 const WASTE_COLOR = '#4a4038';
 
@@ -602,11 +659,11 @@ void main(){
     float cityK = smoothstep(0.35, 0.65, mix(mix(step(abs(k00 - 4.0), 0.5), step(abs(k10 - 4.0), 0.5), qf.x), mix(step(abs(k01 - 4.0), 0.5), step(abs(k11 - 4.0), 0.5), qf.x), qf.y));
     float cityZ = clamp(1.6 - cpp * 3.0, 0.0, 1.0) * cityK;
     if (cityZ > 0.0) {
-      vec2 bw = vWorld * 0.8, bf = fract(bw), bi = floor(bw);
+      vec2 bw = vWorld * 1.6, bf = fract(bw), bi = floor(bw);
       float hb = hash(bi);
       float roof = step(0.16, bf.x) * step(bf.x, 0.86) * step(0.16, bf.y) * step(bf.y, 0.86) * step(0.3, hb);
       vec3 rc = hb > 0.7 ? vec3(0.36, 0.37, 0.42) : hb > 0.5 ? vec3(0.55, 0.32, 0.22) : vec3(0.62, 0.58, 0.5);
-      land = mix(land, mix(vec3(0.66, 0.6, 0.48), rc, roof), 0.75 * cityZ);
+      land = mix(land, mix(vec3(0.66, 0.6, 0.48), rc, roof), 0.45 * cityZ * clamp(cpp * 6.0, 0.35, 1.0));
     }
   } else {
     float patch = noise(vWorld * 0.06 + 7.3), patch2 = noise(vWorld * 0.11 - 3.1);

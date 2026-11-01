@@ -16,7 +16,7 @@ function loadEngine() {
   sandbox.window = sandbox;
   vm.createContext(sandbox);
   const src = ['src/core.js', 'src/rts_sim.js'].map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n') +
-    '\nglobalThis.__x = { CONFIG, BUILDINGS, MapData, Sim, RES_KEYS };';
+    '\nglobalThis.__x = { CONFIG, BUILDINGS, BUILD_ORDER, UNITS, MapData, Sim, RES_KEYS };';
   vm.runInContext(src, sandbox, { filename: 'engine.js' });
   return sandbox.__x;
 }

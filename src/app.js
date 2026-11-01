@@ -6,6 +6,18 @@ const STATE = { LOADING: 'LOADING', TITLE: 'TITLE', PLAYING: 'PLAYING', GAMEOVER
 const ONLINE = window.JINCHI_ONLINE || null;
 // お試し版（trial.html）：地域を絞り、オンライン版と同じ細かさ（元の1マスを S×S）の地図を端末の中で動かす
 const TRIAL = window.JINCHI_TRIAL || null;
+/**
+ * 試作版の早い試合：1シーズン1時間。あなたの資源は無制限（AIは収入10倍）。
+ * 訓練は15倍・占領は15倍・AIの建築は10倍の速さ、兵士の足は1.5倍
+ */
+function applyFastMode() {
+  Object.assign(CONFIG, {
+    FREE_HUMANS: true, SEASON_DAYS: 1 / 24, TRAIN_MULT: 1 / 15, AI_PLAN_INTERVAL: 10, AI_TARGET_TIMEOUT: 300, RECENT_HATCH: 120,
+    AI_BUILD_INTERVAL: CONFIG.AI_BUILD_INTERVAL / 10, UNIT_SPEED: CONFIG.UNIT_SPEED * 1.5, START_UNITS_RATIO: 1,
+    CAPTURE_NEED: { capital: 3000, town: 1200, fort: 1600, castle: 2400 },
+  });
+  for (const r of RES_KEYS) { CONFIG.BASE_INCOME[r] *= 10; CONFIG.CAPITAL_MAKE[r] *= 10; }
+}
 
 const App = {
   state: null,
@@ -42,6 +54,7 @@ const App = {
         progress(0.45, `細かい地図（1マス≒90m）を作成中…`); await nextFrame();
         this.map = MapData.upscale(this.map, TRIAL.S, new Set(TRIAL.prefs));
         CONFIG.PARTICIPANTS_PER_MILLION *= TRIAL.mul;   // 1県に大勢いる状態（AIが担当）
+        if (TRIAL.fast) applyFastMode();
       }
       progress(0.5, '3D描画を準備中…'); await nextFrame();
       this.renderer = new Renderer($('gl'), this.map);
@@ -185,6 +198,10 @@ const App = {
     g.on('net', (s) => { if (s === 'down') this.banner('接続が切れました', 'ng', 'つなぎ直しています…'); else this.banner('再接続しました', 'ok', ''); });
     g.on('over', () => setTimeout(() => { if (this.state === STATE.PLAYING) this.setState(STATE.GAMEOVER); }, 900));
     // UI イベント
+    $('bcats').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-cat]');
+      if (b) { this.bcat = b.dataset.cat; this.buildMenu(); this.updateHud(true); }
+    }, { signal });
     $('buildmenu').addEventListener('click', (e) => {
       const b = e.target.closest('[data-b]');
       if (b) this.startPlace(b.dataset.b);
@@ -213,9 +230,12 @@ const App = {
   },
   /** 下の建築メニュー（カード） */
   buildMenu() {
+    const cat = this.bcat || 'eco';
+    $('bcats').innerHTML = BUILD_CATS.map(([k, name]) => `<button data-cat="${k}" class="${k === cat ? 'on' : ''}">${name}</button>`).join('');
     let html = '';
     for (const k of BUILD_ORDER) {
       const d = BUILDINGS[k];
+      if (d.cat !== cat) continue;
       const cost = RES_KEYS.filter((r) => d.cost[r]).map((r) => `<span data-r="${r}">${RES_ICON[r]}${d.cost[r]}</span>`).join('');
       html += `<button class="bcard" data-b="${k}" title="${escapeHtml(d.desc)}"><i>${d.icon}</i><b>${d.name}</b><small>${cost}</small></button>`;
     }
@@ -332,6 +352,7 @@ const App = {
     $('h-left').textContent = this.fmtLeft(g.time) + (this.speed > 1 ? `（×${this.speed}）` : '');
     $('h-rank').textContent = g.rankOf(me) + '位';
     for (const r of RES_KEYS) {
+      if (CONFIG.FREE_HUMANS) { $('r-' + r).textContent = '∞'; $('ri-' + r).textContent = '試作版：無制限'; continue; }
       $('r-' + r).textContent = fmt(Math.floor(g.res[r][0]));
       $('ri-' + r).textContent = `+${Math.round(g.income[r] * 3600)}/時`;   // 1時間あたりの収入
     }
@@ -371,7 +392,7 @@ const App = {
       $('cp-owner').textContent = `持ち主：${map.prefs[b.owner].name}${b.wallet === 0 ? '（あなた）' : ''}`;
       $('cp-meta').textContent = `耐久 ${Math.max(0, Math.ceil(b.hp))}/${b.maxHp}・${d.desc}`;
       let note = '';
-      if (b.type === 'barracks') note = `訓練 ${Math.min(100, Math.floor(b.t / d.train * 100))}%（食料${d.trainFood}）`;
+      if (d.unit) note = `${UNITS[d.unit].name}の訓練 ${Math.min(100, Math.floor(b.t / (d.train * (CONFIG.TRAIN_MULT || 1)) * 100))}%（食料${d.trainFood}）`;
       if (b.type === 'farm' && b.mul < 1) note = '森を切り開いた農場（収穫は半分）';
       if (b.type === 'lumber') note = `周りの森 ${b.forest}か所 → 木材 +${Math.round(Math.min(CONFIG.LUMBER_MAX, b.forest * CONFIG.LUMBER_PER_FOREST) * 3600)}/時`;
       $('cp-note').textContent = note;
@@ -500,8 +521,8 @@ const App = {
         }
         flag(-0.9, 0.7, 1.5, c);
       } else {
-        // 砦：石垣の上の白い塀・四隅の櫓・中央の天守
-        at(n.x, n.y, 0, big * 1.0, c);
+        // 砦：石垣の上の白い塀・四隅の櫓・中央の天守（城はひとまわり大きく、天守も大きい）
+        at(n.x, n.y, 0, big * (n.type === 'castle' ? 1.35 : 1.0), c);
         pad(0, 0, 4.0, 4.0, C.dirt2);
         shadow(3.3, 3.3);
         for (let k = 0; k < 4; k++) {
@@ -511,7 +532,7 @@ const App = {
           P('roof', ox, 0.7, oz, wx * (k % 2 ? 0.9 : 1.02), 0.15, wz * (k % 2 ? 1.02 : 0.9), C.kawara, k % 2 ? Math.PI / 2 : 0);
         }
         for (const [tx, tz] of [[1.35, 1.35], [-1.35, 1.35], [1.35, -1.35], [-1.35, -1.35]]) yagura(tx, tz, 0.55, C.kawara);
-        tenshu(0, 0, 0.55);
+        tenshu(0, 0, n.type === 'castle' ? 0.85 : 0.55);
         flag(0.5, 0.9, 1.8, c);
       }
     }
@@ -576,6 +597,162 @@ const App = {
             shadow(0.9, 0.9);
             yagura(0, 0, 1.1, C.thatchDk);
             break;
+          // ---- 経済
+          case 'mine':   // 坑道の入口・トロッコ・ぼた山
+            pad(0, 0, 2.6, 2.2, C.stoneDk); shadow(1.8, 1.4);
+            P('box', -0.3, 0, -0.3, 1.4, 0.7, 1.0, C.stone); P('box', -0.3, 0.1, 0.22, 0.5, 0.45, 0.05, C.dark);
+            P('roofT', -0.3, 0.7, -0.3, 1.6, 0.4, 1.2, C.thatchDk); P('sphere', 0.9, 0, 0.6, 0.9, 0.6, 0.8, [0.45, 0.42, 0.38]);
+            if (detail) { P('boxW', 0.5, 0.1, 0.4, 0.35, 0.25, 0.25, C.woodDk); P('box', 0.5, 0.33, 0.4, 0.3, 0.06, 0.2, [0.85, 0.7, 0.25]); }
+            break;
+          case 'fishery':   // 舟屋と干し網
+            pad(0, 0, 2.6, 2.0, C.dirt2); shadow(1.6, 1.2);
+            minka(-0.4, -0.3, 1.1, 0.8, 0.5, C.thatch, 0);
+            P('boxW', 0.8, 0.05, 0.5, 0.35, 0.18, 1.0, C.woodLt);
+            if (detail) for (let k = 0; k < 3; k++) { P('cylW', 0.2 + k * 0.4, 0, 0.8, 0.03, 0.55, 0.03, C.woodDk); P('box', 0.4 + k * 0.4 - 0.2, 0.3, 0.8, 0.36, 0.22, 0.02, [0.55, 0.6, 0.55]); }
+            break;
+          case 'ranch':   // 柵で囲った牧草地と牛
+            pad(0, 0, 3.0, 2.6, C.crop); shadow(1.2, 1.0);
+            minka(-0.9, -0.8, 0.8, 0.6, 0.45, C.thatch, 0);
+            for (let k = 0; k < (detail ? 4 : 2); k++) { const cx2 = -0.1 + (k % 2) * 0.7, cz2 = 0.1 + (k >> 1) * 0.6; P('boxW', cx2, 0.12, cz2, 0.22, 0.2, 0.42, k % 2 ? [0.25, 0.2, 0.18] : [0.9, 0.88, 0.85]); }
+            if (detail) for (let k = 0; k < 8; k++) P('cylW', -1.4 + k * 0.4, 0, 1.25, 0.03, 0.25, 0.03, C.woodLt);
+            break;
+          case 'brewery':   // 酒蔵：白壁の蔵と杉玉
+            pad(0, 0, 2.6, 2.2, C.dirt2); shadow(1.8, 1.4);
+            minka(0, -0.2, 1.6, 0.9, 0.7, C.kawara, 0, { wall: C.plaster });
+            P('sphere', 0.85, 0.55, 0.3, 0.22, 0.22, 0.22, [0.35, 0.45, 0.2]);
+            if (detail) for (let k = 0; k < 3; k++) P('cylW', -0.8 + k * 0.4, 0, 0.75, 0.16, 0.3, 0.16, C.woodLt);
+            break;
+          case 'storehouse':   // 土蔵
+            pad(0, 0, 2.0, 1.8); shadow(1.4, 1.2);
+            P('boxW', 0, 0, 0, 1.2, 1.0, 0.9, C.plaster); P('box', 0, 0, 0, 1.24, 0.25, 0.94, C.dark);
+            P('roof', 0, 1.0, 0, 1.5, 0.45, 1.2, C.kawara);
+            break;
+          case 'mint':   // 両替商：のれんの大店
+            pad(0, 0, 2.6, 2.2, C.dirt2); shadow(1.8, 1.4);
+            minka(0, -0.2, 1.7, 1.0, 0.75, C.kawara, 0, { lantern: true });
+            P('box', 0, 0.35, 0.33, 1.2, 0.3, 0.03, [0.2, 0.25, 0.5]);
+            break;
+          // ---- 兵の生産
+          case 'stable':   // 厩舎：長い馬屋と馬場
+            pad(0, 0.2, 3.0, 2.6, C.dirt); shadow(2.2, 1.6);
+            minka(0, -0.6, 2.2, 0.7, 0.55, C.thatch, 0);
+            if (detail) for (let k = 0; k < 3; k++) P('boxW', -0.7 + k * 0.7, 0.15, 0.5, 0.2, 0.22, 0.5, [0.45, 0.3, 0.2]);
+            flag(1.1, 0.8, 1.5, c);
+            break;
+          case 'ninja':   // 忍びの里：木立の中の黒い屋敷
+            pad(0, 0, 2.4, 2.2, [0.36, 0.42, 0.26]); shadow(1.6, 1.4);
+            minka(0, 0, 1.2, 0.9, 0.55, C.thatchDk, 0, { wall: C.woodDk });
+            for (let k = 0; k < 3; k++) P('coneT', -0.9 + k * 0.9, 0.2, 0.9, 0.5, 0.9, 0.5, [0.15, 0.3, 0.15]);
+            break;
+          case 'foundry':   // 砲兵工廠：煙突と並んだ大砲
+            pad(0, 0, 3.0, 2.6, C.stoneDk); shadow(2.2, 1.8);
+            P('boxW', -0.2, 0, -0.4, 2.0, 0.8, 1.0, [0.45, 0.32, 0.25]); P('roof', -0.2, 0.8, -0.4, 2.3, 0.35, 1.3, C.kawara);
+            P('cylW', 0.6, 0.8, -0.6, 0.18, 1.2, 0.18, C.stoneDk); smokeAt(0.6, 2.1, -0.6);
+            for (let k = 0; k < 2; k++) P('cylW', -0.6 + k * 0.9, 0.18, 0.75, 0.1, 0.8, 0.1, C.gun, Math.PI / 2);
+            break;
+          case 'gaslab':   // 毒ガス研究所：タンクと黄緑の煙
+            pad(0, 0, 2.6, 2.4, C.stoneDk); shadow(1.8, 1.6);
+            P('boxW', -0.4, 0, 0, 1.2, 0.7, 1.0, [0.6, 0.62, 0.58]); P('roof', -0.4, 0.7, 0, 1.4, 0.3, 1.2, C.kawara);
+            P('cylW', 0.75, 0, -0.35, 0.45, 0.8, 0.45, [0.55, 0.65, 0.3]); P('sphere', 0.75, 0.8, -0.35, 0.45, 0.25, 0.45, [0.55, 0.65, 0.3]);
+            P('cylW', 0.75, 0, 0.5, 0.3, 0.6, 0.3, [0.5, 0.6, 0.28]);
+            break;
+          case 'port':   // 軍港：石の岸壁・倉庫・クレーン
+            pad(0, 0, 3.4, 2.8, C.stone); shadow(2.4, 1.8);
+            P('boxW', -0.5, 0, -0.5, 1.6, 0.7, 1.0, [0.5, 0.42, 0.35]); P('roof', -0.5, 0.7, -0.5, 1.8, 0.3, 1.2, C.kawara);
+            P('cylW', 1.0, 0, 0.2, 0.08, 1.8, 0.08, C.woodDk); P('boxW', 0.7, 1.7, 0.2, 0.8, 0.07, 0.07, C.woodDk);
+            flag(1.4, 1.0, 1.6, c);
+            break;
+          case 'airfield':   // 飛行場：滑走路と格納庫
+            pad(0, 0, 4.2, 1.6, [0.4, 0.4, 0.38]); shadow(1.6, 1.2);
+            if (detail) for (let k = 0; k < 5; k++) P('box', -1.6 + k * 0.8, 0.02, 0, 0.4, 0.02, 0.08, [0.9, 0.9, 0.85]);
+            P('boxW', 0, 0, -1.1, 1.4, 0.6, 0.8, [0.55, 0.55, 0.5]); P('cylW', 0, 0.6, -1.1, 0.7, 0.3, 0.4, [0.5, 0.5, 0.47]);
+            flag(1.9, -0.9, 1.4, c);
+            break;
+          case 'bomberbase':   // 爆撃機基地：大きな格納庫と管制塔
+            pad(0, 0, 4.6, 2.0, [0.36, 0.36, 0.34]); shadow(2.0, 1.6);
+            P('boxW', -0.6, 0, -1.2, 2.0, 0.8, 1.0, [0.5, 0.5, 0.46]); P('roof', -0.6, 0.8, -1.2, 2.1, 0.35, 1.1, [0.35, 0.36, 0.38]);
+            P('boxW', 1.4, 0, -1.1, 0.4, 1.3, 0.4, C.plaster); P('box', 1.4, 1.3, -1.1, 0.55, 0.25, 0.55, [0.3, 0.45, 0.55]);
+            break;
+          // ---- 防衛
+          case 'bunker':   // トーチカ：低いコンクリートの円
+            pad(0, 0, 1.8, 1.8, C.dirt); shadow(1.2, 1.2);
+            P('cylW', 0, 0, 0, 1.1, 0.5, 1.1, [0.62, 0.6, 0.55]); P('box', 0, 0.25, 0.55, 0.5, 0.08, 0.05, C.dark);
+            break;
+          case 'battery':   // 砲台：土塁の上の大砲
+            pad(0, 0, 2.2, 2.2, C.dirt); shadow(1.6, 1.6);
+            P('cylW', 0, 0, 0, 1.4, 0.35, 1.4, [0.5, 0.45, 0.35]); P('cylW', 0, 0.45, 0.2, 0.14, 1.3, 0.14, C.gun, Math.PI / 2 - 0.3);
+            P('box', 0, 0.35, -0.1, 0.5, 0.25, 0.5, C.woodDk);
+            break;
+          case 'rocket':   // ロケット陣地：斜めの発射台
+            pad(0, 0, 2.2, 2.0, C.dirt); shadow(1.4, 1.2);
+            for (let k = 0; k < 3; k++) P('cylW', -0.5 + k * 0.5, 0.2, 0, 0.1, 1.3, 0.1, [0.55, 0.25, 0.2], 0, 0.6);
+            P('boxW', 0, 0, -0.4, 1.4, 0.25, 0.4, C.woodDk);
+            break;
+          case 'aagun':   // 高射砲：上を向いた二連の砲
+            pad(0, 0, 1.6, 1.6, C.stone); shadow(1.0, 1.0);
+            P('cylW', 0, 0, 0, 0.7, 0.3, 0.7, [0.45, 0.48, 0.42]);
+            P('cylW', -0.12, 0.3, 0, 0.07, 1.3, 0.07, C.gun, 0, 0.25); P('cylW', 0.12, 0.3, 0, 0.07, 1.3, 0.07, C.gun, 0, 0.25);
+            break;
+          case 'coastgun':   // 沿岸砲：石の砲座と長い砲身
+            pad(0, 0, 2.4, 2.2, C.stone); shadow(1.6, 1.4);
+            P('box', 0, 0, 0, 1.6, 0.5, 1.4, C.stoneDk); P('cylW', 0, 0.6, 0.3, 0.16, 1.7, 0.16, C.gun, Math.PI / 2 - 0.15);
+            break;
+          case 'wall':   // 石垣
+            shadow(2.6, 0.7);
+            P('box', 0, 0, 0, 3.2, 0.9, 0.6, C.stone); if (detail) P('box', 0, 0.85, 0, 3.24, 0.08, 0.64, C.stoneDk);
+            P('boxW', 0, 0.9, 0, 3.0, 0.3, 0.3, C.plaster); P('roof', 0, 1.2, 0, 3.2, 0.15, 0.5, C.kawara);
+            break;
+          case 'mines':   // 地雷原：立て札と土の盛り上がり
+            pad(0, 0, 2.2, 2.2, [0.5, 0.42, 0.3]);
+            for (let k = 0; k < 5; k++) P('sphere', -0.8 + (k * 0.41) % 1.6, 0, -0.6 + (k * 0.67) % 1.2, 0.2, 0.08, 0.2, [0.35, 0.3, 0.22]);
+            P('cylW', 0.9, 0, 0.9, 0.04, 0.5, 0.04, C.woodDk); P('box', 0.9, 0.45, 0.9, 0.35, 0.22, 0.03, [0.9, 0.2, 0.15]);
+            break;
+          case 'gasshelter':   // 防毒壕：盛り土の入口
+            pad(0, 0, 2.0, 2.0, C.dirt); shadow(1.2, 1.2);
+            P('sphere', 0, 0, 0, 1.4, 0.6, 1.2, [0.45, 0.48, 0.35]); P('box', 0, 0.05, 0.6, 0.45, 0.4, 0.05, C.dark);
+            break;
+          case 'radar':   // レーダー：鉄塔と網
+            pad(0, 0, 1.6, 1.6, C.stone); shadow(0.8, 0.8);
+            P('cylW', 0, 0, 0, 0.12, 2.0, 0.12, [0.5, 0.5, 0.52]);
+            P('box', 0, 2.0, 0, 1.2, 0.6, 0.05, [0.7, 0.72, 0.75], this.clock * 1.5);
+            break;
+          case 'trench':   // 塹壕：土嚢の線
+            pad(0, 0, 2.8, 1.2, [0.42, 0.36, 0.26]);
+            for (let k = 0; k < 6; k++) P('sphere', -1.2 + k * 0.48, 0, 0, 0.42, 0.22, 0.3, [0.62, 0.55, 0.4]);
+            break;
+          // ---- 支援
+          case 'hospital':   // 診療所：白い建物と赤十字の旗
+            pad(0, 0, 2.2, 2.0, C.dirt2); shadow(1.6, 1.4);
+            minka(0, -0.1, 1.4, 0.9, 0.6, C.kawara, 0, { wall: C.plaster });
+            P('cylW', 0.9, 0, 0.7, 0.04, 1.2, 0.04, C.woodDk); P('box', 1.05, 1.0, 0.7, 0.3, 0.2, 0.02, [0.95, 0.95, 0.95]); P('box', 1.05, 1.0, 0.71, 0.18, 0.06, 0.02, C.red);
+            break;
+          case 'shrine':   // 神社：朱の鳥居と社
+            pad(0, 0, 2.4, 2.4, C.dirt2); shadow(1.4, 1.4);
+            minka(0, -0.5, 1.0, 0.8, 0.5, C.kawara, 0);
+            P('cylW', -0.45, 0, 0.7, 0.07, 0.9, 0.07, C.red); P('cylW', 0.45, 0, 0.7, 0.07, 0.9, 0.07, C.red);
+            P('box', 0, 0.85, 0.7, 1.2, 0.08, 0.1, C.red); P('box', 0, 0.72, 0.7, 1.0, 0.05, 0.06, C.red);
+            break;
+          case 'beacon':   // 狼煙台：櫓と煙
+            pad(0, 0, 1.4, 1.4); shadow(0.8, 0.8);
+            yagura(0, 0, 0.8, C.thatchDk); smokeAt(0, 2.2, 0); smokeAt(0.1, 2.6, 0);
+            break;
+          case 'depot':   // 兵站基地：天幕と積み荷
+            pad(0, 0, 2.8, 2.4, C.dirt); shadow(1.8, 1.6);
+            for (let k = 0; k < 3; k++) P('roofT', -0.9 + k * 0.9, 0, -0.3, 0.8, 0.6, 0.9, [0.82, 0.78, 0.66]);
+            if (detail) for (let k = 0; k < 4; k++) P('boxW', -0.9 + k * 0.6, 0, 0.8, 0.35, 0.3, 0.35, C.woodLt);
+            flag(1.2, 0.9, 1.4, c);
+            break;
+          case 'temple':   // 寺：大きな本堂と鐘楼
+            pad(0, 0, 2.8, 2.6, C.dirt2); shadow(2.0, 1.8);
+            minka(-0.2, -0.2, 1.6, 1.2, 0.8, C.kawara, 0);
+            P('cylW', 1.0, 0, 0.8, 0.05, 0.6, 0.05, C.woodDk); P('roof', 1.0, 0.6, 0.8, 0.6, 0.25, 0.6, C.kawara); P('cylW', 1.0, 0.3, 0.8, 0.18, 0.25, 0.18, [0.55, 0.42, 0.2]);
+            break;
+          case 'lighthouse':   // 灯台：白い塔と灯り
+            pad(0, 0, 1.4, 1.4, C.stone); shadow(0.7, 0.7);
+            P('cylW', 0, 0, 0, 0.35, 2.2, 0.35, [0.95, 0.95, 0.92]); P('box', 0, 2.2, 0, 0.45, 0.3, 0.45, C.lantern); P('coneT', 0, 2.5, 0, 0.4, 0.3, 0.4, C.red);
+            break;
+          default:
+            pad(0, 0, 2.0, 2.0); shadow(1.4, 1.4); minka(0, 0, 1.2, 0.9, 0.6, C.kawara, 0); flag(0.9, 0.7, 1.5, c);
         }
       }
       // ---- 兵士（足軽：鉄砲隊と槍隊）
@@ -600,7 +777,7 @@ const App = {
     const seen = this.animSeen = (this.animSeen || 0) + 1;
     const H = clamp(this.cam.dist * 0.004, 0.96, 18), Wd = H * SPR.FW / SPR.FH;
     const AW = this.renderer.spriteSize ? this.renderer.spriteSize[0] : 2048, AH = this.renderer.spriteSize ? this.renderer.spriteSize[1] : 1024;
-    const put = (x, z, yaw, kind, pose, c) => {
+    const put = (x, z, yaw, kind, pose, c, y0 = 0) => {
       let v = Math.round(Math.abs(yaw) / (Math.PI / 4));
       if (v > 4) v = 4;
       const k = SPR.index(kind, v, pose);
@@ -608,8 +785,12 @@ const App = {
       let u1 = u0 + SPR.FW / AW;
       const v1 = v0 + SPR.FH / AH;
       if (yaw < 0) { const tmp = u0; u0 = u1; u1 = tmp; }   // 左向きは反転
-      S.push(x, 0, z, Wd, H, u0, v0, u1, v1, c);
+      S.push(x, y0, z, Wd, H, u0, v0, u1, v1, c);
     };
+    // 乗り物（馬・大砲・軍艦・飛行機）：向き yaw の前が +z になるよう回して、箱や筒を並べる
+    let vx = 0, vz = 0, vy = 0, vc = 1, vs = 0, vr = 0;
+    const veh = (x, y, z, yaw) => { vx = x; vy = y; vz = z; vr = -yaw; vc = Math.cos(vr); vs = Math.sin(vr); };
+    const V = (mesh, lx, ly, lz, sx, sy, sz, c, r2, tilt) => I[mesh].push(vx + (lx * vc - lz * vs) * H, vy + ly * H, vz + (lx * vs + lz * vc) * H, sx * H, sy * H, sz * H, c, vr + (r2 || 0), tilt || 0);
     const P_IDLE = 0, P_WALK = 1, P_ATK = 5, P_DEAD = 7;
     for (const u of g.units) {
       const x = u.px + (u.x - u.px) * a, z = u.py + (u.y - u.py) * a;
@@ -626,13 +807,49 @@ const App = {
       s.yaw += dy * 0.3;
       if (s.yaw > Math.PI) s.yaw -= Math.PI * 2; else if (s.yaw < -Math.PI) s.yaw += Math.PI * 2;
       s.phase += moved * 6.5 / Math.max(1, H / 0.96);
+      const type = u.type || 'ashigaru', c0 = col[u.pref];
+      if (type === 'ship') {   // 軍艦：船体・甲板・帆柱・帆（帆は県の色）
+        veh(x, 0, z, s.yaw);
+        I.shadow.push(x, 0.01, z, 0.9 * H, 0.01, 2.2 * H, [0, 0, 0], vr);
+        V('boxW', 0, 0, 0, 0.75, 0.35, 2.0, [0.3, 0.24, 0.2]); V('box', 0, 0.35, 0, 0.6, 0.05, 1.8, [0.62, 0.5, 0.36]);
+        V('cylW', 0, 0.35, 0.15, 0.06, 1.6, 0.06, C.woodDk); V('box', 0, 0.9, 0.15, 0.9, 0.8, 0.03, c0);
+        V('cylW', 0, 0.45, 0.85, 0.08, 0.6, 0.08, C.gun, 0, 1.4);
+        continue;
+      }
+      if (type === 'fighter' || type === 'bomber') {   // 飛行機：空の上（影は地面に）
+        const big2 = type === 'bomber' ? 1.5 : 1, alt = 4 + (u.id % 5) * 0.4;
+        veh(x, 0, z, s.yaw);
+        I.shadow.push(x + 0.8 * H, 0.02, z - 0.9 * H, 1.6 * H * big2, 0.01, 1.4 * H * big2, [0, 0, 0], vr);
+        V('boxW', 0, alt, 0, 0.28 * big2, 0.28 * big2, 1.6 * big2, [0.55, 0.57, 0.52]);
+        V('box', 0, alt + 0.08, 0.1, 2.0 * big2, 0.06, 0.45 * big2, c0); V('box', 0, alt + 0.12, -0.7 * big2, 0.8 * big2, 0.05, 0.25, c0);
+        V('box', 0, alt + 0.15, -0.72 * big2, 0.04, 0.35, 0.25, [0.55, 0.57, 0.52]);
+        continue;
+      }
+      if (type === 'cavalry') {   // 騎馬隊：馬の上に兵
+        veh(x, 0, z, s.yaw);
+        const step2 = Math.sin(s.phase * 2) * 0.05;
+        V('boxW', 0, 0.42 + step2, 0, 0.26, 0.3, 0.75, [0.36, 0.24, 0.16]); V('boxW', 0, 0.62 + step2, 0.42, 0.14, 0.26, 0.3, [0.36, 0.24, 0.16]);
+        for (const [a, b] of [[-0.1, 0.25], [0.1, 0.25], [-0.1, -0.25], [0.1, -0.25]]) V('cylW', a, 0, b, 0.05, 0.45, 0.05, [0.3, 0.2, 0.13]);
+        I.shadow.push(x + 0.12 * H, 0.02, z - 0.14 * H, 0.6 * H, 0.01, 0.8 * H, [0, 0, 0], vr);
+        put(x, z, s.yaw, 3, e || u.hitB ? P_ATK : P_IDLE, c0, 0.45 * H);
+        continue;
+      }
+      if (type === 'cannon') {   // 大砲隊：車輪のついた大砲と砲手
+        veh(x, 0, z, s.yaw);
+        V('cylW', 0, 0.28, 0.1, 0.12, 1.0, 0.12, C.gun, 0, 1.35); V('cylW', -0.25, 0.2, -0.1, 0.4, 0.06, 0.4, C.woodDk, 0, 1.57); V('cylW', 0.25, 0.2, -0.1, 0.4, 0.06, 0.4, C.woodDk, 0, 1.57);
+        I.shadow.push(x + 0.12 * H, 0.02, z - 0.14 * H, 0.7 * H, 0.01, 0.7 * H, [0, 0, 0], 0);
+        put(x - 0.45 * H, z - 0.2 * H, s.yaw, 0, e || u.hitB ? P_ATK : P_IDLE, c0);
+        continue;
+      }
       const gun = u.id % 3 !== 0, flag = u.id % 3 === 1;
       const kind = (gun ? 0 : 2) + (flag ? 1 : 0);
       let pose = P_IDLE;
       if (e || u.hitB) pose = P_ATK + ((((t + u.id * 0.37) * (gun ? 0.8 : 1.6)) % 1) < (gun ? 0.15 : 0.5) ? 1 : 0);
       else if (moved > 1e-4) pose = P_WALK + (Math.floor(s.phase / (Math.PI / 2)) & 3);
       I.shadow.push(x + 0.12 * H, 0.02, z - 0.14 * H, 0.55 * H, 0.01, 0.36 * H, [0, 0, 0], 0);
-      put(x, z, s.yaw, kind, pose, col[u.pref]);
+      // 忍者は黒装束、毒ガス兵は防毒衣の黄緑（県の色を少しだけ）
+      const pc = type === 'ninja' ? c0.map((q) => 0.12 + q * 0.18) : type === 'gas' ? c0.map((q, k) => [0.55, 0.62, 0.3][k] * 0.75 + q * 0.25) : c0;
+      put(x, z, s.yaw, type === 'ninja' ? 2 : type === 'gas' ? 0 : kind, pose, pc);
     }
     // 亡骸（倒れてからしばらく残る）
     if (this.corpses && this.corpses.length) {
@@ -746,6 +963,27 @@ const App = {
           ctx.moveTo(v[0], v[1]); ctx.lineTo(w[0], w[1]);
         }
         ctx.stroke();
+      }
+    }
+    // 毒ガスの雲（黄緑のもや）と爆発（砲撃・爆弾・地雷）
+    if (g && g.gas && g.gas.length) {
+      for (const c of g.gas) {
+        if (!cam.project(c.x, 0.3, c.y, v) || !onScreen()) continue;
+        const r = c.r * cpx, life = clamp((c.until - g.time) / 6, 0, 1);
+        for (let k = 0; k < 3; k++) {
+          const a = this.clock * 0.6 + k * 2.1;
+          ctx.fillStyle = `rgba(170,200,60,${0.22 * life})`;
+          ctx.beginPath(); ctx.ellipse(v[0] + Math.cos(a) * r * 0.3, v[1] + Math.sin(a) * r * 0.15, r, r * 0.55, 0, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    }
+    if (g && g.booms && g.booms.length) {
+      for (const b of g.booms) {
+        const k = clamp((g.time - b[3]) / 1.2, 0, 1);
+        if (!cam.project(b[0], 0.2, b[1], v) || !onScreen()) continue;
+        const r = Math.max(4, b[2] * cpx) * (0.4 + k);
+        ctx.fillStyle = b[4] === 2 ? `rgba(120,90,60,${0.6 * (1 - k)})` : `rgba(255,${Math.round(180 - 100 * k)},60,${0.75 * (1 - k)})`;
+        ctx.beginPath(); ctx.ellipse(v[0], v[1], r, r * 0.6, 0, 0, Math.PI * 2); ctx.fill();
       }
     }
     // 攻撃を受けている建物の耐久ゲージ（拡大時、攻撃を受けてから3秒）
@@ -876,7 +1114,8 @@ const App = {
   showBuildFail(why) {
     const msg = { sea: '海には建てられません', notown: '自県の領土の中に建ててください', crowded: 'ほかの建物に近すぎます',
       nearnode: `町・砦はほかの拠点から${CONFIG.NODE_MIN_DIST * (this.map.scale || 1)}マス以上離してください`, terrain: '農場は山には建てられません',
-      noforest: '製材所は森の近くに建ててください', cost: '資源が足りません' }[why] || '建てられません';
+      noforest: '製材所は森の近くに建ててください', cost: '資源が足りません', nomountain: 'この建物は山の近くに建ててください',
+      nocoast: 'この建物は海の近くに建ててください' }[why] || (why === 'terrain' ? 'この地形には建てられません' : '建てられません');
     this.banner('建設できません', 'ng', msg);
   },
   frame(now) {
@@ -1087,7 +1326,7 @@ const App = {
     if (k === 't' || k === 'T') this.toggleTop();
     else if (k === 'h' || k === 'H') this.goHome();
     else if (k === 'r' || k === 'R') this.toggleRallyMode();
-    else if (k >= '1' && k <= '7') this.startPlace(BUILD_ORDER[+k - 1]);
+    else if (k >= '1' && k <= '9') { const list = BUILD_ORDER.filter((t) => BUILDINGS[t].cat === (this.bcat || 'eco')); if (list[+k - 1]) this.startPlace(list[+k - 1]); }
   },
   keyPan(dt) {
     if (!this.keys || !this.keys.size) return;

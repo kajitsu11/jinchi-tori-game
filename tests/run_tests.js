@@ -98,7 +98,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     });
     assert(s.parts === Math.max(3, Math.round(204.8 / 100 * 8)), 'participants');
     assert(s.nodes > 500 && s.units > 400 && s.mineU === Math.round(s.parts * 0.5), JSON.stringify(s));
-    assert(s.food > 0 && s.wood > 0 && s.cards === 7 && s.pref === '長野県', JSON.stringify(s));
+    assert(s.food > 0 && s.wood > 0 && s.cards >= 5 && s.pref === '長野県', JSON.stringify(s));
     await page.waitForTimeout(1500);
     await shot('02_playing');
   });

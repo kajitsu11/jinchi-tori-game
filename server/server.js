@@ -21,11 +21,11 @@ const SAVE_MS = +(process.env.SAVE_MS || 300000);   // 5分ごとに保存
 const SNAP_MS = 500;                                // 兵士・建物を送る間隔
 const MAX_SUBS = 600;                               // 1人が同時に受け取れる細かい区画の数
 const MAX_UNITS = 2500, MAX_BUILDINGS = 4000;
-const TYPES = ['farm', 'lumber', 'market', 'barracks', 'tower', 'town', 'fort'];
-const NODE_TYPES = ['capital', 'town', 'fort'];
+const NODE_TYPES = ['capital', 'town', 'fort', 'castle'];
 
 const E = loadEngine();
 const { CONFIG, BUILDINGS } = E;
+const TYPES = E.BUILD_ORDER, UNIT_TYPES = Object.keys(E.UNITS);
 
 /** RLE（値＋可変長の長さ）。ブラウザ版の地図データと同じ形式 */
 function rle(arr, from = 0, to = arr.length) {
@@ -244,7 +244,7 @@ function sendSnapshot(cl) {
         const u = g.units[k];
         if (!u || !u.alive || !inside(u.x, u.y)) continue;
         const flags = (u.engaged >= 0 ? 1 : 0) | (u.hitB ? 2 : 0) | (u.fromPlayer ? 4 : 0) | (u.hw === w ? 8 : 0);
-        U.push(u.id, Math.round(u.x * 10), Math.round(u.y * 10), u.pref, Math.max(0, Math.round(u.hp)), flags, u.engaged);
+        U.push(u.id, Math.round(u.x * 10), Math.round(u.y * 10), u.pref, Math.max(0, Math.round(u.hp)), flags, u.engaged, UNIT_TYPES.indexOf(u.type));
       }
     }
     out.u = U;
@@ -252,6 +252,8 @@ function sendSnapshot(cl) {
     const dd = season.deaths;
     for (let k = 0; k < dd.length; k += 4) if (inside(dd[k], dd[k + 1])) D.push(Math.round(dd[k] * 10), Math.round(dd[k + 1] * 10), dd[k + 2], dd[k + 3]);
     out.d = D;
+    out.g = (g.gas || []).filter((c) => inside(c.x, c.y)).slice(0, 200).map((c) => [Math.round(c.x * 10), Math.round(c.y * 10), c.r, Math.round(c.until - g.time)]);
+    out.x = (g.booms || []).filter((b) => inside(b[0], b[1])).slice(0, 200).map((b) => [Math.round(b[0] * 10), Math.round(b[1] * 10), b[2], b[4]]);
     out.s = g.shots.filter((s) => inside(s[0], s[1]) || inside(s[2], s[3])).slice(0, 200).map((s) => s.map((q) => Math.round(q * 10)));
   }
   if (v.b) {

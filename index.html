@@ -125,6 +125,11 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
 .b-rally { flex: 1; min-width: 0; text-align: left; }
 .b-rally.on { background: linear-gradient(#8c2f1c, #5a1a0d); border-color: #ffb08a; color: #ffe0cf; }
 .b-cancel { flex: none; background: #5a2a1a !important; }
+#bcats { display: flex; gap: 4px; margin-bottom: 5px; overflow-x: auto; scrollbar-width: none; }
+#bcats::-webkit-scrollbar { display: none; }
+#bcats button { flex: 0 0 auto; padding: 4px 10px; border-radius: 12px; border: 1px solid var(--gold-dk); background: rgba(0,0,0,.35); color: var(--parch-dk);
+  font: 600 12px var(--serif); letter-spacing: .05em; }
+#bcats button.on { background: linear-gradient(#8a6630, #4b3417); color: var(--gold-hi); border-color: var(--gold-hi); }
 #buildmenu { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
 #buildmenu::-webkit-scrollbar { display: none; }
 .bcard { flex: 0 0 auto; width: 76px; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 6px 3px 5px; border-radius: 6px;
@@ -266,6 +271,7 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
         <button id="btn-rally" class="b-rally">⚔ 攻撃目標</button>
         <button id="btn-cancel" class="b-cancel hidden">✕ やめる</button>
       </div>
+      <div id="bcats"></div>
       <div id="buildmenu"></div>
     </div>
   </div>
@@ -355,16 +361,73 @@ const RES_KEYS = ['food', 'wood', 'gold'];
 const RES_ICON = { food: '🌾', wood: '🪵', gold: '💰' };
 const RES_NAME = { food: '食料', wood: '木材', gold: '金' };
 /** 建物の種類 */
+/**
+ * 建物（36種類）。働きは項目で決まる（ルールは rts_sim.js）：
+ *   make: 資源/秒 ・ forest: 森から木材 ・ unit/train/trainFood: 兵の訓練（種類・秒・食料）
+ *   range/dps/hits/splash/rate: 敵を撃つ（hits: land=陸 sea=海 air=空、rate=何秒に1回まとめて撃つか）
+ *   aura: 周りの味方（または敵）への効果 ・ need: 建てる場所の条件（mountain=山の近く coast=海の近く plain=平地）
+ *   node: 拠点（国境を広げる）
+ */
 const BUILDINGS = {
-  farm: { name: '農場', icon: '🌾', cost: { wood: 60 }, hp: 150, desc: '食料 +144/時（森を切り開くと半分・山には建てられない）', make: { food: 0.04 } },
-  lumber: { name: '製材所', icon: '🪓', cost: { wood: 40, gold: 20 }, hp: 150, desc: '周りの森から木材（最大 +240/時）', forest: true },
-  market: { name: '市場', icon: '🏪', cost: { wood: 120 }, hp: 200, desc: '金 +120/時', make: { gold: 0.033 } },
-  barracks: { name: '兵舎', icon: '⚔️', cost: { wood: 150, gold: 50 }, hp: 350, desc: '食料30で兵士を訓練（10分ごと）', train: 600, trainFood: 30 },
-  tower: { name: '見張り塔', icon: '🗼', cost: { wood: 80, gold: 60 }, hp: 450, desc: '近くの敵兵を撃つ', range: 11, dps: 1.9 },
-  town: { name: '町', icon: '🏘️', cost: { wood: 250, gold: 150 }, desc: '国境を広げる・金 +43/時', node: true, make: { gold: 0.012 } },
-  fort: { name: '砦', icon: '🏰', cost: { wood: 150, gold: 300 }, desc: '国境を広げ、近くの敵兵を撃つ', node: true, range: 13, dps: 2.9 },
+  // ---- 経済
+  farm: { cat: 'eco', name: '農場', icon: '🌾', cost: { wood: 60 }, hp: 150, desc: '食料 +144/時（森を切り開くと半分・山には建てられない）', make: { food: 0.04 } },
+  lumber: { cat: 'eco', name: '製材所', icon: '🪓', cost: { wood: 40, gold: 20 }, hp: 150, desc: '周りの森から木材（最大 +240/時）', forest: true },
+  market: { cat: 'eco', name: '市場', icon: '🏪', cost: { wood: 120 }, hp: 200, desc: '金 +120/時', make: { gold: 0.033 } },
+  mine: { cat: 'eco', name: '金山', icon: '⛏️', cost: { wood: 100 }, hp: 250, desc: '金 +180/時（山の近くだけ）', make: { gold: 0.05 }, need: 'mountain' },
+  fishery: { cat: 'eco', name: '漁港', icon: '🐟', cost: { wood: 80 }, hp: 180, desc: '食料 +216/時（海の近くだけ）', make: { food: 0.06 }, need: 'coast' },
+  ranch: { cat: 'eco', name: '牧場', icon: '🐄', cost: { wood: 90 }, hp: 180, desc: '食料 +180/時（平地だけ）', make: { food: 0.05 }, need: 'plain' },
+  brewery: { cat: 'eco', name: '酒蔵', icon: '🍶', cost: { wood: 100, gold: 40 }, hp: 200, desc: '金 +144/時・木材 +36/時', make: { gold: 0.04, wood: 0.01 } },
+  storehouse: { cat: 'eco', name: '蔵', icon: '📦', cost: { wood: 120 }, hp: 300, desc: '周り10マスの味方の経済の建物の生産 +30%', aura: { r: 10, eco: 1.3 } },
+  mint: { cat: 'eco', name: '両替商', icon: '💴', cost: { wood: 150, gold: 100 }, hp: 220, desc: '金 +216/時', make: { gold: 0.06 } },
+  // ---- 兵の生産
+  barracks: { cat: 'mil', name: '兵舎', icon: '⚔️', cost: { wood: 150, gold: 50 }, hp: 350, desc: '足軽を訓練（10分ごと・食料30）', unit: 'ashigaru', train: 600, trainFood: 30 },
+  stable: { cat: 'mil', name: '厩舎', icon: '🐎', cost: { wood: 160, gold: 80 }, hp: 350, desc: '騎馬隊を訓練：足が速く強い（8分ごと・食料40）', unit: 'cavalry', train: 480, trainFood: 40 },
+  ninja: { cat: 'mil', name: '忍びの里', icon: '🥷', cost: { wood: 120, gold: 150 }, hp: 250, desc: '忍者を訓練：塔に見つからず、建物を壊すのが得意（10分ごと）', unit: 'ninja', train: 600, trainFood: 30 },
+  foundry: { cat: 'mil', name: '砲兵工廠', icon: '💣', cost: { wood: 200, gold: 200 }, hp: 450, desc: '大砲隊を訓練：遠くから建物と兵をまとめて砲撃（12分ごと）', unit: 'cannon', train: 720, trainFood: 40 },
+  gaslab: { cat: 'mil', name: '毒ガス研究所', icon: '☣️', cost: { wood: 150, gold: 250 }, hp: 300, desc: '毒ガス兵を訓練：敵の集まりに毒ガスを撒く（12分ごと）', unit: 'gas', train: 720, trainFood: 30 },
+  port: { cat: 'mil', name: '軍港', icon: '⚓', cost: { wood: 300, gold: 200 }, hp: 600, desc: '軍艦を造る：海を進み、海岸の敵を砲撃（15分ごと・海の近くだけ）', unit: 'ship', train: 900, trainFood: 60, need: 'coast' },
+  airfield: { cat: 'mil', name: '飛行場', icon: '✈️', cost: { wood: 300, gold: 300 }, hp: 500, desc: '戦闘機を造る：敵の飛行機を落とし、地上も撃つ（10分ごと）', unit: 'fighter', train: 600, trainFood: 40 },
+  bomberbase: { cat: 'mil', name: '爆撃機基地', icon: '🛩️', cost: { wood: 350, gold: 400 }, hp: 550, desc: '爆撃機を造る：敵の拠点の上から爆弾を落とす（15分ごと）', unit: 'bomber', train: 900, trainFood: 60 },
+  // ---- 防衛
+  tower: { cat: 'def', name: '見張り塔', icon: '🗼', cost: { wood: 80, gold: 60 }, hp: 450, desc: '近くの敵兵を撃つ', range: 11, dps: 1.9, hits: 'land' },
+  bunker: { cat: 'def', name: 'トーチカ', icon: '🧱', cost: { wood: 150, gold: 100 }, hp: 900, desc: '射程は短いが強力で頑丈', range: 7, dps: 4.5, hits: 'land' },
+  battery: { cat: 'def', name: '砲台', icon: '🎯', cost: { wood: 200, gold: 150 }, hp: 600, desc: '遠くの敵兵・軍艦をまとめて砲撃（範囲攻撃）', range: 16, dps: 3, hits: 'land,sea', splash: 2.5, rate: 3 },
+  rocket: { cat: 'def', name: 'ロケット陣地', icon: '🚀', cost: { wood: 250, gold: 300 }, hp: 400, desc: 'とても遠くへ大きな範囲攻撃（発射は遅い）', range: 28, dps: 3.5, hits: 'land', splash: 4, rate: 8 },
+  aagun: { cat: 'def', name: '高射砲', icon: '🎇', cost: { wood: 150, gold: 150 }, hp: 400, desc: '飛行機だけを撃つ（遠くまで届く）', range: 18, dps: 6, hits: 'air' },
+  coastgun: { cat: 'def', name: '沿岸砲', icon: '🌊', cost: { wood: 200, gold: 200 }, hp: 700, desc: '軍艦を遠くから撃つ（海の近くだけ）', range: 22, dps: 5, hits: 'sea,land', need: 'coast' },
+  wall: { cat: 'def', name: '石垣', icon: '🪨', cost: { wood: 100 }, hp: 2000, desc: 'とても頑丈。周り6マスの敵兵の足が半分に', aura: { r: 6, enemySlow: 0.5 } },
+  mines: { cat: 'def', name: '地雷原', icon: '💥', cost: { wood: 60, gold: 40 }, hp: 100, desc: '近くを通った敵兵に大きな被害（30秒で再装填）', mine: { r: 3, dmg: 60, every: 30 } },
+  gasshelter: { cat: 'def', name: '防毒壕', icon: '😷', cost: { wood: 100, gold: 60 }, hp: 300, desc: '周り12マスの味方は毒ガスの被害が1/5', aura: { r: 12, gasRes: 0.2 } },
+  radar: { cat: 'def', name: 'レーダー', icon: '📡', cost: { wood: 150, gold: 200 }, hp: 300, desc: '周り25マスで忍者を見つける・高射砲の威力 +50%', aura: { r: 25, detect: true, aa: 1.5 } },
+  trench: { cat: 'def', name: '塹壕', icon: '🪖', cost: { wood: 70 }, hp: 400, desc: '周り6マスの味方の受ける被害 −40%', aura: { r: 6, armor: 0.6 } },
+  // ---- 支援
+  hospital: { cat: 'sup', name: '診療所', icon: '⛑️', cost: { wood: 120, gold: 60 }, hp: 250, desc: '周り10マスの味方を回復（+3/秒）', aura: { r: 10, heal: 3 } },
+  shrine: { cat: 'sup', name: '神社', icon: '⛩️', cost: { wood: 100, gold: 100 }, hp: 300, desc: '周り12マスの味方の攻撃 +30%', aura: { r: 12, dps: 1.3 } },
+  beacon: { cat: 'sup', name: '狼煙台', icon: '🔥', cost: { wood: 80 }, hp: 200, desc: '周り12マスの味方の足 +40%', aura: { r: 12, spd: 1.4 } },
+  depot: { cat: 'sup', name: '兵站基地', icon: '🏕️', cost: { wood: 200, gold: 100 }, hp: 400, desc: '県の兵士の上限 +8', capPlus: 8 },
+  temple: { cat: 'sup', name: '寺', icon: '🛕', cost: { wood: 150, gold: 80 }, hp: 350, desc: '周り20マスの味方の拠点は占領されにくい（1.5倍）', aura: { r: 20, hold: 1.5 } },
+  lighthouse: { cat: 'sup', name: '灯台', icon: '🗼', cost: { wood: 100, gold: 50 }, hp: 250, desc: '周り25マスの味方の軍艦の攻撃 +40%（海の近くだけ）', aura: { r: 25, navy: 1.4 }, need: 'coast' },
+  // ---- 拠点
+  town: { cat: 'node', name: '町', icon: '🏘️', cost: { wood: 250, gold: 150 }, desc: '国境を広げる・金 +43/時', node: true, make: { gold: 0.012 } },
+  fort: { cat: 'node', name: '砦', icon: '🏰', cost: { wood: 150, gold: 300 }, desc: '国境を広げ、近くの敵兵を撃つ', node: true, range: 13, dps: 2.9, hits: 'land' },
+  castle: { cat: 'node', name: '城', icon: '🏯', cost: { wood: 400, gold: 600 }, desc: '広い国境（1.4倍）と強い守り。飛行機も撃つ', node: true, range: 15, dps: 3.5, hits: 'land,sea,air', radius: 1.4 },
 };
-const BUILD_ORDER = ['farm', 'lumber', 'market', 'barracks', 'tower', 'town', 'fort'];
+const BUILD_ORDER = Object.keys(BUILDINGS);
+const BUILD_CATS = [['eco', '経済'], ['mil', '兵の生産'], ['def', '防衛'], ['sup', '支援'], ['node', '拠点']];
+/**
+ * 兵種。dom: land=陸 sea=海 air=空。hits: 撃てる相手。vsB: 建物への攻撃の倍率。splash: 範囲攻撃の半径。
+ * fuel: 飛行機が飛べる秒数（切れると基地へ帰る＝いなくなる）。stealth: 塔などに狙われない（レーダーの近くは別）
+ */
+const UNITS = {
+  ashigaru: { name: '足軽', hp: 100, spd: 1, dps: 1.6, range: 2.5, dom: 'land', hits: 'land', vsB: 1 },
+  cavalry: { name: '騎馬隊', hp: 140, spd: 2.2, dps: 2.0, range: 2.0, dom: 'land', hits: 'land', vsB: 0.8 },
+  ninja: { name: '忍者', hp: 70, spd: 2.0, dps: 1.2, range: 2.0, dom: 'land', hits: 'land', vsB: 5, stealth: true },
+  gas: { name: '毒ガス兵', hp: 80, spd: 0.9, dps: 0.4, range: 7, dom: 'land', hits: 'land', vsB: 0.5, gas: { r: 4, dps: 2.5, life: 20, every: 8 } },
+  cannon: { name: '大砲隊', hp: 120, spd: 0.5, dps: 3.5, range: 9, dom: 'land', hits: 'land,sea', vsB: 3, splash: 2.5 },
+  ship: { name: '軍艦', hp: 400, spd: 1.5, dps: 4, range: 11, dom: 'sea', hits: 'land,sea,air', vsB: 2, splash: 2 },
+  fighter: { name: '戦闘機', hp: 150, spd: 6, dps: 3, range: 5, dom: 'air', hits: 'air,land', vsB: 0.3, fuel: 400 },
+  bomber: { name: '爆撃機', hp: 220, spd: 4.5, dps: 0, range: 0, dom: 'air', hits: '', vsB: 0, fuel: 300, bomb: { r: 3.5, dmg: 45, every: 5 } },
+};
 const WASTE = 48;             // 焦土（持ち主なし）を表す持ち主ID
 const WASTE_COLOR = '#4a4038';
 
@@ -887,11 +950,11 @@ void main(){
     float cityK = smoothstep(0.35, 0.65, mix(mix(step(abs(k00 - 4.0), 0.5), step(abs(k10 - 4.0), 0.5), qf.x), mix(step(abs(k01 - 4.0), 0.5), step(abs(k11 - 4.0), 0.5), qf.x), qf.y));
     float cityZ = clamp(1.6 - cpp * 3.0, 0.0, 1.0) * cityK;
     if (cityZ > 0.0) {
-      vec2 bw = vWorld * 0.8, bf = fract(bw), bi = floor(bw);
+      vec2 bw = vWorld * 1.6, bf = fract(bw), bi = floor(bw);
       float hb = hash(bi);
       float roof = step(0.16, bf.x) * step(bf.x, 0.86) * step(0.16, bf.y) * step(bf.y, 0.86) * step(0.3, hb);
       vec3 rc = hb > 0.7 ? vec3(0.36, 0.37, 0.42) : hb > 0.5 ? vec3(0.55, 0.32, 0.22) : vec3(0.62, 0.58, 0.5);
-      land = mix(land, mix(vec3(0.66, 0.6, 0.48), rc, roof), 0.75 * cityZ);
+      land = mix(land, mix(vec3(0.66, 0.6, 0.48), rc, roof), 0.45 * cityZ * clamp(cpp * 6.0, 0.35, 1.0));
     }
   } else {
     float patch = noise(vWorld * 0.06 + 7.3), patch2 = noise(vWorld * 0.11 - 3.1);
@@ -2108,6 +2171,16 @@ class NavGrid {
   }
 }
 
+// 兵種・建物が狙える相手を数字に（1=陸 2=海 4=空）
+const DOM_BIT = { land: 1, sea: 2, air: 4 };
+const maskOf = (h) => (h || '').split(',').reduce((m, k) => m | (DOM_BIT[k.trim()] || 0), 0);
+for (const k in UNITS) { UNITS[k].mask = maskOf(UNITS[k].hits); UNITS[k].bit = DOM_BIT[UNITS[k].dom]; }
+for (const k in BUILDINGS) if (BUILDINGS[k].hits) BUILDINGS[k].mask = maskOf(BUILDINGS[k].hits);
+const CAPITAL_DEF = { rate: 1.25 };
+// AIがときどき建てる建物（基本の建物のほかに）
+const AI_EXTRA = ['mine', 'fishery', 'ranch', 'brewery', 'storehouse', 'mint', 'stable', 'ninja', 'foundry', 'gaslab', 'port', 'airfield', 'bomberbase',
+  'bunker', 'battery', 'rocket', 'aagun', 'coastgun', 'wall', 'mines', 'gasshelter', 'radar', 'trench', 'hospital', 'shrine', 'beacon', 'depot', 'temple', 'lighthouse'];
+
 class Sim {
   /**
    * me：この端末のプレイヤーの県（1人で遊ぶとき。財布0番）。サーバーでは 0（人間は addHuman で何人でも加わる）
@@ -2286,7 +2359,16 @@ class Sim {
     }
     this.nodeAdj = adj.map((s) => [...s]);
   }
-  needFor(n) { return CONFIG.CAPTURE_NEED[n.type]; }
+  /** 占領に必要な量（近くに味方の寺があれば1.5倍。10秒ごとに確かめる） */
+  needFor(n) {
+    const base = CONFIG.CAPTURE_NEED[n.type] || CONFIG.CAPTURE_NEED.fort;
+    if (!this.buildingsNear) return base;
+    if (this.time >= (n.holdAt || 0)) {
+      n.holdAt = this.time + 10; n.hold = 1;
+      this.buildingsNear(n.x, n.y, 20, (b) => { const a = BUILDINGS[b.type].aura; if (a && a.hold && b.owner === n.owner) n.hold = a.hold; });
+    }
+    return base * (n.hold || 1);
+  }
   cellsOf(id) {
     const list = this.nodeCells[id], nodeOf = this.nodeOf;
     let stale = 0;
@@ -2330,8 +2412,13 @@ class Sim {
   }
 
   // ---------------------------------------------------------- 資源
-  canAfford(w, cost) { for (const r of RES_KEYS) if ((cost[r] || 0) > this.res[r][w]) return false; return true; }
-  pay(w, cost) { for (const r of RES_KEYS) this.res[r][w] -= cost[r] || 0; }
+  near(c, r, fn) {
+    const map = this.map, x0 = map.X(c), y0 = map.Y(c), st = Math.max(1, this.S);
+    for (let dy = -r; dy <= r; dy += st) for (let dx = -r; dx <= r; dx += st) if (fn(map.id(x0 + dx, y0 + dy))) return true;
+    return false;
+  }
+  canAfford(w, cost) { if (this.isFree(w)) return true; for (const r of RES_KEYS) if ((cost[r] || 0) > this.res[r][w]) return false; return true; }
+  pay(w, cost) { if (this.isFree(w)) return; for (const r of RES_KEYS) this.res[r][w] -= cost[r] || 0; }
   forestNear(c, r) {
     const map = this.map, x0 = map.X(c), y0 = map.Y(c), t = map.terrain;
     let n = 0;
@@ -2361,7 +2448,12 @@ class Sim {
     }
     for (const b of this.buildings) {
       const def = BUILDINGS[b.type];
-      if (def.make) for (const r in def.make) inc(b.wallet, r, def.make[r] * b.mul);
+      if (def.cat === 'eco' && this.time >= (b.ecoAt || 0)) {   // 蔵の近くは生産が増える（1分ごとに確かめる）
+        b.ecoAt = this.time + 60; b.eco = 1;
+        this.buildingsNear(b.x, b.y, 10, (o) => { const a = BUILDINGS[o.type].aura; if (a && a.eco && o.owner === b.owner) b.eco = a.eco; });
+      }
+      const em = b.eco || 1;
+      if (def.make) for (const r in def.make) inc(b.wallet, r, def.make[r] * b.mul * em);
       if (def.forest) inc(b.wallet, 'wood', Math.min(CONFIG.LUMBER_MAX, b.forest * CONFIG.LUMBER_PER_FOREST));
     }
     const me0 = H.get(0);
@@ -2392,6 +2484,9 @@ class Sim {
     }
     if (type === 'farm' && t === 3) return 'terrain';
     if (type === 'lumber' && this.forestNear(c, 6) < CONFIG.LUMBER_MIN_FOREST) return 'noforest';
+    if (def.need === 'plain' && t !== 1) return 'terrain';
+    if (def.need === 'mountain' && !this.near(c, 5 * this.S, (i) => (map.terrain[i] & 7) === 3)) return 'nomountain';
+    if (def.need === 'coast' && !this.near(c, 5 * this.S, (i) => i < 0 || !map.initPref[i])) return 'nocoast';
     if (!this.canAfford(w, def.cost)) return 'cost';
     return null;
   }
@@ -2444,7 +2539,7 @@ class Sim {
     take(c, 0);
     for (let qh = 0; qh < q.length; qh++) {
       const i = q[qh], di = d.get(i) + 1;
-      if (di > CONFIG.NODE_RADIUS * this.S) continue;
+      if (di > CONFIG.NODE_RADIUS * this.S * (BUILDINGS[type].radius || 1)) continue;
       this.forNeighbors(i, (j) => {
         if (d.has(j) || dist[j] === 0 || di >= dist[j]) return;
         d.set(j, di); q.push(j); take(j, di);
@@ -2472,38 +2567,53 @@ class Sim {
   }
 
   // ---------------------------------------------------------- 兵士
-  /** hw：人間の財布（兵舎の持ち主。AIの兵は -1） */
-  spawnUnit(P, x, y, r, hw) {
+  /** hw：人間の財布（兵舎の持ち主。AIの兵は -1）・type：兵種（UNITS） */
+  spawnUnit(P, x, y, r, hw, type = 'ashigaru') {
     if (hw === true) hw = 0; else if (hw === false || hw === undefined) hw = -1;
-    const fromPlayer = hw >= 0;
-    let px = x, py = y;
-    for (let k = 0; k < 12; k++) {
-      const tx = x + (this.rng() * 2 - 1) * r, ty = y + (this.rng() * 2 - 1) * r;
-      const i = this.cellAt(tx, ty);
-      if (i >= 0 && i < this.map.N && this.owner[i] === P) { px = tx; py = ty; break; }
+    const fromPlayer = hw >= 0, def = UNITS[type];
+    let px = x, py = y, found = def.dom !== 'land';
+    for (let k = 0; k < 24 && def.dom !== 'air'; k++) {
+      const rr = def.dom === 'sea' ? r + k * this.S : r;
+      const tx = x + (this.rng() * 2 - 1) * rr, ty = y + (this.rng() * 2 - 1) * rr;
+      const ok = def.dom === 'sea' ? this.isSea(tx, ty) : this.owner[this.cellAt(tx, ty)] === P;
+      if (ok) { px = tx; py = ty; found = true; break; }
+      if (def.dom === 'sea') found = false;
     }
-    const u = { id: this.useq++, pref: P, fromPlayer, hw, role: this.rng() < CONFIG.AI_DEFENDER_RATIO ? 'def' : 'atk',
-      x: px, y: py, px, py, hp: CONFIG.UNIT_HP, alive: true, path: null, pi: 0, dest: null, goalNode: -1, chase: -1, engaged: -1, hitB: null,
-      thinkAt: this.time + this.rng(), offX: (this.rng() - 0.5) * CONFIG.CAPTURE_RADIUS * 1.2, offY: (this.rng() - 0.5) * CONFIG.CAPTURE_RADIUS * 1.2 };
-    if (fromPlayer) u.role = 'atk';
+    if (def.dom === 'sea' && !found) return null;   // 近くに海がない
+    const u = { id: this.useq++, pref: P, fromPlayer, hw, type, bit: def.bit, stealth: !!def.stealth,
+      role: this.rng() < CONFIG.AI_DEFENDER_RATIO ? 'def' : 'atk',
+      x: px, y: py, px, py, hp: def.hp, alive: true, path: null, pi: 0, dest: null, goalNode: -1, chase: -1, engaged: -1, hitB: null,
+      thinkAt: this.time + this.rng(), offX: (this.rng() - 0.5) * CONFIG.CAPTURE_RADIUS * 1.2, offY: (this.rng() - 0.5) * CONFIG.CAPTURE_RADIUS * 1.2,
+      fuel: def.fuel || 0, cd: 0, bombs: 0 };
+    if (fromPlayer || def.dom !== 'land' || type === 'cannon' || type === 'gas' || type === 'ninja') u.role = 'atk';
     this.units.push(u);
     return u;
   }
-  unitCap(P) { return Math.floor(this.parts[P] * CONFIG.UNIT_CAP_PER_PARTICIPANT + this.nodeCount[P] * CONFIG.UNIT_CAP_PER_NODE); }
+  isSea(x, y) { const i = this.cellAt(x, y); return i < 0 || !this.map.initPref[i]; }
+  unitCap(P) { return Math.floor(this.parts[P] * CONFIG.UNIT_CAP_PER_PARTICIPANT + this.nodeCount[P] * CONFIG.UNIT_CAP_PER_NODE + (this.capPlus ? this.capPlus[P] : 0)); }
   unitCount(P) { let n = 0; for (const u of this.units) if (u.pref === P) n++; return n; }
+  isFree(w) { return CONFIG.FREE_HUMANS && this.isHuman(w); }
   trainAll(dt) {
-    const cnt = new Int32Array(49);
-    for (const u of this.units) cnt[u.pref]++;
+    const cnt = new Int32Array(49), tc = new Map();
+    for (const u of this.units) { cnt[u.pref]++; const k = u.pref * 16 + (u.bit || 1); tc.set(k, (tc.get(k) || 0) + 1); }
+    const plus = this.capPlus = new Int32Array(49);
+    for (const b of this.buildings) if (BUILDINGS[b.type].capPlus) plus[b.owner] += BUILDINGS[b.type].capPlus;
     for (const b of this.buildings) {
-      if (b.type !== 'barracks') continue;
-      const def = BUILDINGS.barracks;
+      const def = BUILDINGS[b.type];
+      if (!def.unit) continue;
       b.t += dt;
-      if (b.t < def.train) continue;
-      if (cnt[b.owner] >= this.unitCap(b.owner) || this.res.food[b.wallet] < def.trainFood) { b.t = def.train; continue; }
+      const need = def.train * (CONFIG.TRAIN_MULT || 1);
+      if (b.t < need) continue;
+      const free = this.isFree(b.wallet);
+      // 軍艦は兵の上限の15%まで、飛行機は12%まで（陸の兵がいなくならないように）
+      const bit = UNITS[def.unit].bit, share = bit === 2 ? 0.15 : bit === 4 ? 0.12 : 1;
+      if (share < 1 && (tc.get(b.owner * 16 + bit) || 0) >= Math.max(2, this.unitCap(b.owner) * share)) { b.t = need; continue; }
+      if (cnt[b.owner] >= this.unitCap(b.owner) || (!free && this.res.food[b.wallet] < def.trainFood)) { b.t = need; continue; }
+      const u = this.spawnUnit(b.owner, b.x, b.y, def.unit === 'ship' ? 3 * this.S : 2.5, this.isHuman(b.wallet) ? b.wallet : -1, def.unit);
       b.t = 0;
-      this.res.food[b.wallet] -= def.trainFood;
-      this.spawnUnit(b.owner, b.x, b.y, 2.5, this.isHuman(b.wallet) ? b.wallet : -1);
-      cnt[b.owner]++;
+      if (!u) continue;
+      if (!free) this.res.food[b.wallet] -= def.trainFood;
+      cnt[b.owner]++; tc.set(b.owner * 16 + bit, (tc.get(b.owner * 16 + bit) || 0) + 1);
       this.stats.trained++;
       if (b.wallet === 0) this.stats.trainedMine++;
     }
@@ -2532,9 +2642,14 @@ class Sim {
       }
     }
   }
-  nearestEnemy(x, y, P, r) {
+  /** mask：狙える相手（1=陸 2=海 4=空）。see=false なら忍者は見えない（敵のレーダーの近くは別） */
+  nearestEnemy(x, y, P, r, mask = 1, see = true) {
     let best = null, bd = 1e9;
-    this.forUnitsNear(x, y, r, (v, d2) => { if (v.pref !== P && d2 < bd) { bd = d2; best = v; } });
+    this.forUnitsNear(x, y, r, (v, d2) => {
+      if (v.pref === P || !(v.bit & mask) || d2 >= bd) return;
+      if (!see && v.stealth && !(v.buff && v.buff.det)) return;
+      bd = d2; best = v;
+    });
     return best;
   }
 
@@ -2601,7 +2716,7 @@ class Sim {
   aiBuild(P, k) {
     const mine = { farm: 0, lumber: 0, market: 0, barracks: 0, tower: 0 };
     let total = 0;
-    for (const b of this.buildings) if (b.owner === P && b.wallet === P) { mine[b.type]++; total++; }
+    for (const b of this.buildings) if (b.owner === P && b.wallet === P) { mine[b.type] = (mine[b.type] || 0) + 1; total++; }
     if (total >= k * CONFIG.MAX_BUILDINGS_PER_PARTICIPANT) return;
     const nodes = this.nodeCount[P];
     const want = [];
@@ -2611,8 +2726,9 @@ class Sim {
     if (mine.market < nodes / 2) want.push('market');
     if (mine.tower < nodes / 2) want.push('tower');
     // 町・砦（国境を広げる）はときどき。県の参加者数に応じた上限まで
-    if (nodes < 6 + k * 0.5 && this.rng() < 0.1) want.push(this.rng() < 0.6 ? 'town' : 'fort');
-    if (!want.length) want.push(['farm', 'barracks', 'tower', 'market'][(this.rng() * 4) | 0]);
+    if (nodes < 6 + k * 0.5 && this.rng() < 0.1) { const r = this.rng(); want.push(r < 0.5 ? 'town' : r < 0.85 ? 'fort' : 'castle'); }
+    // 基本がそろったら、いろいろな建物（兵の生産・防衛・支援）も建てる
+    if (!want.length || this.rng() < 0.45) want.length = 0, want.push(AI_EXTRA[(this.rng() * AI_EXTRA.length) | 0]);
     const type = want[(this.rng() * want.length) | 0];
     if (!this.canAfford(P, BUILDINGS[type].cost)) return;
     const c = this.findSite(type, P, P);
@@ -2625,7 +2741,7 @@ class Sim {
     const front = (type === 'tower' || BUILDINGS[type].node)
       ? own.filter((n) => this.nodeAdj[n.id].some((a) => this.nodes[a].owner !== P)) : own;
     const list = front.length ? front : own;
-    for (let tries = 0; tries < 14; tries++) {
+    for (let tries = 0; tries < (BUILDINGS[type].need ? 30 : 14); tries++) {
       const n = list[(this.rng() * list.length) | 0];
       const S = this.S, r = BUILDINGS[type].node ? (CONFIG.NODE_MIN_DIST + this.rng() * 15) * S : (3 + this.rng() * 20) * S;
       const a = this.rng() * Math.PI * 2;
@@ -2642,14 +2758,40 @@ class Sim {
   }
   thinkAll() {
     for (const u of this.units) {
-      if (!u.alive || this.time < u.thinkAt) continue;
+      if (!u.alive) continue;
+      if (this.time >= (u.buffAt || 0)) this.updateBuff(u);
+      if (this.time < u.thinkAt) continue;
       u.thinkAt = this.time + CONFIG.THINK_INTERVAL * (0.8 + this.rng() * 0.6);
       this.think(u);
     }
   }
+  /** 周りの建物からの効果（2秒ごとに計算して覚えておく）：足・攻撃・回復・毒ガスへの強さ・被害・軍艦・見つかったか */
+  updateBuff(u) {
+    u.buffAt = this.time + 2;
+    const f = { spd: 1, dps: 1, heal: 0, gasRes: 1, armor: 1, navy: 1, det: false };
+    this.buildingsNear(u.x, u.y, 25, (b, d) => {
+      const a = BUILDINGS[b.type].aura;
+      if (!a || d > a.r) return;
+      if (b.owner === u.pref) {
+        if (a.spd) f.spd = Math.max(f.spd, a.spd);
+        if (a.dps) f.dps = Math.max(f.dps, a.dps);
+        if (a.heal) f.heal = Math.max(f.heal, a.heal);
+        if (a.gasRes) f.gasRes = Math.min(f.gasRes, a.gasRes);
+        if (a.armor && u.bit === 1) f.armor = Math.min(f.armor, a.armor);
+        if (a.navy && u.bit === 2) f.navy = Math.max(f.navy, a.navy);
+      } else {
+        if (a.enemySlow && u.bit === 1) f.spd *= a.enemySlow;
+        if (a.detect) f.det = true;
+      }
+    });
+    u.buff = f;
+  }
   think(u) {
-    const e = this.nearestEnemy(u.x, u.y, u.pref, CONFIG.AGGRO_RANGE * this.S);
-    if (e) { u.chase = e.id; return; }
+    const def = UNITS[u.type], S = this.S;
+    if (def.mask) {
+      const e = this.nearestEnemy(u.x, u.y, u.pref, CONFIG.AGGRO_RANGE * S * (def.dom === 'air' ? 3 : 1), def.mask, true);
+      if (e && u.type !== 'bomber') { u.chase = e.id; return; }
+    }
     u.chase = -1;
     const pl = this.plans[u.pref];
     let node = -1;
@@ -2665,8 +2807,28 @@ class Sim {
     if (node < 0) return;
     if (u.goalNode === node && (u.path || u.dest)) return;
     const n = this.nodes[node];
+    if (def.dom === 'air') { u.dest = [n.x + u.offX * 0.3, n.y + u.offY * 0.3]; u.path = null; u.goalNode = node; return; }
+    if (def.dom === 'sea') {
+      const p = this.seaPointNear(n);
+      if (!p) { u.thinkAt = this.time + 30; return; }
+      u.dest = [p[0] + u.offX * 0.5, p[1] + u.offY * 0.5]; u.path = null; u.goalNode = node; u.stuck = 0; return;
+    }
     if (!this.setDest(u, n.x + u.offX, n.y + u.offY)) { u.thinkAt = this.time + 0.3; return; }
     u.goalNode = node;
+  }
+  /** 拠点の近くの海の位置（軍艦の目的地）。一度探したら覚えておく */
+  seaPointNear(n) {
+    if (n.seaPt !== undefined) return n.seaPt;
+    let best = null;
+    const S = this.S;
+    for (let r = 4 * S; r <= 60 * S && !best; r += 3 * S) {
+      for (let k = 0; k < 24; k++) {
+        const a = k / 24 * Math.PI * 2, x = n.x + Math.cos(a) * r, y = n.y + Math.sin(a) * r;
+        if (this.isSea(x, y) && this.isSea(x + 2 * S, y) && this.isSea(x - 2 * S, y) && this.isSea(x, y + 2 * S) && this.isSea(x, y - 2 * S)) { best = [x, y]; break; }
+      }
+    }
+    n.seaPt = best;
+    return best;
   }
   homeNode(u) {
     let best = -1, bd = 1e9;
@@ -2691,71 +2853,144 @@ class Sim {
   unitById(id) { return this.unitIndex ? this.unitIndex.get(id) : null; }
 
   // ---------------------------------------------------------- 戦闘・移動
+  /** 爆発（砲撃・爆弾・地雷）：半径 r の中の敵の兵（陸・海）と建物に被害 */
+  boom(x, y, r, dmg, P, hitB, kind) {
+    this.forUnitsNear(x, y, r, (v) => { if (v.pref !== P && v.bit !== 4) this.hitUnit(v, dmg); });
+    if (hitB) this.buildingsNear(x, y, r, (b) => { if (b.owner !== P) { b.hp -= hitB; b.hitAt = this.time; } });
+    if (this.booms.length < 200) this.booms.push([x, y, r, this.time, kind || 0]);
+  }
+  hitUnit(v, a) { this.dmg[v.k] += a * (v.buff ? v.buff.armor : 1); }
   combat(dt) {
     this.unitIndex = new Map();
-    const U = this.units;
+    const U = this.units, S = this.S;
     if (!this.dmg || this.dmg.length < U.length) this.dmg = new Float32Array(U.length * 2);
     const dmg = this.dmg;
     for (let k = 0; k < U.length; k++) { U[k].k = k; dmg[k] = 0; this.unitIndex.set(U[k].id, U[k]); }
-    const hit = (v, a) => { dmg[v.k] += a; };
-    for (const u of this.units) {
+    if (!this.booms) this.booms = [];
+    if (!this.gas) this.gas = [];
+    this.booms = this.booms.filter((b) => this.time - b[3] < 1.5);
+    for (const u of U) {
       if (!u.alive) continue;
-      const e = this.nearestEnemy(u.x, u.y, u.pref, CONFIG.ATTACK_RANGE);
-      u.engaged = e ? e.id : -1;
-      u.hitB = null;
-      const mult = this.owner[this.cellAt(u.x, u.y)] === u.pref ? CONFIG.HOME_BONUS : 1;
-      if (e) { hit(e, CONFIG.UNIT_DPS * dt * mult); continue; }
-      // 敵兵がいなければ、近くの敵の建物を壊す
+      const def = UNITS[u.type], buff = u.buff || {};
+      u.engaged = -1; u.hitB = null;
+      u.cd -= dt;
+      if (def.bomb) {   // 爆撃機：目標の拠点の上で爆弾を落とす
+        const n = this.nodes[u.goalNode];
+        if (n && n.owner !== u.pref && Math.hypot(n.x - u.x, n.y - u.y) < 4 * S && u.cd <= 0) {
+          u.cd = def.bomb.every; u.bombs++;
+          this.boom(u.x + (this.rng() - 0.5) * 3, u.y + (this.rng() - 0.5) * 3, def.bomb.r, def.bomb.dmg, u.pref, def.bomb.dmg * 1.5, 1);
+          if (u.bombs >= 6) u.fuel = 0;
+        }
+        continue;
+      }
+      if (!def.mask) continue;
+      const e = this.nearestEnemy(u.x, u.y, u.pref, def.range, def.mask, true);
+      const onHome = u.bit === 1 && this.owner[this.cellAt(u.x, u.y)] === u.pref;
+      const mult = (onHome ? CONFIG.HOME_BONUS : 1) * (buff.dps || 1) * (buff.navy || 1);
+      if (e) {
+        u.engaged = e.id;
+        if (def.gas) {   // 毒ガス兵：敵の位置に毒ガスを撒く
+          if (u.cd <= 0) { u.cd = def.gas.every; if (this.gas.length < 400) this.gas.push({ x: e.x, y: e.y, r: def.gas.r, dps: def.gas.dps, until: this.time + def.gas.life, P: u.pref }); }
+          this.hitUnit(e, def.dps * dt * mult);
+        } else if (def.splash) {
+          if (u.cd <= 0) { u.cd = 2; this.boom(e.x, e.y, def.splash, def.dps * 2 * mult, u.pref, def.dps * 2 * def.vsB * CONFIG.BUILDING_DPS_MULT, 0); }
+        } else this.hitUnit(e, def.dps * dt * mult * (e.bit === 1 && u.bit === 4 ? 0.5 : 1));
+        continue;
+      }
+      // 敵兵がいなければ、近くの敵の建物を壊す（飛行機は建物を撃たない＝爆撃機の役目）
+      if (!def.vsB || u.bit === 4) continue;
       let tb = null, bd = 1e9;
-      this.buildingsNear(u.x, u.y, CONFIG.ATTACK_RANGE + 1.2, (b, d) => { if (b.owner !== u.pref && d < bd) { bd = d; tb = b; } });
-      if (tb) { tb.hp -= CONFIG.UNIT_DPS * CONFIG.BUILDING_DPS_MULT * dt; tb.hitAt = this.time; u.hitB = tb; }
+      this.buildingsNear(u.x, u.y, def.range + 1.2, (b, d) => { if (b.owner !== u.pref && d < bd) { bd = d; tb = b; } });
+      if (tb) {
+        if (def.splash) { if (u.cd <= 0) { u.cd = 2; this.boom(tb.x, tb.y, def.splash, def.dps * 2 * mult, u.pref, def.dps * 2 * def.vsB * CONFIG.BUILDING_DPS_MULT, 0); } }
+        else { tb.hp -= def.dps * def.vsB * CONFIG.BUILDING_DPS_MULT * dt * mult; tb.hitAt = this.time; }
+        u.hitB = tb;
+      }
     }
-    // 塔・砦・県庁が近くの敵兵を撃つ（重くならないよう、それぞれ0.5秒に1回まとめて撃つ）
+    // 毒ガス：雲の中の敵の陸の兵に被害（防毒壕の近くは1/5）
+    if (this.gas.length) {
+      this.gas = this.gas.filter((c) => c.until > this.time);
+      for (const c of this.gas) this.forUnitsNear(c.x, c.y, c.r, (v) => { if (v.pref !== c.P && v.bit === 1) dmg[v.k] += c.dps * dt * (v.buff ? v.buff.gasRes : 1); });
+    }
+    // 建物と拠点が撃つ（それぞれ決まった間隔でまとめて撃つ）
     this.tickNo = (this.tickNo || 0) + 1;
     if (this.tickNo % 5 === 0) this.shots = [];
-    const slot = this.tickNo % 5, sdt = dt * 5;
-    const shoot = (id, x, y, P, range, dps) => {
-      if (id % 5 !== slot) return;
-      const e = this.nearestEnemy(x, y, P, range);
-      if (e) { hit(e, dps * sdt); if (this.shots.length < 300) this.shots.push([x, y, e.x, e.y]); }
+    const shoot = (o, x, y, P, def, range, dps, mask) => {
+      o.cd = (o.cd || 0) - dt;
+      if (o.cd > 0) return;
+      const rate = def.rate || 1.25;
+      o.cd = rate;
+      let mul = 1;
+      if (mask === 4) this.buildingsNear(x, y, 25, (r) => { const a = BUILDINGS[r.type].aura; if (a && a.aa && r.owner === P) mul = a.aa; });
+      const e = this.nearestEnemy(x, y, P, range, mask, false);
+      if (!e) return;
+      if (def.splash) this.boom(e.x, e.y, def.splash, dps * rate * mul, P, dps * rate * 0.5, 0);
+      else this.hitUnit(e, dps * rate * mul);
+      if (this.shots.length < 300) this.shots.push([x, y, e.x, e.y]);
     };
-    for (const b of this.buildings) if (b.type === 'tower') shoot(b.id, b.x, b.y, b.owner, BUILDINGS.tower.range, BUILDINGS.tower.dps);
-    for (const n of this.nodes) {
-      if (n.type === 'fort') shoot(n.id, n.x, n.y, n.owner, BUILDINGS.fort.range, BUILDINGS.fort.dps);
-      else if (n.type === 'capital') shoot(n.id, n.x, n.y, n.owner, CONFIG.CAPITAL_RANGE, CONFIG.CAPITAL_DPS);
+    for (const b of this.buildings) {
+      const def = BUILDINGS[b.type];
+      if (def.dps) shoot(b, b.x, b.y, b.owner, def, def.range, def.dps, def.mask);
+      else if (def.mine) {   // 地雷原
+        b.cd = (b.cd || 0) - dt;
+        if (b.cd <= 0 && this.nearestEnemy(b.x, b.y, b.owner, def.mine.r, 1, true)) { b.cd = def.mine.every; this.boom(b.x, b.y, def.mine.r, def.mine.dmg, b.owner, 0, 2); }
+      }
     }
-    for (const u of this.units) {
+    for (const n of this.nodes) {
+      if (n.type === 'capital') shoot(n, n.x, n.y, n.owner, CAPITAL_DEF, CONFIG.CAPITAL_RANGE, CONFIG.CAPITAL_DPS, 1);
+      else if (BUILDINGS[n.type].dps) { const d = BUILDINGS[n.type]; shoot(n, n.x, n.y, n.owner, d, d.range, d.dps, d.mask); }
+    }
+    for (const u of U) {
       if (!u.alive) continue;
+      const def = UNITS[u.type];
       const got = dmg[u.k];
       u.hp -= got;
-      const own = this.owner[this.cellAt(u.x, u.y)];
-      if (own && own !== u.pref) u.hp -= CONFIG.ATTRITION * dt;
-      else if (u.engaged < 0 && !got) u.hp = Math.min(CONFIG.UNIT_HP, u.hp + CONFIG.REGEN * dt);
+      if (u.bit === 1) {
+        const own = this.owner[this.cellAt(u.x, u.y)];
+        if (own && own !== u.pref) u.hp -= CONFIG.ATTRITION * dt;
+        else if (u.engaged < 0 && !got) u.hp = Math.min(def.hp, u.hp + CONFIG.REGEN * dt);
+      }
+      if (u.buff && u.buff.heal && !got) u.hp = Math.min(def.hp, u.hp + u.buff.heal * dt);
+      if (def.fuel) { u.fuel -= dt; if (u.fuel <= 0) { u.alive = false; continue; } }   // 燃料切れ：基地へ帰る
       if (u.hp <= 0) { u.alive = false; this.stats.kills++; this.emit('death', u); }
     }
     for (const b of this.buildings.slice()) if (b.hp <= 0) this.removeBuilding(b);
   }
   moveAll(dt) {
-    const sp = CONFIG.UNIT_SPEED * this.S * dt;
+    const base = CONFIG.UNIT_SPEED * this.S * dt;
     for (const u of this.units) {
       u.px = u.x; u.py = u.y;
       if (u.engaged >= 0 || u.hitB) continue;
+      const def = UNITS[u.type], sp = base * def.spd * (u.buff ? u.buff.spd : 1);
       let tx, ty, stopAt = 0;
       if (u.chase >= 0) {
         const e = this.unitIndex.get(u.chase);
-        if (!e || !e.alive || Math.hypot(e.x - u.x, e.y - u.y) > CONFIG.AGGRO_RANGE * this.S * 1.6) { u.chase = -1; u.thinkAt = 0; continue; }
-        tx = e.x; ty = e.y; stopAt = CONFIG.ATTACK_RANGE * 0.7;
+        if (!e || !e.alive || Math.hypot(e.x - u.x, e.y - u.y) > CONFIG.AGGRO_RANGE * this.S * (u.bit === 4 ? 4.8 : 1.6)) { u.chase = -1; u.thinkAt = 0; continue; }
+        tx = e.x; ty = e.y; stopAt = def.range * 0.7;
       } else if (u.dest) {
         if (u.path && u.pi < u.path.length) [tx, ty] = u.path[u.pi];
         else [tx, ty] = u.dest;
-      } else continue;
+      } else {
+        if (u.bit === 4 && u.goalNode >= 0) { const n = this.nodes[u.goalNode]; const a = this.time * 0.8 + u.id; tx = n.x + Math.cos(a) * 3; ty = n.y + Math.sin(a) * 3; }   // 上空で旋回
+        else continue;
+      }
       const dx = tx - u.x, dy = ty - u.y, d = Math.hypot(dx, dy);
       if (d <= stopAt) continue;
+      if (u.bit === 2) { this.sail(u, dx / d, dy / d, Math.min(sp, d - stopAt)); if (d - stopAt <= sp) { u.dest = null; } continue; }
       if (d - stopAt <= sp) {
         u.x = tx - (stopAt ? dx / d * stopAt : 0); u.y = ty - (stopAt ? dy / d * stopAt : 0);
         if (u.chase < 0) { if (u.path && u.pi < u.path.length) u.pi++; else { u.dest = null; u.path = null; } }
       } else { u.x += dx / d * sp; u.y += dy / d * sp; }
     }
+  }
+  /** 軍艦：海の上だけを進む。前が陸なら少しずつ向きを変えて岸に沿う */
+  sail(u, ux, uy, sp) {
+    for (const a of [0, 0.5, -0.5, 1, -1, 1.6, -1.6]) {
+      const c = Math.cos(a), s = Math.sin(a), vx = ux * c - uy * s, vy = ux * s + uy * c;
+      const nx = u.x + vx * sp, ny = u.y + vy * sp;
+      if (this.isSea(nx, ny) && this.isSea(nx + vx * this.S, ny + vy * this.S)) { u.x = nx; u.y = ny; return; }
+    }
+    if (++u.stuck > 40) { u.dest = null; u.goalNode = -1; u.stuck = 0; }
   }
 
   // ---------------------------------------------------------- 占領
@@ -2763,7 +2998,7 @@ class Sim {
     const cnt = this.cnt;
     for (const n of this.nodes) {
       const touched = [];
-      this.forUnitsNear(n.x, n.y, CONFIG.CAPTURE_RADIUS, (v) => { if (!cnt[v.pref]) touched.push(v.pref); cnt[v.pref]++; });
+      this.forUnitsNear(n.x, n.y, CONFIG.CAPTURE_RADIUS, (v) => { if (v.bit !== 1) return; if (!cnt[v.pref]) touched.push(v.pref); cnt[v.pref]++; });
       const def = cnt[n.owner];
       let A = 0, ac = 0;
       for (const p of touched) if (p !== n.owner && cnt[p] > ac) { ac = cnt[p]; A = p; }
@@ -2861,8 +3096,8 @@ function pl0(sim, P) { return sim.plans[P] && sim.plans[P].target >= 0; }
 //   ・兵士・建物は画面に映っている範囲だけ 0.5 秒ごとに届く（兵士は前回の位置から補間して動かす）
 // =====================================================================
 const NET_SNAP = 0.5;
-const NET_TYPES = ['farm', 'lumber', 'market', 'barracks', 'tower', 'town', 'fort'];
-const NET_NODE_TYPES = ['capital', 'town', 'fort'];
+const NET_TYPES = BUILD_ORDER, NET_UNIT_TYPES = Object.keys(UNITS);
+const NET_NODE_TYPES = ['capital', 'town', 'fort', 'castle'];
 
 /** 元の地図を S 倍に細かくした座標で扱う（中身は元の地図のまま。座標 → 元のマス） */
 function scaledMap(c, S) {
@@ -3007,18 +3242,20 @@ class NetGame {
     this.acc = 0;
     if (m.u) {
       const old = this.unitIndex, idx = new Map(), list = [], U = m.u;
-      for (let k = 0; k < U.length; k += 7) {
+      for (let k = 0; k < U.length; k += 8) {
         const id = U[k], x = U[k + 1] / 10, y = U[k + 2] / 10, f = U[k + 5];
         let u = old.get(id);
         if (u) { u.px = u.x; u.py = u.y; } else u = { id, px: x, py: y };
         u.x = x; u.y = y; u.pref = U[k + 3]; u.hp = U[k + 4];
-        u.engaged = f & 1 ? U[k + 6] : -1; u.hitB = f & 2 ? true : null; u.fromPlayer = !!(f & 8); u.alive = true;
+        u.engaged = f & 1 ? U[k + 6] : -1; u.hitB = f & 2 ? true : null; u.fromPlayer = !!(f & 8); u.alive = true; u.type = NET_UNIT_TYPES[U[k + 7]] || 'ashigaru';
         idx.set(id, u); list.push(u);
       }
       this.units = list; this.unitIndex = idx;
       const D = m.d || [];
       for (let k = 0; k < D.length; k += 4) this.emit('death', { x: D[k] / 10, y: D[k + 1] / 10, pref: D[k + 2], id: D[k + 3] });
       this.shots = (m.s || []).map((s) => s.map((q) => q / 10));
+      this.gas = (m.g || []).map(([x, y, r, left]) => ({ x: x / 10, y: y / 10, r, until: this.time + left }));
+      this.booms = (m.x || []).map(([x, y, r, k]) => [x / 10, y / 10, r, this.time, k]);
     } else if (this.units.length) { this.units = []; this.unitIndex = new Map(); this.shots = []; }
     let changed = false;
     for (const r of m.ba || []) {
@@ -3163,6 +3400,18 @@ const STATE = { LOADING: 'LOADING', TITLE: 'TITLE', PLAYING: 'PLAYING', GAMEOVER
 const ONLINE = window.JINCHI_ONLINE || null;
 // お試し版（trial.html）：地域を絞り、オンライン版と同じ細かさ（元の1マスを S×S）の地図を端末の中で動かす
 const TRIAL = window.JINCHI_TRIAL || null;
+/**
+ * 試作版の早い試合：1シーズン1時間。あなたの資源は無制限（AIは収入10倍）。
+ * 訓練は15倍・占領は15倍・AIの建築は10倍の速さ、兵士の足は1.5倍
+ */
+function applyFastMode() {
+  Object.assign(CONFIG, {
+    FREE_HUMANS: true, SEASON_DAYS: 1 / 24, TRAIN_MULT: 1 / 15, AI_PLAN_INTERVAL: 10, AI_TARGET_TIMEOUT: 300, RECENT_HATCH: 120,
+    AI_BUILD_INTERVAL: CONFIG.AI_BUILD_INTERVAL / 10, UNIT_SPEED: CONFIG.UNIT_SPEED * 1.5, START_UNITS_RATIO: 1,
+    CAPTURE_NEED: { capital: 3000, town: 1200, fort: 1600, castle: 2400 },
+  });
+  for (const r of RES_KEYS) { CONFIG.BASE_INCOME[r] *= 10; CONFIG.CAPITAL_MAKE[r] *= 10; }
+}
 
 const App = {
   state: null,
@@ -3199,6 +3448,7 @@ const App = {
         progress(0.45, `細かい地図（1マス≒90m）を作成中…`); await nextFrame();
         this.map = MapData.upscale(this.map, TRIAL.S, new Set(TRIAL.prefs));
         CONFIG.PARTICIPANTS_PER_MILLION *= TRIAL.mul;   // 1県に大勢いる状態（AIが担当）
+        if (TRIAL.fast) applyFastMode();
       }
       progress(0.5, '3D描画を準備中…'); await nextFrame();
       this.renderer = new Renderer($('gl'), this.map);
@@ -3342,6 +3592,10 @@ const App = {
     g.on('net', (s) => { if (s === 'down') this.banner('接続が切れました', 'ng', 'つなぎ直しています…'); else this.banner('再接続しました', 'ok', ''); });
     g.on('over', () => setTimeout(() => { if (this.state === STATE.PLAYING) this.setState(STATE.GAMEOVER); }, 900));
     // UI イベント
+    $('bcats').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-cat]');
+      if (b) { this.bcat = b.dataset.cat; this.buildMenu(); this.updateHud(true); }
+    }, { signal });
     $('buildmenu').addEventListener('click', (e) => {
       const b = e.target.closest('[data-b]');
       if (b) this.startPlace(b.dataset.b);
@@ -3370,9 +3624,12 @@ const App = {
   },
   /** 下の建築メニュー（カード） */
   buildMenu() {
+    const cat = this.bcat || 'eco';
+    $('bcats').innerHTML = BUILD_CATS.map(([k, name]) => `<button data-cat="${k}" class="${k === cat ? 'on' : ''}">${name}</button>`).join('');
     let html = '';
     for (const k of BUILD_ORDER) {
       const d = BUILDINGS[k];
+      if (d.cat !== cat) continue;
       const cost = RES_KEYS.filter((r) => d.cost[r]).map((r) => `<span data-r="${r}">${RES_ICON[r]}${d.cost[r]}</span>`).join('');
       html += `<button class="bcard" data-b="${k}" title="${escapeHtml(d.desc)}"><i>${d.icon}</i><b>${d.name}</b><small>${cost}</small></button>`;
     }
@@ -3489,6 +3746,7 @@ const App = {
     $('h-left').textContent = this.fmtLeft(g.time) + (this.speed > 1 ? `（×${this.speed}）` : '');
     $('h-rank').textContent = g.rankOf(me) + '位';
     for (const r of RES_KEYS) {
+      if (CONFIG.FREE_HUMANS) { $('r-' + r).textContent = '∞'; $('ri-' + r).textContent = '試作版：無制限'; continue; }
       $('r-' + r).textContent = fmt(Math.floor(g.res[r][0]));
       $('ri-' + r).textContent = `+${Math.round(g.income[r] * 3600)}/時`;   // 1時間あたりの収入
     }
@@ -3528,7 +3786,7 @@ const App = {
       $('cp-owner').textContent = `持ち主：${map.prefs[b.owner].name}${b.wallet === 0 ? '（あなた）' : ''}`;
       $('cp-meta').textContent = `耐久 ${Math.max(0, Math.ceil(b.hp))}/${b.maxHp}・${d.desc}`;
       let note = '';
-      if (b.type === 'barracks') note = `訓練 ${Math.min(100, Math.floor(b.t / d.train * 100))}%（食料${d.trainFood}）`;
+      if (d.unit) note = `${UNITS[d.unit].name}の訓練 ${Math.min(100, Math.floor(b.t / (d.train * (CONFIG.TRAIN_MULT || 1)) * 100))}%（食料${d.trainFood}）`;
       if (b.type === 'farm' && b.mul < 1) note = '森を切り開いた農場（収穫は半分）';
       if (b.type === 'lumber') note = `周りの森 ${b.forest}か所 → 木材 +${Math.round(Math.min(CONFIG.LUMBER_MAX, b.forest * CONFIG.LUMBER_PER_FOREST) * 3600)}/時`;
       $('cp-note').textContent = note;
@@ -3657,8 +3915,8 @@ const App = {
         }
         flag(-0.9, 0.7, 1.5, c);
       } else {
-        // 砦：石垣の上の白い塀・四隅の櫓・中央の天守
-        at(n.x, n.y, 0, big * 1.0, c);
+        // 砦：石垣の上の白い塀・四隅の櫓・中央の天守（城はひとまわり大きく、天守も大きい）
+        at(n.x, n.y, 0, big * (n.type === 'castle' ? 1.35 : 1.0), c);
         pad(0, 0, 4.0, 4.0, C.dirt2);
         shadow(3.3, 3.3);
         for (let k = 0; k < 4; k++) {
@@ -3668,7 +3926,7 @@ const App = {
           P('roof', ox, 0.7, oz, wx * (k % 2 ? 0.9 : 1.02), 0.15, wz * (k % 2 ? 1.02 : 0.9), C.kawara, k % 2 ? Math.PI / 2 : 0);
         }
         for (const [tx, tz] of [[1.35, 1.35], [-1.35, 1.35], [1.35, -1.35], [-1.35, -1.35]]) yagura(tx, tz, 0.55, C.kawara);
-        tenshu(0, 0, 0.55);
+        tenshu(0, 0, n.type === 'castle' ? 0.85 : 0.55);
         flag(0.5, 0.9, 1.8, c);
       }
     }
@@ -3733,6 +3991,162 @@ const App = {
             shadow(0.9, 0.9);
             yagura(0, 0, 1.1, C.thatchDk);
             break;
+          // ---- 経済
+          case 'mine':   // 坑道の入口・トロッコ・ぼた山
+            pad(0, 0, 2.6, 2.2, C.stoneDk); shadow(1.8, 1.4);
+            P('box', -0.3, 0, -0.3, 1.4, 0.7, 1.0, C.stone); P('box', -0.3, 0.1, 0.22, 0.5, 0.45, 0.05, C.dark);
+            P('roofT', -0.3, 0.7, -0.3, 1.6, 0.4, 1.2, C.thatchDk); P('sphere', 0.9, 0, 0.6, 0.9, 0.6, 0.8, [0.45, 0.42, 0.38]);
+            if (detail) { P('boxW', 0.5, 0.1, 0.4, 0.35, 0.25, 0.25, C.woodDk); P('box', 0.5, 0.33, 0.4, 0.3, 0.06, 0.2, [0.85, 0.7, 0.25]); }
+            break;
+          case 'fishery':   // 舟屋と干し網
+            pad(0, 0, 2.6, 2.0, C.dirt2); shadow(1.6, 1.2);
+            minka(-0.4, -0.3, 1.1, 0.8, 0.5, C.thatch, 0);
+            P('boxW', 0.8, 0.05, 0.5, 0.35, 0.18, 1.0, C.woodLt);
+            if (detail) for (let k = 0; k < 3; k++) { P('cylW', 0.2 + k * 0.4, 0, 0.8, 0.03, 0.55, 0.03, C.woodDk); P('box', 0.4 + k * 0.4 - 0.2, 0.3, 0.8, 0.36, 0.22, 0.02, [0.55, 0.6, 0.55]); }
+            break;
+          case 'ranch':   // 柵で囲った牧草地と牛
+            pad(0, 0, 3.0, 2.6, C.crop); shadow(1.2, 1.0);
+            minka(-0.9, -0.8, 0.8, 0.6, 0.45, C.thatch, 0);
+            for (let k = 0; k < (detail ? 4 : 2); k++) { const cx2 = -0.1 + (k % 2) * 0.7, cz2 = 0.1 + (k >> 1) * 0.6; P('boxW', cx2, 0.12, cz2, 0.22, 0.2, 0.42, k % 2 ? [0.25, 0.2, 0.18] : [0.9, 0.88, 0.85]); }
+            if (detail) for (let k = 0; k < 8; k++) P('cylW', -1.4 + k * 0.4, 0, 1.25, 0.03, 0.25, 0.03, C.woodLt);
+            break;
+          case 'brewery':   // 酒蔵：白壁の蔵と杉玉
+            pad(0, 0, 2.6, 2.2, C.dirt2); shadow(1.8, 1.4);
+            minka(0, -0.2, 1.6, 0.9, 0.7, C.kawara, 0, { wall: C.plaster });
+            P('sphere', 0.85, 0.55, 0.3, 0.22, 0.22, 0.22, [0.35, 0.45, 0.2]);
+            if (detail) for (let k = 0; k < 3; k++) P('cylW', -0.8 + k * 0.4, 0, 0.75, 0.16, 0.3, 0.16, C.woodLt);
+            break;
+          case 'storehouse':   // 土蔵
+            pad(0, 0, 2.0, 1.8); shadow(1.4, 1.2);
+            P('boxW', 0, 0, 0, 1.2, 1.0, 0.9, C.plaster); P('box', 0, 0, 0, 1.24, 0.25, 0.94, C.dark);
+            P('roof', 0, 1.0, 0, 1.5, 0.45, 1.2, C.kawara);
+            break;
+          case 'mint':   // 両替商：のれんの大店
+            pad(0, 0, 2.6, 2.2, C.dirt2); shadow(1.8, 1.4);
+            minka(0, -0.2, 1.7, 1.0, 0.75, C.kawara, 0, { lantern: true });
+            P('box', 0, 0.35, 0.33, 1.2, 0.3, 0.03, [0.2, 0.25, 0.5]);
+            break;
+          // ---- 兵の生産
+          case 'stable':   // 厩舎：長い馬屋と馬場
+            pad(0, 0.2, 3.0, 2.6, C.dirt); shadow(2.2, 1.6);
+            minka(0, -0.6, 2.2, 0.7, 0.55, C.thatch, 0);
+            if (detail) for (let k = 0; k < 3; k++) P('boxW', -0.7 + k * 0.7, 0.15, 0.5, 0.2, 0.22, 0.5, [0.45, 0.3, 0.2]);
+            flag(1.1, 0.8, 1.5, c);
+            break;
+          case 'ninja':   // 忍びの里：木立の中の黒い屋敷
+            pad(0, 0, 2.4, 2.2, [0.36, 0.42, 0.26]); shadow(1.6, 1.4);
+            minka(0, 0, 1.2, 0.9, 0.55, C.thatchDk, 0, { wall: C.woodDk });
+            for (let k = 0; k < 3; k++) P('coneT', -0.9 + k * 0.9, 0.2, 0.9, 0.5, 0.9, 0.5, [0.15, 0.3, 0.15]);
+            break;
+          case 'foundry':   // 砲兵工廠：煙突と並んだ大砲
+            pad(0, 0, 3.0, 2.6, C.stoneDk); shadow(2.2, 1.8);
+            P('boxW', -0.2, 0, -0.4, 2.0, 0.8, 1.0, [0.45, 0.32, 0.25]); P('roof', -0.2, 0.8, -0.4, 2.3, 0.35, 1.3, C.kawara);
+            P('cylW', 0.6, 0.8, -0.6, 0.18, 1.2, 0.18, C.stoneDk); smokeAt(0.6, 2.1, -0.6);
+            for (let k = 0; k < 2; k++) P('cylW', -0.6 + k * 0.9, 0.18, 0.75, 0.1, 0.8, 0.1, C.gun, Math.PI / 2);
+            break;
+          case 'gaslab':   // 毒ガス研究所：タンクと黄緑の煙
+            pad(0, 0, 2.6, 2.4, C.stoneDk); shadow(1.8, 1.6);
+            P('boxW', -0.4, 0, 0, 1.2, 0.7, 1.0, [0.6, 0.62, 0.58]); P('roof', -0.4, 0.7, 0, 1.4, 0.3, 1.2, C.kawara);
+            P('cylW', 0.75, 0, -0.35, 0.45, 0.8, 0.45, [0.55, 0.65, 0.3]); P('sphere', 0.75, 0.8, -0.35, 0.45, 0.25, 0.45, [0.55, 0.65, 0.3]);
+            P('cylW', 0.75, 0, 0.5, 0.3, 0.6, 0.3, [0.5, 0.6, 0.28]);
+            break;
+          case 'port':   // 軍港：石の岸壁・倉庫・クレーン
+            pad(0, 0, 3.4, 2.8, C.stone); shadow(2.4, 1.8);
+            P('boxW', -0.5, 0, -0.5, 1.6, 0.7, 1.0, [0.5, 0.42, 0.35]); P('roof', -0.5, 0.7, -0.5, 1.8, 0.3, 1.2, C.kawara);
+            P('cylW', 1.0, 0, 0.2, 0.08, 1.8, 0.08, C.woodDk); P('boxW', 0.7, 1.7, 0.2, 0.8, 0.07, 0.07, C.woodDk);
+            flag(1.4, 1.0, 1.6, c);
+            break;
+          case 'airfield':   // 飛行場：滑走路と格納庫
+            pad(0, 0, 4.2, 1.6, [0.4, 0.4, 0.38]); shadow(1.6, 1.2);
+            if (detail) for (let k = 0; k < 5; k++) P('box', -1.6 + k * 0.8, 0.02, 0, 0.4, 0.02, 0.08, [0.9, 0.9, 0.85]);
+            P('boxW', 0, 0, -1.1, 1.4, 0.6, 0.8, [0.55, 0.55, 0.5]); P('cylW', 0, 0.6, -1.1, 0.7, 0.3, 0.4, [0.5, 0.5, 0.47]);
+            flag(1.9, -0.9, 1.4, c);
+            break;
+          case 'bomberbase':   // 爆撃機基地：大きな格納庫と管制塔
+            pad(0, 0, 4.6, 2.0, [0.36, 0.36, 0.34]); shadow(2.0, 1.6);
+            P('boxW', -0.6, 0, -1.2, 2.0, 0.8, 1.0, [0.5, 0.5, 0.46]); P('roof', -0.6, 0.8, -1.2, 2.1, 0.35, 1.1, [0.35, 0.36, 0.38]);
+            P('boxW', 1.4, 0, -1.1, 0.4, 1.3, 0.4, C.plaster); P('box', 1.4, 1.3, -1.1, 0.55, 0.25, 0.55, [0.3, 0.45, 0.55]);
+            break;
+          // ---- 防衛
+          case 'bunker':   // トーチカ：低いコンクリートの円
+            pad(0, 0, 1.8, 1.8, C.dirt); shadow(1.2, 1.2);
+            P('cylW', 0, 0, 0, 1.1, 0.5, 1.1, [0.62, 0.6, 0.55]); P('box', 0, 0.25, 0.55, 0.5, 0.08, 0.05, C.dark);
+            break;
+          case 'battery':   // 砲台：土塁の上の大砲
+            pad(0, 0, 2.2, 2.2, C.dirt); shadow(1.6, 1.6);
+            P('cylW', 0, 0, 0, 1.4, 0.35, 1.4, [0.5, 0.45, 0.35]); P('cylW', 0, 0.45, 0.2, 0.14, 1.3, 0.14, C.gun, Math.PI / 2 - 0.3);
+            P('box', 0, 0.35, -0.1, 0.5, 0.25, 0.5, C.woodDk);
+            break;
+          case 'rocket':   // ロケット陣地：斜めの発射台
+            pad(0, 0, 2.2, 2.0, C.dirt); shadow(1.4, 1.2);
+            for (let k = 0; k < 3; k++) P('cylW', -0.5 + k * 0.5, 0.2, 0, 0.1, 1.3, 0.1, [0.55, 0.25, 0.2], 0, 0.6);
+            P('boxW', 0, 0, -0.4, 1.4, 0.25, 0.4, C.woodDk);
+            break;
+          case 'aagun':   // 高射砲：上を向いた二連の砲
+            pad(0, 0, 1.6, 1.6, C.stone); shadow(1.0, 1.0);
+            P('cylW', 0, 0, 0, 0.7, 0.3, 0.7, [0.45, 0.48, 0.42]);
+            P('cylW', -0.12, 0.3, 0, 0.07, 1.3, 0.07, C.gun, 0, 0.25); P('cylW', 0.12, 0.3, 0, 0.07, 1.3, 0.07, C.gun, 0, 0.25);
+            break;
+          case 'coastgun':   // 沿岸砲：石の砲座と長い砲身
+            pad(0, 0, 2.4, 2.2, C.stone); shadow(1.6, 1.4);
+            P('box', 0, 0, 0, 1.6, 0.5, 1.4, C.stoneDk); P('cylW', 0, 0.6, 0.3, 0.16, 1.7, 0.16, C.gun, Math.PI / 2 - 0.15);
+            break;
+          case 'wall':   // 石垣
+            shadow(2.6, 0.7);
+            P('box', 0, 0, 0, 3.2, 0.9, 0.6, C.stone); if (detail) P('box', 0, 0.85, 0, 3.24, 0.08, 0.64, C.stoneDk);
+            P('boxW', 0, 0.9, 0, 3.0, 0.3, 0.3, C.plaster); P('roof', 0, 1.2, 0, 3.2, 0.15, 0.5, C.kawara);
+            break;
+          case 'mines':   // 地雷原：立て札と土の盛り上がり
+            pad(0, 0, 2.2, 2.2, [0.5, 0.42, 0.3]);
+            for (let k = 0; k < 5; k++) P('sphere', -0.8 + (k * 0.41) % 1.6, 0, -0.6 + (k * 0.67) % 1.2, 0.2, 0.08, 0.2, [0.35, 0.3, 0.22]);
+            P('cylW', 0.9, 0, 0.9, 0.04, 0.5, 0.04, C.woodDk); P('box', 0.9, 0.45, 0.9, 0.35, 0.22, 0.03, [0.9, 0.2, 0.15]);
+            break;
+          case 'gasshelter':   // 防毒壕：盛り土の入口
+            pad(0, 0, 2.0, 2.0, C.dirt); shadow(1.2, 1.2);
+            P('sphere', 0, 0, 0, 1.4, 0.6, 1.2, [0.45, 0.48, 0.35]); P('box', 0, 0.05, 0.6, 0.45, 0.4, 0.05, C.dark);
+            break;
+          case 'radar':   // レーダー：鉄塔と網
+            pad(0, 0, 1.6, 1.6, C.stone); shadow(0.8, 0.8);
+            P('cylW', 0, 0, 0, 0.12, 2.0, 0.12, [0.5, 0.5, 0.52]);
+            P('box', 0, 2.0, 0, 1.2, 0.6, 0.05, [0.7, 0.72, 0.75], this.clock * 1.5);
+            break;
+          case 'trench':   // 塹壕：土嚢の線
+            pad(0, 0, 2.8, 1.2, [0.42, 0.36, 0.26]);
+            for (let k = 0; k < 6; k++) P('sphere', -1.2 + k * 0.48, 0, 0, 0.42, 0.22, 0.3, [0.62, 0.55, 0.4]);
+            break;
+          // ---- 支援
+          case 'hospital':   // 診療所：白い建物と赤十字の旗
+            pad(0, 0, 2.2, 2.0, C.dirt2); shadow(1.6, 1.4);
+            minka(0, -0.1, 1.4, 0.9, 0.6, C.kawara, 0, { wall: C.plaster });
+            P('cylW', 0.9, 0, 0.7, 0.04, 1.2, 0.04, C.woodDk); P('box', 1.05, 1.0, 0.7, 0.3, 0.2, 0.02, [0.95, 0.95, 0.95]); P('box', 1.05, 1.0, 0.71, 0.18, 0.06, 0.02, C.red);
+            break;
+          case 'shrine':   // 神社：朱の鳥居と社
+            pad(0, 0, 2.4, 2.4, C.dirt2); shadow(1.4, 1.4);
+            minka(0, -0.5, 1.0, 0.8, 0.5, C.kawara, 0);
+            P('cylW', -0.45, 0, 0.7, 0.07, 0.9, 0.07, C.red); P('cylW', 0.45, 0, 0.7, 0.07, 0.9, 0.07, C.red);
+            P('box', 0, 0.85, 0.7, 1.2, 0.08, 0.1, C.red); P('box', 0, 0.72, 0.7, 1.0, 0.05, 0.06, C.red);
+            break;
+          case 'beacon':   // 狼煙台：櫓と煙
+            pad(0, 0, 1.4, 1.4); shadow(0.8, 0.8);
+            yagura(0, 0, 0.8, C.thatchDk); smokeAt(0, 2.2, 0); smokeAt(0.1, 2.6, 0);
+            break;
+          case 'depot':   // 兵站基地：天幕と積み荷
+            pad(0, 0, 2.8, 2.4, C.dirt); shadow(1.8, 1.6);
+            for (let k = 0; k < 3; k++) P('roofT', -0.9 + k * 0.9, 0, -0.3, 0.8, 0.6, 0.9, [0.82, 0.78, 0.66]);
+            if (detail) for (let k = 0; k < 4; k++) P('boxW', -0.9 + k * 0.6, 0, 0.8, 0.35, 0.3, 0.35, C.woodLt);
+            flag(1.2, 0.9, 1.4, c);
+            break;
+          case 'temple':   // 寺：大きな本堂と鐘楼
+            pad(0, 0, 2.8, 2.6, C.dirt2); shadow(2.0, 1.8);
+            minka(-0.2, -0.2, 1.6, 1.2, 0.8, C.kawara, 0);
+            P('cylW', 1.0, 0, 0.8, 0.05, 0.6, 0.05, C.woodDk); P('roof', 1.0, 0.6, 0.8, 0.6, 0.25, 0.6, C.kawara); P('cylW', 1.0, 0.3, 0.8, 0.18, 0.25, 0.18, [0.55, 0.42, 0.2]);
+            break;
+          case 'lighthouse':   // 灯台：白い塔と灯り
+            pad(0, 0, 1.4, 1.4, C.stone); shadow(0.7, 0.7);
+            P('cylW', 0, 0, 0, 0.35, 2.2, 0.35, [0.95, 0.95, 0.92]); P('box', 0, 2.2, 0, 0.45, 0.3, 0.45, C.lantern); P('coneT', 0, 2.5, 0, 0.4, 0.3, 0.4, C.red);
+            break;
+          default:
+            pad(0, 0, 2.0, 2.0); shadow(1.4, 1.4); minka(0, 0, 1.2, 0.9, 0.6, C.kawara, 0); flag(0.9, 0.7, 1.5, c);
         }
       }
       // ---- 兵士（足軽：鉄砲隊と槍隊）
@@ -3757,7 +4171,7 @@ const App = {
     const seen = this.animSeen = (this.animSeen || 0) + 1;
     const H = clamp(this.cam.dist * 0.004, 0.96, 18), Wd = H * SPR.FW / SPR.FH;
     const AW = this.renderer.spriteSize ? this.renderer.spriteSize[0] : 2048, AH = this.renderer.spriteSize ? this.renderer.spriteSize[1] : 1024;
-    const put = (x, z, yaw, kind, pose, c) => {
+    const put = (x, z, yaw, kind, pose, c, y0 = 0) => {
       let v = Math.round(Math.abs(yaw) / (Math.PI / 4));
       if (v > 4) v = 4;
       const k = SPR.index(kind, v, pose);
@@ -3765,8 +4179,12 @@ const App = {
       let u1 = u0 + SPR.FW / AW;
       const v1 = v0 + SPR.FH / AH;
       if (yaw < 0) { const tmp = u0; u0 = u1; u1 = tmp; }   // 左向きは反転
-      S.push(x, 0, z, Wd, H, u0, v0, u1, v1, c);
+      S.push(x, y0, z, Wd, H, u0, v0, u1, v1, c);
     };
+    // 乗り物（馬・大砲・軍艦・飛行機）：向き yaw の前が +z になるよう回して、箱や筒を並べる
+    let vx = 0, vz = 0, vy = 0, vc = 1, vs = 0, vr = 0;
+    const veh = (x, y, z, yaw) => { vx = x; vy = y; vz = z; vr = -yaw; vc = Math.cos(vr); vs = Math.sin(vr); };
+    const V = (mesh, lx, ly, lz, sx, sy, sz, c, r2, tilt) => I[mesh].push(vx + (lx * vc - lz * vs) * H, vy + ly * H, vz + (lx * vs + lz * vc) * H, sx * H, sy * H, sz * H, c, vr + (r2 || 0), tilt || 0);
     const P_IDLE = 0, P_WALK = 1, P_ATK = 5, P_DEAD = 7;
     for (const u of g.units) {
       const x = u.px + (u.x - u.px) * a, z = u.py + (u.y - u.py) * a;
@@ -3783,13 +4201,49 @@ const App = {
       s.yaw += dy * 0.3;
       if (s.yaw > Math.PI) s.yaw -= Math.PI * 2; else if (s.yaw < -Math.PI) s.yaw += Math.PI * 2;
       s.phase += moved * 6.5 / Math.max(1, H / 0.96);
+      const type = u.type || 'ashigaru', c0 = col[u.pref];
+      if (type === 'ship') {   // 軍艦：船体・甲板・帆柱・帆（帆は県の色）
+        veh(x, 0, z, s.yaw);
+        I.shadow.push(x, 0.01, z, 0.9 * H, 0.01, 2.2 * H, [0, 0, 0], vr);
+        V('boxW', 0, 0, 0, 0.75, 0.35, 2.0, [0.3, 0.24, 0.2]); V('box', 0, 0.35, 0, 0.6, 0.05, 1.8, [0.62, 0.5, 0.36]);
+        V('cylW', 0, 0.35, 0.15, 0.06, 1.6, 0.06, C.woodDk); V('box', 0, 0.9, 0.15, 0.9, 0.8, 0.03, c0);
+        V('cylW', 0, 0.45, 0.85, 0.08, 0.6, 0.08, C.gun, 0, 1.4);
+        continue;
+      }
+      if (type === 'fighter' || type === 'bomber') {   // 飛行機：空の上（影は地面に）
+        const big2 = type === 'bomber' ? 1.5 : 1, alt = 4 + (u.id % 5) * 0.4;
+        veh(x, 0, z, s.yaw);
+        I.shadow.push(x + 0.8 * H, 0.02, z - 0.9 * H, 1.6 * H * big2, 0.01, 1.4 * H * big2, [0, 0, 0], vr);
+        V('boxW', 0, alt, 0, 0.28 * big2, 0.28 * big2, 1.6 * big2, [0.55, 0.57, 0.52]);
+        V('box', 0, alt + 0.08, 0.1, 2.0 * big2, 0.06, 0.45 * big2, c0); V('box', 0, alt + 0.12, -0.7 * big2, 0.8 * big2, 0.05, 0.25, c0);
+        V('box', 0, alt + 0.15, -0.72 * big2, 0.04, 0.35, 0.25, [0.55, 0.57, 0.52]);
+        continue;
+      }
+      if (type === 'cavalry') {   // 騎馬隊：馬の上に兵
+        veh(x, 0, z, s.yaw);
+        const step2 = Math.sin(s.phase * 2) * 0.05;
+        V('boxW', 0, 0.42 + step2, 0, 0.26, 0.3, 0.75, [0.36, 0.24, 0.16]); V('boxW', 0, 0.62 + step2, 0.42, 0.14, 0.26, 0.3, [0.36, 0.24, 0.16]);
+        for (const [a, b] of [[-0.1, 0.25], [0.1, 0.25], [-0.1, -0.25], [0.1, -0.25]]) V('cylW', a, 0, b, 0.05, 0.45, 0.05, [0.3, 0.2, 0.13]);
+        I.shadow.push(x + 0.12 * H, 0.02, z - 0.14 * H, 0.6 * H, 0.01, 0.8 * H, [0, 0, 0], vr);
+        put(x, z, s.yaw, 3, e || u.hitB ? P_ATK : P_IDLE, c0, 0.45 * H);
+        continue;
+      }
+      if (type === 'cannon') {   // 大砲隊：車輪のついた大砲と砲手
+        veh(x, 0, z, s.yaw);
+        V('cylW', 0, 0.28, 0.1, 0.12, 1.0, 0.12, C.gun, 0, 1.35); V('cylW', -0.25, 0.2, -0.1, 0.4, 0.06, 0.4, C.woodDk, 0, 1.57); V('cylW', 0.25, 0.2, -0.1, 0.4, 0.06, 0.4, C.woodDk, 0, 1.57);
+        I.shadow.push(x + 0.12 * H, 0.02, z - 0.14 * H, 0.7 * H, 0.01, 0.7 * H, [0, 0, 0], 0);
+        put(x - 0.45 * H, z - 0.2 * H, s.yaw, 0, e || u.hitB ? P_ATK : P_IDLE, c0);
+        continue;
+      }
       const gun = u.id % 3 !== 0, flag = u.id % 3 === 1;
       const kind = (gun ? 0 : 2) + (flag ? 1 : 0);
       let pose = P_IDLE;
       if (e || u.hitB) pose = P_ATK + ((((t + u.id * 0.37) * (gun ? 0.8 : 1.6)) % 1) < (gun ? 0.15 : 0.5) ? 1 : 0);
       else if (moved > 1e-4) pose = P_WALK + (Math.floor(s.phase / (Math.PI / 2)) & 3);
       I.shadow.push(x + 0.12 * H, 0.02, z - 0.14 * H, 0.55 * H, 0.01, 0.36 * H, [0, 0, 0], 0);
-      put(x, z, s.yaw, kind, pose, col[u.pref]);
+      // 忍者は黒装束、毒ガス兵は防毒衣の黄緑（県の色を少しだけ）
+      const pc = type === 'ninja' ? c0.map((q) => 0.12 + q * 0.18) : type === 'gas' ? c0.map((q, k) => [0.55, 0.62, 0.3][k] * 0.75 + q * 0.25) : c0;
+      put(x, z, s.yaw, type === 'ninja' ? 2 : type === 'gas' ? 0 : kind, pose, pc);
     }
     // 亡骸（倒れてからしばらく残る）
     if (this.corpses && this.corpses.length) {
@@ -3903,6 +4357,27 @@ const App = {
           ctx.moveTo(v[0], v[1]); ctx.lineTo(w[0], w[1]);
         }
         ctx.stroke();
+      }
+    }
+    // 毒ガスの雲（黄緑のもや）と爆発（砲撃・爆弾・地雷）
+    if (g && g.gas && g.gas.length) {
+      for (const c of g.gas) {
+        if (!cam.project(c.x, 0.3, c.y, v) || !onScreen()) continue;
+        const r = c.r * cpx, life = clamp((c.until - g.time) / 6, 0, 1);
+        for (let k = 0; k < 3; k++) {
+          const a = this.clock * 0.6 + k * 2.1;
+          ctx.fillStyle = `rgba(170,200,60,${0.22 * life})`;
+          ctx.beginPath(); ctx.ellipse(v[0] + Math.cos(a) * r * 0.3, v[1] + Math.sin(a) * r * 0.15, r, r * 0.55, 0, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    }
+    if (g && g.booms && g.booms.length) {
+      for (const b of g.booms) {
+        const k = clamp((g.time - b[3]) / 1.2, 0, 1);
+        if (!cam.project(b[0], 0.2, b[1], v) || !onScreen()) continue;
+        const r = Math.max(4, b[2] * cpx) * (0.4 + k);
+        ctx.fillStyle = b[4] === 2 ? `rgba(120,90,60,${0.6 * (1 - k)})` : `rgba(255,${Math.round(180 - 100 * k)},60,${0.75 * (1 - k)})`;
+        ctx.beginPath(); ctx.ellipse(v[0], v[1], r, r * 0.6, 0, 0, Math.PI * 2); ctx.fill();
       }
     }
     // 攻撃を受けている建物の耐久ゲージ（拡大時、攻撃を受けてから3秒）
@@ -4033,7 +4508,8 @@ const App = {
   showBuildFail(why) {
     const msg = { sea: '海には建てられません', notown: '自県の領土の中に建ててください', crowded: 'ほかの建物に近すぎます',
       nearnode: `町・砦はほかの拠点から${CONFIG.NODE_MIN_DIST * (this.map.scale || 1)}マス以上離してください`, terrain: '農場は山には建てられません',
-      noforest: '製材所は森の近くに建ててください', cost: '資源が足りません' }[why] || '建てられません';
+      noforest: '製材所は森の近くに建ててください', cost: '資源が足りません', nomountain: 'この建物は山の近くに建ててください',
+      nocoast: 'この建物は海の近くに建ててください' }[why] || (why === 'terrain' ? 'この地形には建てられません' : '建てられません');
     this.banner('建設できません', 'ng', msg);
   },
   frame(now) {
@@ -4244,7 +4720,7 @@ const App = {
     if (k === 't' || k === 'T') this.toggleTop();
     else if (k === 'h' || k === 'H') this.goHome();
     else if (k === 'r' || k === 'R') this.toggleRallyMode();
-    else if (k >= '1' && k <= '7') this.startPlace(BUILD_ORDER[+k - 1]);
+    else if (k >= '1' && k <= '9') { const list = BUILD_ORDER.filter((t) => BUILDINGS[t].cat === (this.bcat || 'eco')); if (list[+k - 1]) this.startPlace(list[+k - 1]); }
   },
   keyPan(dt) {
     if (!this.keys || !this.keys.size) return;

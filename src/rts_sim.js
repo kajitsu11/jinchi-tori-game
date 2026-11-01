@@ -153,6 +153,16 @@ class NavGrid {
   }
 }
 
+// 兵種・建物が狙える相手を数字に（1=陸 2=海 4=空）
+const DOM_BIT = { land: 1, sea: 2, air: 4 };
+const maskOf = (h) => (h || '').split(',').reduce((m, k) => m | (DOM_BIT[k.trim()] || 0), 0);
+for (const k in UNITS) { UNITS[k].mask = maskOf(UNITS[k].hits); UNITS[k].bit = DOM_BIT[UNITS[k].dom]; }
+for (const k in BUILDINGS) if (BUILDINGS[k].hits) BUILDINGS[k].mask = maskOf(BUILDINGS[k].hits);
+const CAPITAL_DEF = { rate: 1.25 };
+// AIがときどき建てる建物（基本の建物のほかに）
+const AI_EXTRA = ['mine', 'fishery', 'ranch', 'brewery', 'storehouse', 'mint', 'stable', 'ninja', 'foundry', 'gaslab', 'port', 'airfield', 'bomberbase',
+  'bunker', 'battery', 'rocket', 'aagun', 'coastgun', 'wall', 'mines', 'gasshelter', 'radar', 'trench', 'hospital', 'shrine', 'beacon', 'depot', 'temple', 'lighthouse'];
+
 class Sim {
   /**
    * me：この端末のプレイヤーの県（1人で遊ぶとき。財布0番）。サーバーでは 0（人間は addHuman で何人でも加わる）
@@ -331,7 +341,16 @@ class Sim {
     }
     this.nodeAdj = adj.map((s) => [...s]);
   }
-  needFor(n) { return CONFIG.CAPTURE_NEED[n.type]; }
+  /** 占領に必要な量（近くに味方の寺があれば1.5倍。10秒ごとに確かめる） */
+  needFor(n) {
+    const base = CONFIG.CAPTURE_NEED[n.type] || CONFIG.CAPTURE_NEED.fort;
+    if (!this.buildingsNear) return base;
+    if (this.time >= (n.holdAt || 0)) {
+      n.holdAt = this.time + 10; n.hold = 1;
+      this.buildingsNear(n.x, n.y, 20, (b) => { const a = BUILDINGS[b.type].aura; if (a && a.hold && b.owner === n.owner) n.hold = a.hold; });
+    }
+    return base * (n.hold || 1);
+  }
   cellsOf(id) {
     const list = this.nodeCells[id], nodeOf = this.nodeOf;
     let stale = 0;
@@ -375,8 +394,13 @@ class Sim {
   }
 
   // ---------------------------------------------------------- 資源
-  canAfford(w, cost) { for (const r of RES_KEYS) if ((cost[r] || 0) > this.res[r][w]) return false; return true; }
-  pay(w, cost) { for (const r of RES_KEYS) this.res[r][w] -= cost[r] || 0; }
+  near(c, r, fn) {
+    const map = this.map, x0 = map.X(c), y0 = map.Y(c), st = Math.max(1, this.S);
+    for (let dy = -r; dy <= r; dy += st) for (let dx = -r; dx <= r; dx += st) if (fn(map.id(x0 + dx, y0 + dy))) return true;
+    return false;
+  }
+  canAfford(w, cost) { if (this.isFree(w)) return true; for (const r of RES_KEYS) if ((cost[r] || 0) > this.res[r][w]) return false; return true; }
+  pay(w, cost) { if (this.isFree(w)) return; for (const r of RES_KEYS) this.res[r][w] -= cost[r] || 0; }
   forestNear(c, r) {
     const map = this.map, x0 = map.X(c), y0 = map.Y(c), t = map.terrain;
     let n = 0;
@@ -406,7 +430,12 @@ class Sim {
     }
     for (const b of this.buildings) {
       const def = BUILDINGS[b.type];
-      if (def.make) for (const r in def.make) inc(b.wallet, r, def.make[r] * b.mul);
+      if (def.cat === 'eco' && this.time >= (b.ecoAt || 0)) {   // 蔵の近くは生産が増える（1分ごとに確かめる）
+        b.ecoAt = this.time + 60; b.eco = 1;
+        this.buildingsNear(b.x, b.y, 10, (o) => { const a = BUILDINGS[o.type].aura; if (a && a.eco && o.owner === b.owner) b.eco = a.eco; });
+      }
+      const em = b.eco || 1;
+      if (def.make) for (const r in def.make) inc(b.wallet, r, def.make[r] * b.mul * em);
       if (def.forest) inc(b.wallet, 'wood', Math.min(CONFIG.LUMBER_MAX, b.forest * CONFIG.LUMBER_PER_FOREST));
     }
     const me0 = H.get(0);
@@ -437,6 +466,9 @@ class Sim {
     }
     if (type === 'farm' && t === 3) return 'terrain';
     if (type === 'lumber' && this.forestNear(c, 6) < CONFIG.LUMBER_MIN_FOREST) return 'noforest';
+    if (def.need === 'plain' && t !== 1) return 'terrain';
+    if (def.need === 'mountain' && !this.near(c, 5 * this.S, (i) => (map.terrain[i] & 7) === 3)) return 'nomountain';
+    if (def.need === 'coast' && !this.near(c, 5 * this.S, (i) => i < 0 || !map.initPref[i])) return 'nocoast';
     if (!this.canAfford(w, def.cost)) return 'cost';
     return null;
   }
@@ -489,7 +521,7 @@ class Sim {
     take(c, 0);
     for (let qh = 0; qh < q.length; qh++) {
       const i = q[qh], di = d.get(i) + 1;
-      if (di > CONFIG.NODE_RADIUS * this.S) continue;
+      if (di > CONFIG.NODE_RADIUS * this.S * (BUILDINGS[type].radius || 1)) continue;
       this.forNeighbors(i, (j) => {
         if (d.has(j) || dist[j] === 0 || di >= dist[j]) return;
         d.set(j, di); q.push(j); take(j, di);
@@ -517,38 +549,53 @@ class Sim {
   }
 
   // ---------------------------------------------------------- 兵士
-  /** hw：人間の財布（兵舎の持ち主。AIの兵は -1） */
-  spawnUnit(P, x, y, r, hw) {
+  /** hw：人間の財布（兵舎の持ち主。AIの兵は -1）・type：兵種（UNITS） */
+  spawnUnit(P, x, y, r, hw, type = 'ashigaru') {
     if (hw === true) hw = 0; else if (hw === false || hw === undefined) hw = -1;
-    const fromPlayer = hw >= 0;
-    let px = x, py = y;
-    for (let k = 0; k < 12; k++) {
-      const tx = x + (this.rng() * 2 - 1) * r, ty = y + (this.rng() * 2 - 1) * r;
-      const i = this.cellAt(tx, ty);
-      if (i >= 0 && i < this.map.N && this.owner[i] === P) { px = tx; py = ty; break; }
+    const fromPlayer = hw >= 0, def = UNITS[type];
+    let px = x, py = y, found = def.dom !== 'land';
+    for (let k = 0; k < 24 && def.dom !== 'air'; k++) {
+      const rr = def.dom === 'sea' ? r + k * this.S : r;
+      const tx = x + (this.rng() * 2 - 1) * rr, ty = y + (this.rng() * 2 - 1) * rr;
+      const ok = def.dom === 'sea' ? this.isSea(tx, ty) : this.owner[this.cellAt(tx, ty)] === P;
+      if (ok) { px = tx; py = ty; found = true; break; }
+      if (def.dom === 'sea') found = false;
     }
-    const u = { id: this.useq++, pref: P, fromPlayer, hw, role: this.rng() < CONFIG.AI_DEFENDER_RATIO ? 'def' : 'atk',
-      x: px, y: py, px, py, hp: CONFIG.UNIT_HP, alive: true, path: null, pi: 0, dest: null, goalNode: -1, chase: -1, engaged: -1, hitB: null,
-      thinkAt: this.time + this.rng(), offX: (this.rng() - 0.5) * CONFIG.CAPTURE_RADIUS * 1.2, offY: (this.rng() - 0.5) * CONFIG.CAPTURE_RADIUS * 1.2 };
-    if (fromPlayer) u.role = 'atk';
+    if (def.dom === 'sea' && !found) return null;   // 近くに海がない
+    const u = { id: this.useq++, pref: P, fromPlayer, hw, type, bit: def.bit, stealth: !!def.stealth,
+      role: this.rng() < CONFIG.AI_DEFENDER_RATIO ? 'def' : 'atk',
+      x: px, y: py, px, py, hp: def.hp, alive: true, path: null, pi: 0, dest: null, goalNode: -1, chase: -1, engaged: -1, hitB: null,
+      thinkAt: this.time + this.rng(), offX: (this.rng() - 0.5) * CONFIG.CAPTURE_RADIUS * 1.2, offY: (this.rng() - 0.5) * CONFIG.CAPTURE_RADIUS * 1.2,
+      fuel: def.fuel || 0, cd: 0, bombs: 0 };
+    if (fromPlayer || def.dom !== 'land' || type === 'cannon' || type === 'gas' || type === 'ninja') u.role = 'atk';
     this.units.push(u);
     return u;
   }
-  unitCap(P) { return Math.floor(this.parts[P] * CONFIG.UNIT_CAP_PER_PARTICIPANT + this.nodeCount[P] * CONFIG.UNIT_CAP_PER_NODE); }
+  isSea(x, y) { const i = this.cellAt(x, y); return i < 0 || !this.map.initPref[i]; }
+  unitCap(P) { return Math.floor(this.parts[P] * CONFIG.UNIT_CAP_PER_PARTICIPANT + this.nodeCount[P] * CONFIG.UNIT_CAP_PER_NODE + (this.capPlus ? this.capPlus[P] : 0)); }
   unitCount(P) { let n = 0; for (const u of this.units) if (u.pref === P) n++; return n; }
+  isFree(w) { return CONFIG.FREE_HUMANS && this.isHuman(w); }
   trainAll(dt) {
-    const cnt = new Int32Array(49);
-    for (const u of this.units) cnt[u.pref]++;
+    const cnt = new Int32Array(49), tc = new Map();
+    for (const u of this.units) { cnt[u.pref]++; const k = u.pref * 16 + (u.bit || 1); tc.set(k, (tc.get(k) || 0) + 1); }
+    const plus = this.capPlus = new Int32Array(49);
+    for (const b of this.buildings) if (BUILDINGS[b.type].capPlus) plus[b.owner] += BUILDINGS[b.type].capPlus;
     for (const b of this.buildings) {
-      if (b.type !== 'barracks') continue;
-      const def = BUILDINGS.barracks;
+      const def = BUILDINGS[b.type];
+      if (!def.unit) continue;
       b.t += dt;
-      if (b.t < def.train) continue;
-      if (cnt[b.owner] >= this.unitCap(b.owner) || this.res.food[b.wallet] < def.trainFood) { b.t = def.train; continue; }
+      const need = def.train * (CONFIG.TRAIN_MULT || 1);
+      if (b.t < need) continue;
+      const free = this.isFree(b.wallet);
+      // 軍艦は兵の上限の15%まで、飛行機は12%まで（陸の兵がいなくならないように）
+      const bit = UNITS[def.unit].bit, share = bit === 2 ? 0.15 : bit === 4 ? 0.12 : 1;
+      if (share < 1 && (tc.get(b.owner * 16 + bit) || 0) >= Math.max(2, this.unitCap(b.owner) * share)) { b.t = need; continue; }
+      if (cnt[b.owner] >= this.unitCap(b.owner) || (!free && this.res.food[b.wallet] < def.trainFood)) { b.t = need; continue; }
+      const u = this.spawnUnit(b.owner, b.x, b.y, def.unit === 'ship' ? 3 * this.S : 2.5, this.isHuman(b.wallet) ? b.wallet : -1, def.unit);
       b.t = 0;
-      this.res.food[b.wallet] -= def.trainFood;
-      this.spawnUnit(b.owner, b.x, b.y, 2.5, this.isHuman(b.wallet) ? b.wallet : -1);
-      cnt[b.owner]++;
+      if (!u) continue;
+      if (!free) this.res.food[b.wallet] -= def.trainFood;
+      cnt[b.owner]++; tc.set(b.owner * 16 + bit, (tc.get(b.owner * 16 + bit) || 0) + 1);
       this.stats.trained++;
       if (b.wallet === 0) this.stats.trainedMine++;
     }
@@ -577,9 +624,14 @@ class Sim {
       }
     }
   }
-  nearestEnemy(x, y, P, r) {
+  /** mask：狙える相手（1=陸 2=海 4=空）。see=false なら忍者は見えない（敵のレーダーの近くは別） */
+  nearestEnemy(x, y, P, r, mask = 1, see = true) {
     let best = null, bd = 1e9;
-    this.forUnitsNear(x, y, r, (v, d2) => { if (v.pref !== P && d2 < bd) { bd = d2; best = v; } });
+    this.forUnitsNear(x, y, r, (v, d2) => {
+      if (v.pref === P || !(v.bit & mask) || d2 >= bd) return;
+      if (!see && v.stealth && !(v.buff && v.buff.det)) return;
+      bd = d2; best = v;
+    });
     return best;
   }
 
@@ -646,7 +698,7 @@ class Sim {
   aiBuild(P, k) {
     const mine = { farm: 0, lumber: 0, market: 0, barracks: 0, tower: 0 };
     let total = 0;
-    for (const b of this.buildings) if (b.owner === P && b.wallet === P) { mine[b.type]++; total++; }
+    for (const b of this.buildings) if (b.owner === P && b.wallet === P) { mine[b.type] = (mine[b.type] || 0) + 1; total++; }
     if (total >= k * CONFIG.MAX_BUILDINGS_PER_PARTICIPANT) return;
     const nodes = this.nodeCount[P];
     const want = [];
@@ -656,8 +708,9 @@ class Sim {
     if (mine.market < nodes / 2) want.push('market');
     if (mine.tower < nodes / 2) want.push('tower');
     // 町・砦（国境を広げる）はときどき。県の参加者数に応じた上限まで
-    if (nodes < 6 + k * 0.5 && this.rng() < 0.1) want.push(this.rng() < 0.6 ? 'town' : 'fort');
-    if (!want.length) want.push(['farm', 'barracks', 'tower', 'market'][(this.rng() * 4) | 0]);
+    if (nodes < 6 + k * 0.5 && this.rng() < 0.1) { const r = this.rng(); want.push(r < 0.5 ? 'town' : r < 0.85 ? 'fort' : 'castle'); }
+    // 基本がそろったら、いろいろな建物（兵の生産・防衛・支援）も建てる
+    if (!want.length || this.rng() < 0.45) want.length = 0, want.push(AI_EXTRA[(this.rng() * AI_EXTRA.length) | 0]);
     const type = want[(this.rng() * want.length) | 0];
     if (!this.canAfford(P, BUILDINGS[type].cost)) return;
     const c = this.findSite(type, P, P);
@@ -670,7 +723,7 @@ class Sim {
     const front = (type === 'tower' || BUILDINGS[type].node)
       ? own.filter((n) => this.nodeAdj[n.id].some((a) => this.nodes[a].owner !== P)) : own;
     const list = front.length ? front : own;
-    for (let tries = 0; tries < 14; tries++) {
+    for (let tries = 0; tries < (BUILDINGS[type].need ? 30 : 14); tries++) {
       const n = list[(this.rng() * list.length) | 0];
       const S = this.S, r = BUILDINGS[type].node ? (CONFIG.NODE_MIN_DIST + this.rng() * 15) * S : (3 + this.rng() * 20) * S;
       const a = this.rng() * Math.PI * 2;
@@ -687,14 +740,40 @@ class Sim {
   }
   thinkAll() {
     for (const u of this.units) {
-      if (!u.alive || this.time < u.thinkAt) continue;
+      if (!u.alive) continue;
+      if (this.time >= (u.buffAt || 0)) this.updateBuff(u);
+      if (this.time < u.thinkAt) continue;
       u.thinkAt = this.time + CONFIG.THINK_INTERVAL * (0.8 + this.rng() * 0.6);
       this.think(u);
     }
   }
+  /** 周りの建物からの効果（2秒ごとに計算して覚えておく）：足・攻撃・回復・毒ガスへの強さ・被害・軍艦・見つかったか */
+  updateBuff(u) {
+    u.buffAt = this.time + 2;
+    const f = { spd: 1, dps: 1, heal: 0, gasRes: 1, armor: 1, navy: 1, det: false };
+    this.buildingsNear(u.x, u.y, 25, (b, d) => {
+      const a = BUILDINGS[b.type].aura;
+      if (!a || d > a.r) return;
+      if (b.owner === u.pref) {
+        if (a.spd) f.spd = Math.max(f.spd, a.spd);
+        if (a.dps) f.dps = Math.max(f.dps, a.dps);
+        if (a.heal) f.heal = Math.max(f.heal, a.heal);
+        if (a.gasRes) f.gasRes = Math.min(f.gasRes, a.gasRes);
+        if (a.armor && u.bit === 1) f.armor = Math.min(f.armor, a.armor);
+        if (a.navy && u.bit === 2) f.navy = Math.max(f.navy, a.navy);
+      } else {
+        if (a.enemySlow && u.bit === 1) f.spd *= a.enemySlow;
+        if (a.detect) f.det = true;
+      }
+    });
+    u.buff = f;
+  }
   think(u) {
-    const e = this.nearestEnemy(u.x, u.y, u.pref, CONFIG.AGGRO_RANGE * this.S);
-    if (e) { u.chase = e.id; return; }
+    const def = UNITS[u.type], S = this.S;
+    if (def.mask) {
+      const e = this.nearestEnemy(u.x, u.y, u.pref, CONFIG.AGGRO_RANGE * S * (def.dom === 'air' ? 3 : 1), def.mask, true);
+      if (e && u.type !== 'bomber') { u.chase = e.id; return; }
+    }
     u.chase = -1;
     const pl = this.plans[u.pref];
     let node = -1;
@@ -710,8 +789,28 @@ class Sim {
     if (node < 0) return;
     if (u.goalNode === node && (u.path || u.dest)) return;
     const n = this.nodes[node];
+    if (def.dom === 'air') { u.dest = [n.x + u.offX * 0.3, n.y + u.offY * 0.3]; u.path = null; u.goalNode = node; return; }
+    if (def.dom === 'sea') {
+      const p = this.seaPointNear(n);
+      if (!p) { u.thinkAt = this.time + 30; return; }
+      u.dest = [p[0] + u.offX * 0.5, p[1] + u.offY * 0.5]; u.path = null; u.goalNode = node; u.stuck = 0; return;
+    }
     if (!this.setDest(u, n.x + u.offX, n.y + u.offY)) { u.thinkAt = this.time + 0.3; return; }
     u.goalNode = node;
+  }
+  /** 拠点の近くの海の位置（軍艦の目的地）。一度探したら覚えておく */
+  seaPointNear(n) {
+    if (n.seaPt !== undefined) return n.seaPt;
+    let best = null;
+    const S = this.S;
+    for (let r = 4 * S; r <= 60 * S && !best; r += 3 * S) {
+      for (let k = 0; k < 24; k++) {
+        const a = k / 24 * Math.PI * 2, x = n.x + Math.cos(a) * r, y = n.y + Math.sin(a) * r;
+        if (this.isSea(x, y) && this.isSea(x + 2 * S, y) && this.isSea(x - 2 * S, y) && this.isSea(x, y + 2 * S) && this.isSea(x, y - 2 * S)) { best = [x, y]; break; }
+      }
+    }
+    n.seaPt = best;
+    return best;
   }
   homeNode(u) {
     let best = -1, bd = 1e9;
@@ -736,71 +835,144 @@ class Sim {
   unitById(id) { return this.unitIndex ? this.unitIndex.get(id) : null; }
 
   // ---------------------------------------------------------- 戦闘・移動
+  /** 爆発（砲撃・爆弾・地雷）：半径 r の中の敵の兵（陸・海）と建物に被害 */
+  boom(x, y, r, dmg, P, hitB, kind) {
+    this.forUnitsNear(x, y, r, (v) => { if (v.pref !== P && v.bit !== 4) this.hitUnit(v, dmg); });
+    if (hitB) this.buildingsNear(x, y, r, (b) => { if (b.owner !== P) { b.hp -= hitB; b.hitAt = this.time; } });
+    if (this.booms.length < 200) this.booms.push([x, y, r, this.time, kind || 0]);
+  }
+  hitUnit(v, a) { this.dmg[v.k] += a * (v.buff ? v.buff.armor : 1); }
   combat(dt) {
     this.unitIndex = new Map();
-    const U = this.units;
+    const U = this.units, S = this.S;
     if (!this.dmg || this.dmg.length < U.length) this.dmg = new Float32Array(U.length * 2);
     const dmg = this.dmg;
     for (let k = 0; k < U.length; k++) { U[k].k = k; dmg[k] = 0; this.unitIndex.set(U[k].id, U[k]); }
-    const hit = (v, a) => { dmg[v.k] += a; };
-    for (const u of this.units) {
+    if (!this.booms) this.booms = [];
+    if (!this.gas) this.gas = [];
+    this.booms = this.booms.filter((b) => this.time - b[3] < 1.5);
+    for (const u of U) {
       if (!u.alive) continue;
-      const e = this.nearestEnemy(u.x, u.y, u.pref, CONFIG.ATTACK_RANGE);
-      u.engaged = e ? e.id : -1;
-      u.hitB = null;
-      const mult = this.owner[this.cellAt(u.x, u.y)] === u.pref ? CONFIG.HOME_BONUS : 1;
-      if (e) { hit(e, CONFIG.UNIT_DPS * dt * mult); continue; }
-      // 敵兵がいなければ、近くの敵の建物を壊す
+      const def = UNITS[u.type], buff = u.buff || {};
+      u.engaged = -1; u.hitB = null;
+      u.cd -= dt;
+      if (def.bomb) {   // 爆撃機：目標の拠点の上で爆弾を落とす
+        const n = this.nodes[u.goalNode];
+        if (n && n.owner !== u.pref && Math.hypot(n.x - u.x, n.y - u.y) < 4 * S && u.cd <= 0) {
+          u.cd = def.bomb.every; u.bombs++;
+          this.boom(u.x + (this.rng() - 0.5) * 3, u.y + (this.rng() - 0.5) * 3, def.bomb.r, def.bomb.dmg, u.pref, def.bomb.dmg * 1.5, 1);
+          if (u.bombs >= 6) u.fuel = 0;
+        }
+        continue;
+      }
+      if (!def.mask) continue;
+      const e = this.nearestEnemy(u.x, u.y, u.pref, def.range, def.mask, true);
+      const onHome = u.bit === 1 && this.owner[this.cellAt(u.x, u.y)] === u.pref;
+      const mult = (onHome ? CONFIG.HOME_BONUS : 1) * (buff.dps || 1) * (buff.navy || 1);
+      if (e) {
+        u.engaged = e.id;
+        if (def.gas) {   // 毒ガス兵：敵の位置に毒ガスを撒く
+          if (u.cd <= 0) { u.cd = def.gas.every; if (this.gas.length < 400) this.gas.push({ x: e.x, y: e.y, r: def.gas.r, dps: def.gas.dps, until: this.time + def.gas.life, P: u.pref }); }
+          this.hitUnit(e, def.dps * dt * mult);
+        } else if (def.splash) {
+          if (u.cd <= 0) { u.cd = 2; this.boom(e.x, e.y, def.splash, def.dps * 2 * mult, u.pref, def.dps * 2 * def.vsB * CONFIG.BUILDING_DPS_MULT, 0); }
+        } else this.hitUnit(e, def.dps * dt * mult * (e.bit === 1 && u.bit === 4 ? 0.5 : 1));
+        continue;
+      }
+      // 敵兵がいなければ、近くの敵の建物を壊す（飛行機は建物を撃たない＝爆撃機の役目）
+      if (!def.vsB || u.bit === 4) continue;
       let tb = null, bd = 1e9;
-      this.buildingsNear(u.x, u.y, CONFIG.ATTACK_RANGE + 1.2, (b, d) => { if (b.owner !== u.pref && d < bd) { bd = d; tb = b; } });
-      if (tb) { tb.hp -= CONFIG.UNIT_DPS * CONFIG.BUILDING_DPS_MULT * dt; tb.hitAt = this.time; u.hitB = tb; }
+      this.buildingsNear(u.x, u.y, def.range + 1.2, (b, d) => { if (b.owner !== u.pref && d < bd) { bd = d; tb = b; } });
+      if (tb) {
+        if (def.splash) { if (u.cd <= 0) { u.cd = 2; this.boom(tb.x, tb.y, def.splash, def.dps * 2 * mult, u.pref, def.dps * 2 * def.vsB * CONFIG.BUILDING_DPS_MULT, 0); } }
+        else { tb.hp -= def.dps * def.vsB * CONFIG.BUILDING_DPS_MULT * dt * mult; tb.hitAt = this.time; }
+        u.hitB = tb;
+      }
     }
-    // 塔・砦・県庁が近くの敵兵を撃つ（重くならないよう、それぞれ0.5秒に1回まとめて撃つ）
+    // 毒ガス：雲の中の敵の陸の兵に被害（防毒壕の近くは1/5）
+    if (this.gas.length) {
+      this.gas = this.gas.filter((c) => c.until > this.time);
+      for (const c of this.gas) this.forUnitsNear(c.x, c.y, c.r, (v) => { if (v.pref !== c.P && v.bit === 1) dmg[v.k] += c.dps * dt * (v.buff ? v.buff.gasRes : 1); });
+    }
+    // 建物と拠点が撃つ（それぞれ決まった間隔でまとめて撃つ）
     this.tickNo = (this.tickNo || 0) + 1;
     if (this.tickNo % 5 === 0) this.shots = [];
-    const slot = this.tickNo % 5, sdt = dt * 5;
-    const shoot = (id, x, y, P, range, dps) => {
-      if (id % 5 !== slot) return;
-      const e = this.nearestEnemy(x, y, P, range);
-      if (e) { hit(e, dps * sdt); if (this.shots.length < 300) this.shots.push([x, y, e.x, e.y]); }
+    const shoot = (o, x, y, P, def, range, dps, mask) => {
+      o.cd = (o.cd || 0) - dt;
+      if (o.cd > 0) return;
+      const rate = def.rate || 1.25;
+      o.cd = rate;
+      let mul = 1;
+      if (mask === 4) this.buildingsNear(x, y, 25, (r) => { const a = BUILDINGS[r.type].aura; if (a && a.aa && r.owner === P) mul = a.aa; });
+      const e = this.nearestEnemy(x, y, P, range, mask, false);
+      if (!e) return;
+      if (def.splash) this.boom(e.x, e.y, def.splash, dps * rate * mul, P, dps * rate * 0.5, 0);
+      else this.hitUnit(e, dps * rate * mul);
+      if (this.shots.length < 300) this.shots.push([x, y, e.x, e.y]);
     };
-    for (const b of this.buildings) if (b.type === 'tower') shoot(b.id, b.x, b.y, b.owner, BUILDINGS.tower.range, BUILDINGS.tower.dps);
-    for (const n of this.nodes) {
-      if (n.type === 'fort') shoot(n.id, n.x, n.y, n.owner, BUILDINGS.fort.range, BUILDINGS.fort.dps);
-      else if (n.type === 'capital') shoot(n.id, n.x, n.y, n.owner, CONFIG.CAPITAL_RANGE, CONFIG.CAPITAL_DPS);
+    for (const b of this.buildings) {
+      const def = BUILDINGS[b.type];
+      if (def.dps) shoot(b, b.x, b.y, b.owner, def, def.range, def.dps, def.mask);
+      else if (def.mine) {   // 地雷原
+        b.cd = (b.cd || 0) - dt;
+        if (b.cd <= 0 && this.nearestEnemy(b.x, b.y, b.owner, def.mine.r, 1, true)) { b.cd = def.mine.every; this.boom(b.x, b.y, def.mine.r, def.mine.dmg, b.owner, 0, 2); }
+      }
     }
-    for (const u of this.units) {
+    for (const n of this.nodes) {
+      if (n.type === 'capital') shoot(n, n.x, n.y, n.owner, CAPITAL_DEF, CONFIG.CAPITAL_RANGE, CONFIG.CAPITAL_DPS, 1);
+      else if (BUILDINGS[n.type].dps) { const d = BUILDINGS[n.type]; shoot(n, n.x, n.y, n.owner, d, d.range, d.dps, d.mask); }
+    }
+    for (const u of U) {
       if (!u.alive) continue;
+      const def = UNITS[u.type];
       const got = dmg[u.k];
       u.hp -= got;
-      const own = this.owner[this.cellAt(u.x, u.y)];
-      if (own && own !== u.pref) u.hp -= CONFIG.ATTRITION * dt;
-      else if (u.engaged < 0 && !got) u.hp = Math.min(CONFIG.UNIT_HP, u.hp + CONFIG.REGEN * dt);
+      if (u.bit === 1) {
+        const own = this.owner[this.cellAt(u.x, u.y)];
+        if (own && own !== u.pref) u.hp -= CONFIG.ATTRITION * dt;
+        else if (u.engaged < 0 && !got) u.hp = Math.min(def.hp, u.hp + CONFIG.REGEN * dt);
+      }
+      if (u.buff && u.buff.heal && !got) u.hp = Math.min(def.hp, u.hp + u.buff.heal * dt);
+      if (def.fuel) { u.fuel -= dt; if (u.fuel <= 0) { u.alive = false; continue; } }   // 燃料切れ：基地へ帰る
       if (u.hp <= 0) { u.alive = false; this.stats.kills++; this.emit('death', u); }
     }
     for (const b of this.buildings.slice()) if (b.hp <= 0) this.removeBuilding(b);
   }
   moveAll(dt) {
-    const sp = CONFIG.UNIT_SPEED * this.S * dt;
+    const base = CONFIG.UNIT_SPEED * this.S * dt;
     for (const u of this.units) {
       u.px = u.x; u.py = u.y;
       if (u.engaged >= 0 || u.hitB) continue;
+      const def = UNITS[u.type], sp = base * def.spd * (u.buff ? u.buff.spd : 1);
       let tx, ty, stopAt = 0;
       if (u.chase >= 0) {
         const e = this.unitIndex.get(u.chase);
-        if (!e || !e.alive || Math.hypot(e.x - u.x, e.y - u.y) > CONFIG.AGGRO_RANGE * this.S * 1.6) { u.chase = -1; u.thinkAt = 0; continue; }
-        tx = e.x; ty = e.y; stopAt = CONFIG.ATTACK_RANGE * 0.7;
+        if (!e || !e.alive || Math.hypot(e.x - u.x, e.y - u.y) > CONFIG.AGGRO_RANGE * this.S * (u.bit === 4 ? 4.8 : 1.6)) { u.chase = -1; u.thinkAt = 0; continue; }
+        tx = e.x; ty = e.y; stopAt = def.range * 0.7;
       } else if (u.dest) {
         if (u.path && u.pi < u.path.length) [tx, ty] = u.path[u.pi];
         else [tx, ty] = u.dest;
-      } else continue;
+      } else {
+        if (u.bit === 4 && u.goalNode >= 0) { const n = this.nodes[u.goalNode]; const a = this.time * 0.8 + u.id; tx = n.x + Math.cos(a) * 3; ty = n.y + Math.sin(a) * 3; }   // 上空で旋回
+        else continue;
+      }
       const dx = tx - u.x, dy = ty - u.y, d = Math.hypot(dx, dy);
       if (d <= stopAt) continue;
+      if (u.bit === 2) { this.sail(u, dx / d, dy / d, Math.min(sp, d - stopAt)); if (d - stopAt <= sp) { u.dest = null; } continue; }
       if (d - stopAt <= sp) {
         u.x = tx - (stopAt ? dx / d * stopAt : 0); u.y = ty - (stopAt ? dy / d * stopAt : 0);
         if (u.chase < 0) { if (u.path && u.pi < u.path.length) u.pi++; else { u.dest = null; u.path = null; } }
       } else { u.x += dx / d * sp; u.y += dy / d * sp; }
     }
+  }
+  /** 軍艦：海の上だけを進む。前が陸なら少しずつ向きを変えて岸に沿う */
+  sail(u, ux, uy, sp) {
+    for (const a of [0, 0.5, -0.5, 1, -1, 1.6, -1.6]) {
+      const c = Math.cos(a), s = Math.sin(a), vx = ux * c - uy * s, vy = ux * s + uy * c;
+      const nx = u.x + vx * sp, ny = u.y + vy * sp;
+      if (this.isSea(nx, ny) && this.isSea(nx + vx * this.S, ny + vy * this.S)) { u.x = nx; u.y = ny; return; }
+    }
+    if (++u.stuck > 40) { u.dest = null; u.goalNode = -1; u.stuck = 0; }
   }
 
   // ---------------------------------------------------------- 占領
@@ -808,7 +980,7 @@ class Sim {
     const cnt = this.cnt;
     for (const n of this.nodes) {
       const touched = [];
-      this.forUnitsNear(n.x, n.y, CONFIG.CAPTURE_RADIUS, (v) => { if (!cnt[v.pref]) touched.push(v.pref); cnt[v.pref]++; });
+      this.forUnitsNear(n.x, n.y, CONFIG.CAPTURE_RADIUS, (v) => { if (v.bit !== 1) return; if (!cnt[v.pref]) touched.push(v.pref); cnt[v.pref]++; });
       const def = cnt[n.owner];
       let A = 0, ac = 0;
       for (const p of touched) if (p !== n.owner && cnt[p] > ac) { ac = cnt[p]; A = p; }

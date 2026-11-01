@@ -5,8 +5,8 @@
 //   ・兵士・建物は画面に映っている範囲だけ 0.5 秒ごとに届く（兵士は前回の位置から補間して動かす）
 // =====================================================================
 const NET_SNAP = 0.5;
-const NET_TYPES = ['farm', 'lumber', 'market', 'barracks', 'tower', 'town', 'fort'];
-const NET_NODE_TYPES = ['capital', 'town', 'fort'];
+const NET_TYPES = BUILD_ORDER, NET_UNIT_TYPES = Object.keys(UNITS);
+const NET_NODE_TYPES = ['capital', 'town', 'fort', 'castle'];
 
 /** 元の地図を S 倍に細かくした座標で扱う（中身は元の地図のまま。座標 → 元のマス） */
 function scaledMap(c, S) {
@@ -151,18 +151,20 @@ class NetGame {
     this.acc = 0;
     if (m.u) {
       const old = this.unitIndex, idx = new Map(), list = [], U = m.u;
-      for (let k = 0; k < U.length; k += 7) {
+      for (let k = 0; k < U.length; k += 8) {
         const id = U[k], x = U[k + 1] / 10, y = U[k + 2] / 10, f = U[k + 5];
         let u = old.get(id);
         if (u) { u.px = u.x; u.py = u.y; } else u = { id, px: x, py: y };
         u.x = x; u.y = y; u.pref = U[k + 3]; u.hp = U[k + 4];
-        u.engaged = f & 1 ? U[k + 6] : -1; u.hitB = f & 2 ? true : null; u.fromPlayer = !!(f & 8); u.alive = true;
+        u.engaged = f & 1 ? U[k + 6] : -1; u.hitB = f & 2 ? true : null; u.fromPlayer = !!(f & 8); u.alive = true; u.type = NET_UNIT_TYPES[U[k + 7]] || 'ashigaru';
         idx.set(id, u); list.push(u);
       }
       this.units = list; this.unitIndex = idx;
       const D = m.d || [];
       for (let k = 0; k < D.length; k += 4) this.emit('death', { x: D[k] / 10, y: D[k + 1] / 10, pref: D[k + 2], id: D[k + 3] });
       this.shots = (m.s || []).map((s) => s.map((q) => q / 10));
+      this.gas = (m.g || []).map(([x, y, r, left]) => ({ x: x / 10, y: y / 10, r, until: this.time + left }));
+      this.booms = (m.x || []).map(([x, y, r, k]) => [x / 10, y / 10, r, this.time, k]);
     } else if (this.units.length) { this.units = []; this.unitIndex = new Map(); this.shots = []; }
     let changed = false;
     for (const r of m.ba || []) {
