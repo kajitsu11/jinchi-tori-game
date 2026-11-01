@@ -763,9 +763,10 @@ class Sim {
       for (const p of touched) if (p !== n.owner && cnt[p] > ac) { ac = cnt[p]; A = p; }
       for (const p of touched) cnt[p] = 0;
       n.defenders = def; n.attackers = ac;
-      if (!A || def > 0) { n.progress = Math.max(0, n.progress - CONFIG.CAPTURE_DECAY * dt); if (!n.progress) n.capBy = 0; continue; }
+      // 攻撃側が守備側より多いとき、その差の人数ぶん占領が進む（数で押せば守備がいても落とせる）
+      if (!A || ac <= def) { n.progress = Math.max(0, n.progress - CONFIG.CAPTURE_DECAY * dt * (def ? 4 : 1)); if (!n.progress) n.capBy = 0; continue; }
       if (n.capBy !== A) { n.capBy = A; n.progress = 0; }
-      n.progress += dt * Math.min(ac, CONFIG.CAPTURE_MAX_RATE);
+      n.progress += dt * Math.min(ac - def, CONFIG.CAPTURE_MAX_RATE);
       if (n.progress >= this.needFor(n)) this.capture(n, A);
     }
   }

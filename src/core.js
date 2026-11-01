@@ -40,12 +40,12 @@ const CONFIG = {
   REGEN: 0.25,                   // 自県の領土で休むと回復するHP/秒
   BUILDING_DPS_MULT: 0.6,
   START_UNITS_RATIO: 0.5,
-  UNIT_CAP_PER_PARTICIPANT: 2,
+  UNIT_CAP_PER_PARTICIPANT: 2.5,
   UNIT_CAP_PER_NODE: 0.3,        // 拠点が多い県が雪だるま式に強くならないよう小さめ
   CAPITAL_RANGE: 13, CAPITAL_DPS: 2.4,
   // ---- 拠点（県庁・町・砦）
   CAPTURE_RADIUS: 7,
-  CAPTURE_NEED: { capital: 67500, town: 27000, fort: 36000 },  // 攻撃側の兵士1人×1秒で1ポイント（町：20人で約25分）
+  CAPTURE_NEED: { capital: 45000, town: 18000, fort: 24000 },  // （攻撃側−守備側）の人数×1秒で1ポイント（町：差15人で約20分）
   CAPTURE_MAX_RATE: 20,
   CAPTURE_DECAY: 0.5,
   RECENT_HATCH: 1800,            // 占領されてから30分は斜線
@@ -74,7 +74,7 @@ const BUILDINGS = {
   farm: { name: '農場', icon: '🌾', cost: { wood: 60 }, hp: 150, desc: '食料 +144/時（森を切り開くと半分・山には建てられない）', make: { food: 0.04 } },
   lumber: { name: '製材所', icon: '🪓', cost: { wood: 40, gold: 20 }, hp: 150, desc: '周りの森から木材（最大 +240/時）', forest: true },
   market: { name: '市場', icon: '🏪', cost: { wood: 120 }, hp: 200, desc: '金 +120/時', make: { gold: 0.033 } },
-  barracks: { name: '兵舎', icon: '⚔️', cost: { wood: 150, gold: 50 }, hp: 350, desc: '食料30で兵士を訓練（15分ごと）', train: 900, trainFood: 30 },
+  barracks: { name: '兵舎', icon: '⚔️', cost: { wood: 150, gold: 50 }, hp: 350, desc: '食料30で兵士を訓練（10分ごと）', train: 600, trainFood: 30 },
   tower: { name: '見張り塔', icon: '🗼', cost: { wood: 80, gold: 60 }, hp: 450, desc: '近くの敵兵を撃つ', range: 11, dps: 1.9 },
   town: { name: '町', icon: '🏘️', cost: { wood: 250, gold: 150 }, desc: '国境を広げる・金 +43/時', node: true, make: { gold: 0.012 } },
   fort: { name: '砦', icon: '🏰', cost: { wood: 150, gold: 300 }, desc: '国境を広げ、近くの敵兵を撃つ', node: true, range: 13, dps: 2.9 },
