@@ -1,5 +1,5 @@
 // シーズン（7日間）を画面なしで高速に回して、バランスを確かめる
-//   node tools/season_sim.js [日数=7] [刻み秒=2] [seed=1]
+//   node tools/season_sim.js [日数=7] [刻み秒=2] [seed=1]   （SCALE=3 でオンライン版の細かい地図）
 // 出力：6時間ごとの 1位の県と割合・脱落数・兵士数・建物数・占領回数
 const fs = require('fs');
 const path = require('path');
@@ -23,8 +23,9 @@ if (process.env.OVERRIDE) Object.assign(CONFIG, JSON.parse(process.env.OVERRIDE)
 
 (async () => {
   const raw = JSON.parse(fs.readFileSync(path.join(ROOT, 'data/mapdata.json'), 'utf8'));
-  const map = new MapData(raw);
+  let map = new MapData(raw);
   await map.decode(() => {});
+  if (+process.env.SCALE > 1) map = MapData.upscale(map, +process.env.SCALE);   // オンライン版の細かい地図
   const me = +(process.env.ME || 13);
   const g = new Sim(map, me, seed);
   const end = days * 86400;

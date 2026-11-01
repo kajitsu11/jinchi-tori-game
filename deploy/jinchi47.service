@@ -1,0 +1,21 @@
+# systemd の設定（/etc/systemd/system/jinchi47.service に置く）
+#   sudo systemctl daemon-reload && sudo systemctl enable --now jinchi47
+#   ログ：journalctl -u jinchi47 -f
+[Unit]
+Description=47都道府県対抗 陣取り合戦（オンライン版サーバー）
+After=network.target
+
+[Service]
+Type=simple
+User=jinchi
+WorkingDirectory=/opt/jinchi-tori-game
+Environment=PORT=8080
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node server/server.js
+Restart=always
+RestartSec=5
+# 地図とルールで約1GB、1000人接続で約1.3GB
+MemoryMax=3G
+
+[Install]
+WantedBy=multi-user.target

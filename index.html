@@ -494,6 +494,11 @@ class MapData {
       for (const t of raw.towns) t.cell = conv(t.cell);
       raw.converted = true;
     }
+    this.finish();
+  }
+  /** 連絡マス・県庁・県ごとのマス数（decode と upscale の共通の仕上げ） */
+  finish() {
+    const raw = this.raw, N = this.N;
     // 連絡マス（隣接扱い）
     this.linkMap = new Map();
     const addLink = (a, b) => {
@@ -514,6 +519,54 @@ class MapData {
     this.initCounts = new Int32Array(48);
     const ip = this.initPref;
     for (let i = 0; i < N; i++) if (ip[i]) this.initCounts[ip[i]]++;
+  }
+  /**
+   * 細かい地図：元の地図の1マスを S×S マスに分けた地図（サーバー用。県・地形・海岸は元のマスと同じ）。
+   * 拠点・連絡マスは元のマスの中央のマスへ移す。標高はそのまま共有する。
+   */
+  static upscale(c, S) {
+    const m = Object.create(MapData.prototype);
+    const W = c.W * S, H = c.H * S, TW = Math.ceil(W / TILE), TH = Math.ceil(H / TILE);
+    m.W = W; m.H = H; m.TW = TW; m.TH = TH; m.scale = S; m.coarse = c;
+    const has = new Uint8Array(TW * TH), cip = c.initPref;
+    for (let i = 0; i < c.N; i++) {
+      if (!cip[i]) continue;
+      const x = c.X(i) * S, y = c.Y(i) * S;
+      for (let ty = y >> TSH; ty <= (y + S - 1) >> TSH; ty++) for (let tx = x >> TSH; tx <= (x + S - 1) >> TSH; tx++) has[ty * TW + tx] = 1;
+    }
+    m.tileBase = new Int32Array(TW * TH).fill(-1);
+    const txs = [], tys = [];
+    for (let t = 0; t < has.length; t++) if (has[t]) { m.tileBase[t] = txs.length << (TSH * 2); txs.push(t % TW); tys.push((t / TW) | 0); }
+    m.nTiles = txs.length;
+    m.tileX = Int16Array.from(txs); m.tileY = Int16Array.from(tys);
+    const N = m.N = m.nTiles << (TSH * 2);
+    m.initPref = new Uint8Array(N); m.terrain = new Uint8Array(N);
+    const ct = c.terrain, cx = new Int32Array(TILE);
+    for (let t = 0; t < m.nTiles; t++) {
+      const x0 = txs[t] << TSH, y0 = tys[t] << TSH, b = t << (TSH * 2);
+      for (let lx = 0; lx < TILE; lx++) cx[lx] = ((x0 + lx) / S) | 0;
+      for (let ly = 0; ly < TILE; ly++) {
+        const cy = ((y0 + ly) / S) | 0, o = b + (ly << TSH);
+        for (let lx = 0; lx < TILE; lx++) {
+          const j = c.id(cx[lx], cy);
+          if (j >= 0 && cip[j]) { m.initPref[o + lx] = cip[j]; m.terrain[o + lx] = ct[j]; }
+        }
+      }
+    }
+    m.landCells = c.landCells * S * S;
+    m.elev = c.elev; m.elevW = c.elevW; m.elevH = c.elevH; m.elevScale = c.elevScale * S;
+    const conv = (i) => (i < 0 ? -1 : m.id(c.X(i) * S + (S >> 1), c.Y(i) * S + (S >> 1)));
+    const r0 = c.raw;
+    m.prefs = c.prefs.map((p) => (p ? { ...p, capital: conv(p.capital), cells: p.cells * S * S } : null));
+    m.raw = { ...r0, W, H, dlon: r0.dlon / S, dlat: r0.dlat / S, scale: S, converted: true,
+      prefs: m.prefs.filter(Boolean),
+      links: r0.links.map((l) => ({ ...l, a: conv(l.a), b: conv(l.b) })),
+      autoLinks: r0.autoLinks.map(([a, b]) => [conv(a), conv(b)]),
+      towns: r0.towns.map((t) => ({ ...t, cell: conv(t.cell) })),
+      insets: r0.insets.map((r) => ({ ...r, poly: r.poly.map((v) => v * S) })),
+      shiftRects: r0.shiftRects.map((q) => ({ ...q, x0: q.x0 * S, y0: q.y0 * S, x1: q.x1 * S + S - 1, y1: q.y1 * S + S - 1 })) };
+    m.finish();
+    return m;
   }
   /** 座標 → マスの番号（海だけの区画・地図の外は -1） */
   id(x, y) {
@@ -703,6 +756,11 @@ uniform float uMe;
 uniform float uPlace;
 uniform float uTime;
 uniform float uCpp;
+uniform float uScale;          // 1マスの細かさ（オンライン版は3：地形は元の地図のマス、持ち主は細かいマス）
+uniform float uHasFine;
+uniform sampler2D uFine;       // 細かい持ち主の区画（64×64マスずつ。L=持ち主＋最近占領なら64）
+uniform sampler2D uFInd;       // 細かい区画の表：RG=区画の位置, A=受け取り済みか
+uniform vec2 uFTiles;
 varying vec2 vWorld;
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p){
@@ -727,7 +785,19 @@ vec3 cellData(vec2 cell){
   return vec3(floor(d.r * 255.0 + 0.5), floor(a / 16.0), step(7.5, mod(a, 16.0)));
 }
 float landAt(vec2 cell){ return step(0.5, cellData(cell).y); }
-float ownerAt(vec2 w){ return cellData(floor(w)).x; }
+// 細かいマスの持ち主（x=持ち主・まだ届いていなければ -1, y=最近占領されたか）
+vec2 fineData(vec2 fc){
+  vec2 t = floor(fc / 64.0);
+  vec4 ind = texture2D(uFInd, (t + 0.5) / uFTiles);
+  if (ind.a < 0.5 || fc.x < 0.0 || fc.y < 0.0) return vec2(-1.0, 0.0);
+  vec2 orig = floor(ind.rg * 255.0 + 0.5) * 64.0;
+  float v = floor(texture2D(uFine, (orig + fc - t * 64.0 + 0.5) / 2048.0).r * 255.0 + 0.5);
+  return vec2(mod(v, 64.0), step(63.5, v));
+}
+float ownerAt(vec2 w){
+  if (uHasFine > 0.5) { vec2 f = fineData(floor(w)); if (f.x >= 0.0) return f.x; }
+  return cellData(floor(w / uScale)).x;
+}
 void main(){
 #ifdef HAS_DERIV
   vec2 fw = fwidth(vWorld);
@@ -745,18 +815,27 @@ void main(){
     gl_FragColor = vec4(w0, 1.0); return;
   }
   // 地形：このマスの種類の色（高いところは岩の色に）＋ 4マスの陸／海をなめらかにつないで海岸線を丸く
-  vec2 cell = floor(vWorld);
+  vec2 cw = vWorld / uScale;
+  vec2 cell = floor(cw);
   setTile(cell);
   vec3 here = cellData(cell);
   float cls = here.y;
-  vec3 tcol = texture2D(uPalette, vec2((cls + 0.5) / 64.0, 0.75)).rgb;
+  // まわり4マスの地形の色を混ぜて、マスの角が見えないように（海のマスはこのマスの色で埋める）
+  // 境目がマスの形（階段）に見えないよう、読む位置をゆらす（地形の色は大きく、海岸線は少しだけ）
+  vec2 warp = vec2(noise(vWorld * 0.09 + 1.7), noise(vWorld * 0.09 - 5.3)) - 0.5;
+  vec2 q = cw - 0.5 + warp * 0.9, qf = fract(q), q0 = floor(q);
+  vec3 hc = texture2D(uPalette, vec2((cls + 0.5) / 64.0, 0.75)).rgb;
+  float k00 = cellData(q0).y, k10 = cellData(q0 + vec2(1.0, 0.0)).y, k01 = cellData(q0 + vec2(0.0, 1.0)).y, k11 = cellData(q0 + vec2(1.0, 1.0)).y;
+  vec3 c00 = k00 > 0.5 ? texture2D(uPalette, vec2((k00 + 0.5) / 64.0, 0.75)).rgb : hc;
+  vec3 c10 = k10 > 0.5 ? texture2D(uPalette, vec2((k10 + 0.5) / 64.0, 0.75)).rgb : hc;
+  vec3 c01 = k01 > 0.5 ? texture2D(uPalette, vec2((k01 + 0.5) / 64.0, 0.75)).rgb : hc;
+  vec3 c11 = k11 > 0.5 ? texture2D(uPalette, vec2((k11 + 0.5) / 64.0, 0.75)).rgb : hc;
+  vec2 sf = smoothstep(0.0, 1.0, qf);
+  vec3 tcol = cls > 0.5 ? mix(mix(c00, c10, sf.x), mix(c01, c11, sf.x), sf.y) : hc;
   if (cls > 0.5 && cls < 7.5) tcol = mix(tcol, vec3(0.49, 0.44, 0.36), clamp((e.r - 0.35) * 1.6, 0.0, 0.75));
-  float landA = step(0.5, cls);
-  if (e.a < 0.99) {   // 海岸の近くだけ、まわり4マスから海岸線をなめらかに
-    vec2 q = vWorld - 0.5, qf = fract(q), q0 = floor(q);
-    float l00 = landAt(q0), l10 = landAt(q0 + vec2(1.0, 0.0)), l01 = landAt(q0 + vec2(0.0, 1.0)), l11 = landAt(q0 + vec2(1.0, 1.0));
-    landA = mix(mix(l00, l10, qf.x), mix(l01, l11, qf.x), qf.y);
-  }
+  // 海岸線もまわり4マスの陸／海からなめらかに
+  vec2 p2 = cw - 0.5 + warp * 0.35, pf = fract(p2), p0 = floor(p2);
+  float landA = mix(mix(landAt(p0), landAt(p0 + vec2(1.0, 0.0)), pf.x), mix(landAt(p0 + vec2(0.0, 1.0)), landAt(p0 + vec2(1.0, 1.0)), pf.x), pf.y);
   vec4 t = vec4(tcol, landA);
   // 標高から陰影（北西から光）
   vec2 px = uElevScale / uGrid;
@@ -805,7 +884,8 @@ void main(){
   vec3 col = mix(water + foam * 0.25, land, isLand);
   // 領土
   if (isLand > 0.01) {
-    float id = here.x;
+    float id = here.x, rec = here.z;
+    if (uHasFine > 0.5) { vec2 f = fineData(floor(vWorld)); if (f.x >= 0.0) { id = f.x; rec = f.y; } }
     if (id > 0.5) {
       vec3 pc = texture2D(uPalette, vec2((id + 0.5) / 64.0, 0.25)).rgb;
       col = mix(col, pc, uFill * isLand);
@@ -821,7 +901,7 @@ void main(){
       float zoomedIn = clamp((1.0 / cpp - 3.0) / 6.0, 0.0, 1.0);
       if (edge > 0.5) col = mix(col, pc * 1.1 + 0.08, (0.8 - 0.4 * zoomedIn) * isLand);
       // 最近占領されたところは斜線
-      if (here.z > 0.5) {
+      if (rec > 0.5) {
         float s = step(0.5, fract((gl_FragCoord.x + gl_FragCoord.y) / 12.0));
         col = mix(col, pc, s * 0.35);
       }
@@ -1193,6 +1273,56 @@ class Renderer {
     out[o + 1] = (map.terrain[i] << 4) | (g && g.isRecent(i) ? 8 : 0);
   }
   cellChanged(i) { this.dirty.add(i); }
+  /** 区画1つ（元の地図の区画の通し番号）をまとめて描き直す */
+  tileChanged(t) {
+    const { gl } = this;
+    const out = this.tileBuf || (this.tileBuf = new Uint8Array(4096 * 2));
+    for (let k = 0; k < 4096; k++) this.computeTexel((t << 12) + k, out, k * 2);
+    gl.bindTexture(gl.TEXTURE_2D, this.ownerTex);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, (t & 63) << 6, (t >> 6) << 6, 64, 64, gl.LUMINANCE_ALPHA, gl.UNSIGNED_BYTE, out);
+  }
+  /** 細かい持ち主の層（オンライン版）：2048×2048 に 64×64 の区画を 1024 個まで置く */
+  initFine(TW, TH) {
+    const { gl } = this;
+    this.fineTW = TW; this.fineTH = TH;
+    if (!this.fineTex) { this.fineTex = gl.createTexture(); this.fIndTex = gl.createTexture(); }
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.bindTexture(gl.TEXTURE_2D, this.fineTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, 2048, 2048, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, null);
+    this.texParams(gl, false);
+    gl.bindTexture(gl.TEXTURE_2D, this.fIndTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, TW, TH, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(TW * TH * 4));
+    this.texParams(gl, false);
+    this.fineSlot = new Map();
+    this.fineFree = [];
+    for (let k = 1023; k >= 0; k--) this.fineFree.push(k);
+    this.hasFine = true;
+  }
+  setFineTile(t, bytes) {
+    if (!this.hasFine) return;
+    const { gl } = this;
+    let s = this.fineSlot.get(t);
+    if (s === undefined) {
+      if (!this.fineFree.length) { const [old] = this.fineSlot.keys(); this.dropFine(old); }
+      s = this.fineFree.pop();
+      this.fineSlot.set(t, s);
+    }
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.bindTexture(gl.TEXTURE_2D, this.fineTex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, (s & 31) << 6, (s >> 5) << 6, 64, 64, gl.LUMINANCE, gl.UNSIGNED_BYTE, bytes);
+    gl.bindTexture(gl.TEXTURE_2D, this.fIndTex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, t % this.fineTW, (t / this.fineTW) | 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([s & 31, s >> 5, 0, 255]));
+  }
+  dropFine(t) {
+    if (!this.hasFine) return;
+    const s = this.fineSlot.get(t);
+    if (s === undefined) return;
+    this.fineSlot.delete(t); this.fineFree.push(s);
+    const { gl } = this;
+    gl.bindTexture(gl.TEXTURE_2D, this.fIndTex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, t % this.fineTW, (t / this.fineTW) | 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+  }
   flush() {
     if (!this.dirty.size) return;
     const { gl, map } = this;
@@ -1208,7 +1338,7 @@ class Renderer {
   }
   buildGround() {
     const gl = this.gl, { W, H } = this.map;
-    const m = 6000;
+    const m = 6000 * (this.map.scale || 1);
     const v = new Float32Array([-m, -m, W + m, -m, -m, H + m, W + m, H + m]);
     this.groundBuf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.groundBuf);
@@ -1272,10 +1402,14 @@ class Renderer {
     gl.enableVertexAttribArray(g.a.aPos);
     gl.vertexAttribPointer(g.a.aPos, 2, gl.FLOAT, false, 0, 0);
     gl.uniformMatrix4fv(g.u.uVP, false, vp);
-    const tex = [[this.elevTex, 'uElev'], [this.ownerTex, 'uOwner'], [this.palette, 'uPalette'], [this.grassTex, 'uGrass'], [this.dryTex, 'uDry'], [this.indTex, 'uInd']];
+    const tex = [[this.elevTex, 'uElev'], [this.ownerTex, 'uOwner'], [this.palette, 'uPalette'], [this.grassTex, 'uGrass'], [this.dryTex, 'uDry'], [this.indTex, 'uInd'],
+      [this.fineTex || this.indTex, 'uFine'], [this.fIndTex || this.indTex, 'uFInd']];
     tex.forEach(([t, name], k) => { gl.activeTexture(gl.TEXTURE0 + k); gl.bindTexture(gl.TEXTURE_2D, t); gl.uniform1i(g.u[name], k); });
     gl.uniform2f(g.u.uGrid, map.W, map.H);
     gl.uniform2f(g.u.uTiles, map.TW, map.TH);
+    gl.uniform1f(g.u.uScale, map.scale || 1);
+    gl.uniform1f(g.u.uHasFine, this.hasFine ? 1 : 0);
+    gl.uniform2f(g.u.uFTiles, this.fineTW || 1, this.fineTH || 1);
     gl.uniform2f(g.u.uAtlas, this.AW, this.AH);
     gl.uniform1f(g.u.uElevScale, map.elevScale);
     gl.uniform1f(g.u.uFill, opt.fill);
@@ -1835,7 +1969,7 @@ class Heap {
 /** 24×24マスのブロック単位の移動グラフ（陸地を含むブロックだけ通れる。連絡マスは追加の辺） */
 class NavGrid {
   constructor(map) {
-    const B = 24, W = map.W, H = map.H;   // 24×24マス（約6km）のブロック
+    const B = 24 * (map.scale || 1), W = map.W, H = map.H;   // 24×24マス（約6km）のブロック（細かい地図では同じ広さになるよう大きく）
     this.B = B; this.W = W;
     this.bw = Math.ceil(W / B); this.bh = Math.ceil(H / B);
     const n = this.bw * this.bh;
@@ -1949,9 +2083,14 @@ class NavGrid {
 }
 
 class Sim {
+  /**
+   * me：この端末のプレイヤーの県（1人で遊ぶとき。財布0番）。サーバーでは 0（人間は addHuman で何人でも加わる）
+   * 財布：1〜47 = 各県のAI参加者たち、0 = 1人用のプレイヤー、48〜 = サーバーの人間プレイヤー
+   */
   constructor(map, me, seed) {
     this.map = map;
     this.me = me;
+    const S = this.S = map.scale || 1;              // 地図の細かさ（1マスの大きさが 1/S。距離の調整値を S 倍する）
     this.rng = mulberry32(seed);
     const N = map.N, W = map.W;
     this.time = 0; this.acc = 0; this.incomeT = 0;
@@ -1974,7 +2113,7 @@ class Sim {
     }
     for (const t of map.raw.towns) {
       const c = map.capitalCell[t.pref];
-      if (t.cell < 0 || Math.hypot(map.X(t.cell) - map.X(c), map.Y(t.cell) - map.Y(c)) < 36) continue;
+      if (t.cell < 0 || Math.hypot(map.X(t.cell) - map.X(c), map.Y(t.cell) - map.Y(c)) < 36 * S) continue;
       this.addNode({ cell: t.cell, pref: t.pref, type: 'town', name: t.name });
     }
     this.nodeOf = new Int16Array(N).fill(-1);
@@ -1986,11 +2125,14 @@ class Sim {
     this.computeNodeAdj();
     this.nav = map.nav || (map.nav = new NavGrid(map));
     // ---- 参加者と財布（0 = プレイヤー、1..47 = 各県のAI参加者たち）
+    this.humansIn = new Int32Array(49);             // 県ごとの人間の参加者数（残りをAIが担当）
+    this.humans = new Map();                        // 財布 → { w, pref, name, rally, income }
+    if (me) { this.humansIn[me] = 1; this.humans.set(0, { w: 0, pref: me, name: 'あなた', rally: -1, income: { food: 0, wood: 0, gold: 0 } }); }
     this.parts = new Int32Array(49);
-    for (let p = 1; p <= 47; p++) this.parts[p] = this.participantCount(p);
-    this.res = { food: new Float64Array(48), wood: new Float64Array(48), gold: new Float64Array(48) };
+    for (let p = 1; p <= 47; p++) this.parts[p] = Math.max(this.participantCount(p), this.humansIn[p]);
+    this.res = { food: [], wood: [], gold: [] };
     for (let w = 0; w <= 47; w++) {
-      const k = w === 0 ? 1 : (w === me ? this.parts[w] - 1 : this.parts[w]);
+      const k = w === 0 ? 1 : this.aiCount(w);
       for (const r of RES_KEYS) this.res[r][w] = CONFIG.START_RES[r] * Math.max(1, k * 0.25);
     }
     // ---- 建物
@@ -2006,7 +2148,7 @@ class Sim {
     this.useq = 0;
     for (let p = 1; p <= 47; p++) {
       const n = Math.round(this.parts[p] * CONFIG.START_UNITS_RATIO);
-      for (let k = 0; k < n; k++) this.spawnUnit(p, this.nodes[p - 1].x, this.nodes[p - 1].y, 20, false);
+      for (let k = 0; k < n; k++) this.spawnUnit(p, this.nodes[p - 1].x, this.nodes[p - 1].y, 20 * S, -1);
     }
     this.rally = -1;                                // プレイヤーの兵士の攻撃目標（拠点）
     this.plans = [];
@@ -2025,6 +2167,18 @@ class Sim {
     this.shots = [];                                // 塔・砦の射撃（描画用）
     this.tickNo = 0;
   }
+  aiCount(p) { return Math.max(0, this.parts[p] - this.humansIn[p]); }
+  isHuman(w) { return w === 0 || w >= 48; }
+  /** サーバー：人間の参加者を加える（財布の番号を返す）。抜けても建物と資源は残る */
+  addHuman(pref, name) {
+    const w = Math.max(48, this.res.food.length);
+    for (const r of RES_KEYS) this.res[r][w] = CONFIG.START_RES[r];
+    this.humans.set(w, { w, pref, name: name || '名無し', rally: -1, income: { food: 0, wood: 0, gold: 0 } });
+    this.humansIn[pref]++;
+    this.parts[pref] = Math.max(this.participantCount(pref), this.humansIn[pref]);
+    return w;
+  }
+  prefOfWallet(w) { const h = this.humans.get(w); return h ? h.pref : w; }
   participantCount(p) {
     return Math.max(CONFIG.MIN_PARTICIPANTS, Math.round(this.map.prefs[p].pop / 100 * CONFIG.PARTICIPANTS_PER_MILLION));
   }
@@ -2051,8 +2205,8 @@ class Sim {
   cellAt(x, y) { return this.map.id(x | 0, y | 0); }
   addNode(o) {
     const n = { id: this.nodes.length, cell: o.cell, x: this.map.X(o.cell) + 0.5, y: this.map.Y(o.cell) + 0.5, pref: o.pref,
-      owner: o.owner || o.pref, type: o.type, name: o.name, progress: 0, capBy: 0, capturedAt: -999, attackers: 0, defenders: 0,
-      byPlayer: !!o.byPlayer };
+      owner: o.owner || o.pref, type: o.type, name: o.name, progress: 0, capBy: 0, capturedAt: -1e9, attackers: 0, defenders: 0,
+      byPlayer: !!o.byPlayer, wallet: o.wallet === undefined ? -1 : o.wallet };
     this.nodes.push(n);
     return n;
   }
@@ -2144,7 +2298,6 @@ class Sim {
   }
 
   // ---------------------------------------------------------- 資源
-  walletOf(P, byPlayer) { return byPlayer && P === this.me ? 0 : P; }
   canAfford(w, cost) { for (const r of RES_KEYS) if ((cost[r] || 0) > this.res[r][w]) return false; return true; }
   pay(w, cost) { for (const r of RES_KEYS) this.res[r][w] -= cost[r] || 0; }
   forestNear(c, r) {
@@ -2159,26 +2312,28 @@ class Sim {
   /** 毎秒：基本収入（参加者数ぶん）＋拠点＋建物 */
   produce(sec) {
     const add = (w, r, v) => { this.res[r][w] += v * sec; };
-    const me = this.me;
-    const pinc = { food: 0, wood: 0, gold: 0 };
+    const H = this.humans;
+    for (const h of H.values()) h.income = { food: 0, wood: 0, gold: 0 };
+    const inc = (w, r, v) => { this.res[r][w] += v * sec; if (w === 0 || w >= 48) { const h = H.get(w); if (h) h.income[r] += v; } };
     for (let p = 1; p <= 47; p++) {
       if (!this.nodeCount[p]) continue;
-      const k = p === me ? this.parts[p] - 1 : this.parts[p];
-      for (const r of RES_KEYS) add(p, r, CONFIG.BASE_INCOME[r] * k);
+      const k = this.aiCount(p);
+      if (k) for (const r of RES_KEYS) add(p, r, CONFIG.BASE_INCOME[r] * k);
     }
-    if (this.nodeCount[me]) for (const r of RES_KEYS) { add(0, r, CONFIG.BASE_INCOME[r]); pinc[r] += CONFIG.BASE_INCOME[r]; }
+    for (const h of H.values()) if (this.nodeCount[h.pref]) for (const r of RES_KEYS) inc(h.w, r, CONFIG.BASE_INCOME[r]);
     for (const n of this.nodes) {
       const mk = n.type === 'capital' ? CONFIG.CAPITAL_MAKE : n.type === 'town' ? BUILDINGS.town.make : null;
       if (!mk) continue;
-      const w = n.byPlayer && n.owner === me ? 0 : n.owner;
-      for (const r in mk) { add(w, r, mk[r]); if (!w) pinc[r] += mk[r]; }
+      const w = n.wallet >= 0 && this.prefOfWallet(n.wallet) === n.owner ? n.wallet : n.owner;
+      for (const r in mk) inc(w, r, mk[r]);
     }
     for (const b of this.buildings) {
       const def = BUILDINGS[b.type];
-      if (def.make) for (const r in def.make) { const v = def.make[r] * b.mul; add(b.wallet, r, v); if (!b.wallet) pinc[r] += v; }
-      if (def.forest) { const v = Math.min(CONFIG.LUMBER_MAX, b.forest * CONFIG.LUMBER_PER_FOREST); add(b.wallet, 'wood', v); if (!b.wallet) pinc.wood += v; }
+      if (def.make) for (const r in def.make) inc(b.wallet, r, def.make[r] * b.mul);
+      if (def.forest) inc(b.wallet, 'wood', Math.min(CONFIG.LUMBER_MAX, b.forest * CONFIG.LUMBER_PER_FOREST));
     }
-    this.income = pinc;
+    const me0 = H.get(0);
+    this.income = me0 ? me0.income : { food: 0, wood: 0, gold: 0 };
   }
 
   // ---------------------------------------------------------- 建物
@@ -2201,33 +2356,35 @@ class Sim {
     if (blocked) return 'crowded';
     for (const n of this.nodes) {
       const d = Math.hypot(n.x - x, n.y - y);
-      if (d < (def.node ? CONFIG.NODE_MIN_DIST : CONFIG.BUILD_GAP + 1)) return def.node ? 'nearnode' : 'crowded';
+      if (d < (def.node ? CONFIG.NODE_MIN_DIST * this.S : CONFIG.BUILD_GAP + 1)) return def.node ? 'nearnode' : 'crowded';
     }
     if (type === 'farm' && t === 3) return 'terrain';
     if (type === 'lumber' && this.forestNear(c, 6) < CONFIG.LUMBER_MIN_FOREST) return 'noforest';
     if (!this.canAfford(w, def.cost)) return 'cost';
     return null;
   }
-  build(type, P, c, byPlayer) {
-    const w = this.walletOf(P, byPlayer);
+  /** P の県の財布 w（AIは w=P）で建てる */
+  build(type, P, c, w) {
+    if (w === true) w = 0; else if (w === false || w === undefined) w = P;
+    const byPlayer = this.isHuman(w);
     const why = this.canBuild(type, P, c, w);
     if (why) return { ok: false, why };
     const def = BUILDINGS[type];
     this.pay(w, def.cost);
     this.stats.built++;
     if (def.node) {
-      const n = this.buildNode(P, c, type, byPlayer);
-      this.emit('built', { node: n, type, by: P, byPlayer });
+      const n = this.buildNode(P, c, type, w);
+      this.emit('built', { node: n, type, by: P, byPlayer, wallet: w });
       return { ok: true, node: n };
     }
-    const b = { id: ++this.bseq, type, cell: c, x: this.map.X(c) + 0.5, y: this.map.Y(c) + 0.5, owner: P, wallet: w, byPlayer: !!byPlayer,
+    const b = { id: ++this.bseq, type, cell: c, x: this.map.X(c) + 0.5, y: this.map.Y(c) + 0.5, owner: P, wallet: w, byPlayer,
       hp: def.hp, maxHp: def.hp, t: 0, rot: (this.rng() * 4 | 0) * Math.PI / 2, forest: def.forest ? this.forestNear(c, 6) : 0,
       mul: type === 'farm' && (this.map.terrain[c] & 7) === 2 ? 0.5 : 1 };   // 森を切り開いた農場は収穫が半分
     this.buildings.push(b);
     const k = this.bkey(b.x, b.y);
     if (!this.bgrid.has(k)) this.bgrid.set(k, []);
     this.bgrid.get(k).push(b);
-    this.emit('built', { building: b, type, by: P, byPlayer });
+    this.emit('built', { building: b, type, by: P, byPlayer, wallet: w });
     return { ok: true, building: b };
   }
   removeBuilding(b) {
@@ -2240,9 +2397,10 @@ class Sim {
     this.emit('destroyed', b);
   }
   /** 町・砦：周りのマスのうち、今の持ち主の拠点より近いマスを自分の領土にする（国境を押し出す） */
-  buildNode(P, c, type, byPlayer) {
+  buildNode(P, c, type, w) {
     const k = this.nodes.filter((n) => n.type === type && n.pref === P).length + 1;
-    const n = this.addNode({ cell: c, pref: P, owner: P, type, name: `${this.map.prefs[P].short}の${BUILDINGS[type].name}${k}`, byPlayer });
+    const byPlayer = this.isHuman(w);
+    const n = this.addNode({ cell: c, pref: P, owner: P, type, name: `${this.map.prefs[P].short}の${BUILDINGS[type].name}${k}`, byPlayer, wallet: byPlayer ? w : -1 });
     this.nodeCount[P]++;
     const nodeOf = this.nodeOf, dist = this.nodeDist;
     const changed = [], claimed = [];
@@ -2254,7 +2412,7 @@ class Sim {
     take(c, 0);
     for (let qh = 0; qh < q.length; qh++) {
       const i = q[qh], di = d.get(i) + 1;
-      if (di > CONFIG.NODE_RADIUS) continue;
+      if (di > CONFIG.NODE_RADIUS * this.S) continue;
       this.forNeighbors(i, (j) => {
         if (d.has(j) || dist[j] === 0 || di >= dist[j]) return;
         d.set(j, di); q.push(j); take(j, di);
@@ -2282,14 +2440,17 @@ class Sim {
   }
 
   // ---------------------------------------------------------- 兵士
-  spawnUnit(P, x, y, r, fromPlayer) {
+  /** hw：人間の財布（兵舎の持ち主。AIの兵は -1） */
+  spawnUnit(P, x, y, r, hw) {
+    if (hw === true) hw = 0; else if (hw === false || hw === undefined) hw = -1;
+    const fromPlayer = hw >= 0;
     let px = x, py = y;
     for (let k = 0; k < 12; k++) {
       const tx = x + (this.rng() * 2 - 1) * r, ty = y + (this.rng() * 2 - 1) * r;
       const i = this.cellAt(tx, ty);
       if (i >= 0 && i < this.map.N && this.owner[i] === P) { px = tx; py = ty; break; }
     }
-    const u = { id: this.useq++, pref: P, fromPlayer, role: this.rng() < CONFIG.AI_DEFENDER_RATIO ? 'def' : 'atk',
+    const u = { id: this.useq++, pref: P, fromPlayer, hw, role: this.rng() < CONFIG.AI_DEFENDER_RATIO ? 'def' : 'atk',
       x: px, y: py, px, py, hp: CONFIG.UNIT_HP, alive: true, path: null, pi: 0, dest: null, goalNode: -1, chase: -1, engaged: -1, hitB: null,
       thinkAt: this.time + this.rng(), offX: (this.rng() - 0.5) * CONFIG.CAPTURE_RADIUS * 1.2, offY: (this.rng() - 0.5) * CONFIG.CAPTURE_RADIUS * 1.2 };
     if (fromPlayer) u.role = 'atk';
@@ -2309,7 +2470,7 @@ class Sim {
       if (cnt[b.owner] >= this.unitCap(b.owner) || this.res.food[b.wallet] < def.trainFood) { b.t = def.train; continue; }
       b.t = 0;
       this.res.food[b.wallet] -= def.trainFood;
-      this.spawnUnit(b.owner, b.x, b.y, 2.5, b.wallet === 0);
+      this.spawnUnit(b.owner, b.x, b.y, 2.5, this.isHuman(b.wallet) ? b.wallet : -1);
       cnt[b.owner]++;
       this.stats.trained++;
       if (b.wallet === 0) this.stats.trainedMine++;
@@ -2387,7 +2548,7 @@ class Sim {
           const e = this.nodes[a];
           if (e.owner === P || seen.has(a)) continue;
           seen.add(a);
-          const s = this.rng() * 1.5 - e.defenders * 0.4 - Math.hypot(e.x - cx, e.y - cy) / 120
+          const s = this.rng() * 1.5 - e.defenders * 0.4 - Math.hypot(e.x - cx, e.y - cy) / (120 * this.S)
             + (e.type === 'capital' ? 0.8 : 0) + (e.type === 'fort' ? 0.3 : 0);
           if (s > bs) { bs = s; best = a; }
         }
@@ -2399,7 +2560,8 @@ class Sim {
   aiBuildAll() {
     for (let p = 1; p <= 47; p++) {
       if (this.time < this.aiBuildAt[p] || !this.nodeCount[p]) continue;
-      const k = Math.max(1, p === this.me ? this.parts[p] - 1 : this.parts[p]);
+      const k = this.aiCount(p);
+      if (!k) { this.aiBuildAt[p] = this.time + 600; continue; }
       this.aiBuildAt[p] = this.time + CONFIG.AI_BUILD_INTERVAL * 10 / k * (0.6 + this.rng() * 0.8);
       this.aiBuild(p, k);
     }
@@ -2433,7 +2595,7 @@ class Sim {
     const list = front.length ? front : own;
     for (let tries = 0; tries < 14; tries++) {
       const n = list[(this.rng() * list.length) | 0];
-      const r = BUILDINGS[type].node ? CONFIG.NODE_MIN_DIST + this.rng() * 15 : 3 + this.rng() * 20;
+      const S = this.S, r = BUILDINGS[type].node ? (CONFIG.NODE_MIN_DIST + this.rng() * 15) * S : (3 + this.rng() * 20) * S;
       const a = this.rng() * Math.PI * 2;
       let x = n.x + Math.cos(a) * r, y = n.y + Math.sin(a) * r;
       if (BUILDINGS[type].node && pl0(this, P)) {
@@ -2454,12 +2616,13 @@ class Sim {
     }
   }
   think(u) {
-    const e = this.nearestEnemy(u.x, u.y, u.pref, CONFIG.AGGRO_RANGE);
+    const e = this.nearestEnemy(u.x, u.y, u.pref, CONFIG.AGGRO_RANGE * this.S);
     if (e) { u.chase = e.id; return; }
     u.chase = -1;
     const pl = this.plans[u.pref];
     let node = -1;
-    if (u.fromPlayer && this.rally >= 0 && this.nodes[this.rally].owner !== u.pref) node = this.rally;
+    const rally = u.fromPlayer ? this.rallyOf(u.hw) : -1;
+    if (rally >= 0 && this.nodes[rally].owner !== u.pref) node = rally;
     else if (u.role === 'def') {
       // 持ち場は一度決めたら固定（自県の拠点でなくなったとき・前線でなくなったときだけ選び直す）
       const h = this.nodes[u.home];
@@ -2541,14 +2704,14 @@ class Sim {
     for (const b of this.buildings.slice()) if (b.hp <= 0) this.removeBuilding(b);
   }
   moveAll(dt) {
-    const sp = CONFIG.UNIT_SPEED * dt;
+    const sp = CONFIG.UNIT_SPEED * this.S * dt;
     for (const u of this.units) {
       u.px = u.x; u.py = u.y;
       if (u.engaged >= 0 || u.hitB) continue;
       let tx, ty, stopAt = 0;
       if (u.chase >= 0) {
         const e = this.unitIndex.get(u.chase);
-        if (!e || !e.alive || Math.hypot(e.x - u.x, e.y - u.y) > CONFIG.AGGRO_RANGE * 1.6) { u.chase = -1; u.thinkAt = 0; continue; }
+        if (!e || !e.alive || Math.hypot(e.x - u.x, e.y - u.y) > CONFIG.AGGRO_RANGE * this.S * 1.6) { u.chase = -1; u.thinkAt = 0; continue; }
         tx = e.x; ty = e.y; stopAt = CONFIG.ATTACK_RANGE * 0.7;
       } else if (u.dest) {
         if (u.path && u.pi < u.path.length) [tx, ty] = u.path[u.pi];
@@ -2583,7 +2746,7 @@ class Sim {
   }
   capture(n, A) {
     const old = n.owner;
-    n.owner = A; n.progress = 0; n.capBy = 0; n.capturedAt = this.time; n.byPlayer = false;
+    n.owner = A; n.progress = 0; n.capBy = 0; n.capturedAt = this.time; n.byPlayer = false; n.wallet = -1;
     this.nodeCount[old]--; this.nodeCount[A]++;
     const cells = this.cellsOf(n.id);
     let moved = 0;
@@ -2621,8 +2784,14 @@ class Sim {
   checkEnd() {
     if (this.over) return;
     const need = this.popTotal * CONFIG.WIN_RATIO;   // 全国の人口の半分を支配したら即優勝
-    if (this.nodeCount[this.me] === 0) this.over = { win: false, reason: 'lost' };
-    else if (this.pop[this.me] >= need) this.over = { win: true, reason: 'majority' };
+    const me = this.me;
+    if (!me) {
+      // サーバー：どこかの県が過半数を取るか、シーズンが終わったら終了
+      for (let p = 1; p <= 47; p++) if (this.pop[p] >= need) { this.over = { win: false, reason: 'majority', winner: p }; break; }
+      if (!this.over && this.time >= CONFIG.SEASON_DAYS * 86400) this.over = { win: false, reason: 'season', winner: this.ranking()[0] };
+    }
+    else if (this.nodeCount[me] === 0) this.over = { win: false, reason: 'lost' };
+    else if (this.pop[me] >= need) this.over = { win: true, reason: 'majority' };
     else for (let p = 1; p <= 47; p++) if (p !== this.me && this.pop[p] >= need) { this.over = { win: false, reason: 'rival', rival: p }; break; }
     // シーズン終了：その時点で領土が一番広い県の勝ち
     if (!this.over && this.time >= CONFIG.SEASON_DAYS * 86400) {
@@ -2633,10 +2802,13 @@ class Sim {
   }
 
   // ---------------------------------------------------------- プレイヤーの命令
-  playerBuild(type, c) { return this.build(type, this.me, c, true); }
-  setRally(nodeId) {
-    this.rally = nodeId;
-    for (const u of this.units) if (u.fromPlayer) { u.goalNode = -1; u.thinkAt = this.time; }
+  playerBuild(type, c) { return this.build(type, this.me, c, 0); }
+  humanBuild(w, type, c) { const h = this.humans.get(w); return h ? this.build(type, h.pref, c, w) : { ok: false, why: 'nohuman' }; }
+  rallyOf(w) { if (w === 0) return this.rally; const h = this.humans.get(w); return h ? h.rally : -1; }
+  setRally(nodeId, w = 0) {
+    if (w === 0) this.rally = nodeId;
+    else { const h = this.humans.get(w); if (!h) return; h.rally = nodeId; }
+    for (const u of this.units) if (u.fromPlayer && u.hw === w) { u.goalNode = -1; u.thinkAt = this.time; }
   }
   ranking() {
     const arr = [];
@@ -2645,15 +2817,313 @@ class Sim {
     return arr;
   }
   rankOf(p) { return this.ranking().indexOf(p) + 1; }
-  myBuildings() { return this.buildings.filter((b) => b.wallet === 0).length + this.nodes.filter((n) => n.byPlayer && n.owner === this.me).length; }
-  myUnits() { let n = 0; for (const u of this.units) if (u.fromPlayer) n++; return n; }
+  myBuildings(w = 0) { const P = this.prefOfWallet(w); return this.buildings.filter((b) => b.wallet === w).length + this.nodes.filter((n) => n.wallet === w && n.owner === P).length; }
+  myUnits(w = 0) { let n = 0; for (const u of this.units) if (u.hw === w) n++; return n; }
 }
 function pl0(sim, P) { return sim.plans[P] && sim.plans[P].target >= 0; }
+
+// =====================================================================
+// オンライン版：サーバーとつながるゲーム。app.js からは Sim と同じ形で使う。
+//   ・日本全体の持ち主は「元の地図の1マス（細かいマス3×3）」ごとに受け取る（owner / isRecent）
+//   ・画面の周りは細かいマスの持ち主を 64×64 マスの区画で受け取り、描画の細かい層に入れる
+//   ・兵士・建物は画面に映っている範囲だけ 0.5 秒ごとに届く（兵士は前回の位置から補間して動かす）
+// =====================================================================
+const NET_SNAP = 0.5;
+const NET_TYPES = ['farm', 'lumber', 'market', 'barracks', 'tower', 'town', 'fort'];
+const NET_NODE_TYPES = ['capital', 'town', 'fort'];
+
+/** 元の地図を S 倍に細かくした座標で扱う（中身は元の地図のまま。座標 → 元のマス） */
+function scaledMap(c, S) {
+  const m = Object.create(c);
+  m.W = c.W * S; m.H = c.H * S; m.scale = S; m.coarse = c;
+  m.id = (x, y) => c.id(Math.floor(x / S), Math.floor(y / S));
+  m.X = (i) => c.X(i) * S + (S >> 1);
+  m.Y = (i) => c.Y(i) * S + (S >> 1);
+  m.landCells = c.landCells * S * S;
+  m.initCounts = c.initCounts.map((v) => v * S * S);
+  m.elevScale = c.elevScale * S;
+  m.raw = { ...c.raw, insets: c.raw.insets.map((r) => ({ ...r, poly: r.poly.map((v) => v * S) })) };
+  m.lonLat = (x, y) => c.lonLat(x / S, y / S);
+  return m;
+}
+
+class NetGame {
+  constructor(app, url) {
+    this.app = app; this.map = app.map; this.url = url;
+    const N = this.map.N;
+    this.owner = this.map.initPref.slice();          // 元の地図の1マスごとの持ち主
+    this.recentC = new Uint8Array(N);
+    this.listeners = {};
+    this.nodes = []; this.units = []; this.unitIndex = new Map(); this.buildings = []; this.bmap = new Map(); this.shots = [];
+    this.time = 0; this.acc = 0; this.snapAt = 0; this.clock = 0;
+    this.pop = new Float64Array(49); this.counts = new Int32Array(49); this.nodeCount = new Int32Array(49);
+    this.parts = new Int32Array(49); this.unitsBy = new Int32Array(49); this.capsBy = new Int32Array(49); this.bldsBy = new Int32Array(49);
+    this.humansIn = new Int32Array(49);
+    this.popTotal = 1;
+    this.res = { food: [0], wood: [0], gold: [0] };
+    this.income = { food: 0, wood: 0, gold: 0 };
+    this.rally = -1; this.over = null; this.myB = 0; this.myU = 0; this.online = 0;
+    this.subs = new Set(); this.viewKey = ''; this.viewT = 0;
+    this.stats = { captures: 0, trainedMine: 0 };
+  }
+  on(ev, fn) { (this.listeners[ev] || (this.listeners[ev] = [])).push(fn); }
+  emit(ev, ...a) { const l = this.listeners[ev]; if (l) for (const f of l) f(...a); }
+  dispose() { this.closed = true; this.listeners = {}; if (this.ws) try { this.ws.close(); } catch (e) { /* 無視 */ } }
+
+  /** つないで、県を選んで参加する（同じ端末なら前回の参加を続ける） */
+  join(pref, name) {
+    this.wantPref = pref; this.name = name;
+    return new Promise((resolve, reject) => {
+      this.onWelcome = resolve;
+      this.onFail = reject;
+      this.connect();
+    });
+  }
+  connect() {
+    let token = null;
+    try { token = localStorage.getItem('jinchi47_token'); } catch (e) { /* 使えない環境 */ }
+    const ws = this.ws = new WebSocket(this.url);
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', token, pref: this.wantPref, name: this.name }));
+    ws.onmessage = (e) => { try { if (typeof e.data === 'string') this.onJson(JSON.parse(e.data)); else this.onBinary(e.data); } catch (err) { console.error(err); } };
+    ws.onclose = () => {
+      if (this.closed) return;
+      if (this.onFail && !this.welcomed) { this.onFail(new Error('サーバーにつながりません')); this.onFail = null; return; }
+      this.emit('net', 'down');
+      setTimeout(() => { if (!this.closed) this.connect(); }, 2000);
+    };
+  }
+  send(o) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(o)); }
+
+  // ------------------------------------------------ 受信
+  onJson(m) {
+    switch (m.t) {
+      case 'welcome': {
+        try { localStorage.setItem('jinchi47_token', m.token); } catch (e) { /* 使えない環境 */ }
+        this.w = m.w; this.me = m.pref; this.S = m.S; this.fineTW = m.fineTW; this.fineTH = m.fineTH; this.popTotal = m.popTotal;
+        this.nodes = [];
+        for (const r of m.nodes) this.nodeFrom(r);
+        // つなぎ直したときは細かい区画を受け取り直す
+        for (const t of this.subs) this.app.renderer.dropFine(t);
+        this.subs.clear(); this.viewKey = '';
+        this.app.renderer.initFine(m.fineTW, m.fineTH);
+        const first = !this.welcomed;
+        this.welcomed = true;
+        if (first && this.onWelcome) { this.onWelcome(m); this.onWelcome = null; }
+        else this.emit('net', 'up');
+        break;
+      }
+      case 'error':
+        if (this.onFail && !this.welcomed) { this.onFail(new Error(m.why === 'eliminated' ? 'その県はもう脱落しています' : '参加できません')); this.onFail = null; this.closed = true; this.ws.close(); }
+        break;
+      case 'stats': {
+        this.time = m.time; this.clock = 0;
+        for (let p = 1; p <= 47; p++) {
+          this.pop[p] = m.pop[p]; this.counts[p] = m.counts[p]; this.nodeCount[p] = m.nodeCount[p];
+          this.parts[p] = m.parts[p]; this.unitsBy[p] = m.units[p]; this.capsBy[p] = m.caps[p]; this.bldsBy[p] = m.blds[p]; this.humansIn[p] = m.humans[p];
+        }
+        for (const r of RES_KEYS) this.res[r][0] = m.res[r];
+        if (m.income) this.income = m.income;
+        this.myB = m.myB; this.myU = m.myU; this.rally = m.rally; this.online = m.online;
+        if (m.over && !this.over) this.setOver(m.over);
+        break;
+      }
+      case 'nodes':
+        for (const r of m.n) this.nodeFrom(r);
+        break;
+      case 'snap': this.onSnap(m); break;
+      case 'ev': for (const e of m.e) this.onEvent(e); break;
+      case 'buildres':
+        if (!m.ok) this.emit('buildfail', m);
+        break;
+    }
+  }
+  nodeFrom(r) {
+    const [id, x, y, pref, owner, type, name, cells, wallet, capturedAt, pct, capBy, att, def] = r;
+    let n = this.nodes[id];
+    if (!n) n = this.nodes[id] = { id, progress: 0, capBy: 0, attackers: 0, defenders: 0 };
+    n.x = x / 10; n.y = y / 10; n.pref = pref; n.owner = owner; n.type = NET_NODE_TYPES[type]; n.name = name; n.cells = cells;
+    n.wallet = wallet; n.byPlayer = wallet === this.w; n.capturedAt = capturedAt; n.cell = this.map.id(n.x, n.y);
+    if (pct !== undefined) { n.progress = pct / 1000 * this.needFor(n); n.capBy = capBy; n.attackers = att; n.defenders = def; }
+  }
+  setOver(o) {
+    const top = o.winner || (this.ranking()[0]);
+    const reason = o.reason === 'lost' || o.reason === 'season' ? o.reason : (top === this.me ? 'majority' : 'rival');
+    this.over = { win: o.reason !== 'lost' && top === this.me, reason, rival: top, time: this.time };
+    this.emit('over', this.over);
+  }
+  onEvent(e) {
+    if (e.k === 'capture') {
+      const n = this.nodes[e.node];
+      if (!n) return;
+      this.stats.captures++;
+      this.emit('capture', { node: n, from: e.from, by: e.by, cells: n.cells });
+    } else if (e.k === 'elim') { this.emit('eliminated', e.p); if (e.p === this.me && !this.over) this.setOver({ reason: 'lost' }); }
+    else if (e.k === 'built') this.emit('built', { byPlayer: true, type: e.type, building: { cell: this.map.id(e.x, e.y) } });
+    else if (e.k === 'destroyed') {
+      const b = { owner: this.me, type: e.type, cell: this.map.id(e.x, e.y) };
+      this.emit('destroyed', b);
+    } else if (e.k === 'over') this.setOver(e.o);
+  }
+  onSnap(m) {
+    this.snapAt = this.clock;
+    this.acc = 0;
+    if (m.u) {
+      const old = this.unitIndex, idx = new Map(), list = [], U = m.u;
+      for (let k = 0; k < U.length; k += 7) {
+        const id = U[k], x = U[k + 1] / 10, y = U[k + 2] / 10, f = U[k + 5];
+        let u = old.get(id);
+        if (u) { u.px = u.x; u.py = u.y; } else u = { id, px: x, py: y };
+        u.x = x; u.y = y; u.pref = U[k + 3]; u.hp = U[k + 4];
+        u.engaged = f & 1 ? U[k + 6] : -1; u.hitB = f & 2 ? true : null; u.fromPlayer = !!(f & 8); u.alive = true;
+        idx.set(id, u); list.push(u);
+      }
+      this.units = list; this.unitIndex = idx;
+      const D = m.d || [];
+      for (let k = 0; k < D.length; k += 4) this.emit('death', { x: D[k] / 10, y: D[k + 1] / 10, pref: D[k + 2], id: D[k + 3] });
+      this.shots = (m.s || []).map((s) => s.map((q) => q / 10));
+    } else if (this.units.length) { this.units = []; this.unitIndex = new Map(); this.shots = []; }
+    let changed = false;
+    for (const r of m.ba || []) {
+      const [id, type, x, y, owner, hp, maxHp, rot, mine, mul, forest, t] = r;
+      const b = { id, type: NET_TYPES[type], x: x / 10, y: y / 10, owner, hp, maxHp, rot: rot / 100, wallet: mine ? 0 : -1, byPlayer: !!mine, mul, forest, t };
+      b.cell = this.map.id(b.x, b.y);
+      this.bmap.set(id, b); changed = true;
+    }
+    for (const [id, owner, mine, hp, t, hit] of m.bu || []) {
+      const b = this.bmap.get(id);
+      if (!b) continue;
+      b.owner = owner; b.wallet = mine ? 0 : -1; b.hp = hp; b.t = t;
+      if (hit) b.hitAt = this.time;
+    }
+    for (const id of m.bd || []) {
+      const b = this.bmap.get(id);
+      if (b) { b.dead = true; this.bmap.delete(id); changed = true; }
+    }
+    if (changed) this.buildings = [...this.bmap.values()];
+  }
+  /** 持ち主の区画：1=日本全体（粗い）, 2=粗い区画1つ, 3=細かい区画1つ */
+  onBinary(buf) {
+    const u8 = new Uint8Array(buf), kind = u8[0], idx = u8[1] | (u8[2] << 8) | (u8[3] << 16) | (u8[4] << 24);
+    const body = u8.subarray(5);
+    const runs = (fn) => {
+      let p = 0, o = 0;
+      while (p < body.length) {
+        const v = body[p++];
+        let len = 0, shift = 0, b;
+        do { b = body[p++]; len |= (b & 127) << shift; shift += 7; } while (b & 128);
+        fn(o, len, v); o += len;
+      }
+    };
+    const R = this.app.renderer, ip = this.map.initPref;
+    // 持ち主の値：0 = 元の県のまま、1〜47 = 占領した県。+64 = 最近占領された
+    if (kind === 1 || kind === 2) {
+      const base = kind === 1 ? 0 : idx << 12;
+      runs((o, len, v) => {
+        const a = base + o, b = a + len, own = v & 63;
+        if (own) this.owner.fill(own, a, b); else this.owner.set(ip.subarray(a, b), a);
+        this.recentC.fill(v >> 6 & 1, a, b);
+      });
+      if (kind === 1) R.attachGame(this, this.me); else R.tileChanged(idx);
+      this.app.minimapDirty = true;
+    } else if (kind === 3) {
+      if (!this.subs.has(idx)) return;
+      const out = new Uint8Array(4096);
+      runs((o, len, v) => out.fill(v, o, o + len));
+      const x0 = (idx % this.fineTW) * 64, y0 = ((idx / this.fineTW) | 0) * 64;
+      for (let k = 0; k < 4096; k++) {
+        if (out[k] & 63) continue;
+        const ci = this.map.id(x0 + (k & 63), y0 + (k >> 6));
+        if (ci >= 0 && ip[ci]) out[k] |= ip[ci];
+      }
+      R.setFineTile(idx, out);
+    }
+  }
+
+  // ------------------------------------------------ 毎フレーム
+  update(dt) {
+    this.clock += dt;
+    this.time += dt * (this.speed || 1);
+    this.acc = clamp((this.clock - this.snapAt) / NET_SNAP, 0, 1) * CONFIG.TICK;
+    this.viewT -= dt;
+    if (this.viewT <= 0 && this.welcomed) { this.viewT = 0.3; this.sendView(); }
+  }
+  /** 画面に映っている範囲をサーバーへ。拡大しているときは細かい区画も受け取る */
+  sendView() {
+    const app = this.app, cam = app.cam;
+    const pts = [[0, 0], [app.w, 0], [0, app.h], [app.w, app.h], [app.w / 2, 0]].map(([x, y]) => cam.groundAt(x, y)).filter(Boolean);
+    if (!pts.length) return;
+    const cx = cam.tx, cz = cam.tz, far = cam.dist * 3;
+    const xs = pts.map((p) => clamp(p.x, cx - far, cx + far)), zs = pts.map((p) => clamp(p.z, cz - far, cz + far));
+    const x0 = Math.floor(Math.min(...xs)), x1 = Math.ceil(Math.max(...xs)), y0 = Math.floor(Math.min(...zs)), y1 = Math.ceil(Math.max(...zs));
+    const cpx = cam.cellPx();
+    const u = cpx > 0.25, b = cpx > 0.3;
+    const key = `${x0 >> 4},${y0 >> 4},${x1 >> 4},${y1 >> 4},${u},${b}`;
+    if (key !== this.viewKey) { this.viewKey = key; this.send({ t: 'view', x0, y0, x1, y1, u, b }); }
+    // 細かい区画：画面の中心に近い順に最大 400 区画
+    const want = new Set();
+    if (cpx >= 1.2) {
+      const tx0 = Math.max(0, x0 >> 6), tx1 = Math.min(this.fineTW - 1, x1 >> 6), ty0 = Math.max(0, y0 >> 6), ty1 = Math.min(this.fineTH - 1, y1 >> 6);
+      const list = [];
+      for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
+        if (!this.fineHasLand(tx, ty)) continue;   // 元の地図で陸地を含まない区画はいらない
+        list.push([(tx * 64 + 32 - cx) ** 2 + (ty * 64 + 32 - cz) ** 2, ty * this.fineTW + tx]);
+      }
+      list.sort((p, q) => p[0] - q[0]);
+      for (let k = 0; k < Math.min(400, list.length); k++) want.add(list[k][1]);
+    }
+    const add = [], del = [];
+    for (const t of want) if (!this.subs.has(t)) { add.push(t); this.subs.add(t); }
+    for (const t of this.subs) if (!want.has(t)) { del.push(t); }
+    // 少し離れただけで捨てないよう、要らなくなった区画が多いときだけ捨てる
+    if (del.length > 120 || (!want.size && del.length)) for (const t of del) { this.subs.delete(t); this.app.renderer.dropFine(t); }
+    else del.length = 0;
+    if (add.length || del.length) this.send({ t: 'sub', add, del });
+  }
+
+  fineHasLand(tx, ty) {
+    const c = this.map.coarse, S = this.S;
+    const cx0 = ((tx * 64 / S) | 0) >> 6, cx1 = ((((tx + 1) * 64 - 1) / S) | 0) >> 6;
+    const cy0 = ((ty * 64 / S) | 0) >> 6, cy1 = ((((ty + 1) * 64 - 1) / S) | 0) >> 6;
+    for (let y = cy0; y <= cy1; y++) for (let x = cx0; x <= cx1; x++) if (x < c.TW && y < c.TH && c.tileBase[y * c.TW + x] >= 0) return true;
+    return false;
+  }
+
+  // ------------------------------------------------ Sim と同じ問い合わせ
+  isRecent(i) { return this.recentC[i] === 1; }
+  needFor(n) { return CONFIG.CAPTURE_NEED[n.type]; }
+  cellsOf(id) { const n = this.nodes[id]; return { length: n ? n.cells : 0 }; }
+  canAfford(w, cost) { for (const r of RES_KEYS) if ((cost[r] || 0) > this.res[r][0]) return false; return true; }
+  myBuildings() { return this.myB; }
+  myUnits() { return this.myU; }
+  unitCount(p) { return this.unitsBy[p]; }
+  unitCap(p) { return this.capsBy[p]; }
+  ranking() {
+    const arr = [];
+    for (let p = 1; p <= 47; p++) arr.push(p);
+    arr.sort((a, b) => this.pop[b] - this.pop[a] || this.counts[b] - this.counts[a] || a - b);
+    return arr;
+  }
+  rankOf(p) { return this.ranking().indexOf(p) + 1; }
+  buildingsNear(x, y, r, fn) { for (const b of this.buildings) { const d = Math.hypot(b.x - x, b.y - y); if (d <= r) fn(b, d); } }
+  setRally(id) { this.rally = id; this.send({ t: 'rally', node: id }); }
+  /** 建設はサーバーが判断する（だめなときは 'buildfail' が届く） */
+  playerBuild(type, i, x, y) {
+    if (!this.canAfford(0, BUILDINGS[type].cost)) return { ok: false, why: 'cost' };
+    if (i < 0 || !this.map.initPref[i]) return { ok: false, why: 'sea' };
+    if (this.owner[i] !== this.me) return { ok: false, why: 'notown' };
+    this.send({ t: 'build', type, x, y });
+    for (const r of RES_KEYS) this.res[r][0] -= BUILDINGS[type].cost[r] || 0;   // 次の知らせが届くまでの見込み
+    return { ok: true, pending: true };
+  }
+}
 
 // =====================================================================
 // アプリ本体（ステートマシン）
 // =====================================================================
 const STATE = { LOADING: 'LOADING', TITLE: 'TITLE', PLAYING: 'PLAYING', GAMEOVER: 'GAMEOVER' };
+// オンライン版（online.html）：サーバーが細かい地図（元の地図の1マスを S×S）とルールを持つ
+const ONLINE = window.JINCHI_ONLINE || null;
 
 const App = {
   state: null,
@@ -2685,6 +3155,7 @@ const App = {
       $('mapdata').remove();   // 大きな文字列はもう不要
       this.map = new MapData(raw);
       await this.map.decode(progress);
+      if (ONLINE) { this.map = scaledMap(this.map, ONLINE.S); CONFIG.ZOOM_MAX *= ONLINE.S; }
       progress(0.5, '3D描画を準備中…'); await nextFrame();
       this.renderer = new Renderer($('gl'), this.map);
       this.cam.bounds = [0, 0, this.map.W, this.map.H];
@@ -2757,7 +3228,7 @@ const App = {
     $('btn-start').disabled = false;
     const b = document.querySelector(`.pbtn[data-p="${p}"]`);
     if (b && fly) b.scrollIntoView({ block: 'nearest' });
-    if (fly) this.flyToPref(p, 700, 0.3);
+    if (fly) this.flyToPref(p, 700 * (this.map.scale || 1), 0.3);
   },
   flyToPref(p, dist, anchorY) {
     const c = this.map.capitalCell[p];
@@ -2771,13 +3242,14 @@ const App = {
     const title = this.state === STATE.TITLE || this.state === STATE.LOADING || !this.state;
     // タイトル：見出しと下のシートの間（画面の約12%〜48%）に沖縄まで含めた日本全体を収める
     const band = title ? 0.36 : 0.62;
-    const dist = clamp(Math.max(W * (title ? 1.0 : 0.85) / (2 * th * aspect), H / (band * 2 * th)), 500, CONFIG.ZOOM_MAX);
+    const dist = clamp(Math.max(W * (title ? 1.0 : 0.85) / (2 * th * aspect), H / (band * 2 * th)), 500 * (this.map.scale || 1), CONFIG.ZOOM_MAX);
     this.cam.flyTo(W * 0.5, H * 0.5, dist, title ? 0.29 : 0.5);
     if (instant) { const g = this.cam.goal; this.cam.tx = g.x; this.cam.tz = g.z; this.cam.dist = g.dist; this.cam.goal = null; }
   },
 
   // ------------------------------------------------ PLAYING
   startGame(p) {
+    if (ONLINE) return this.startOnline(p);
     this.me = p;
     const seedParam = new URLSearchParams(location.search).get('seed');
     const seed = seedParam ? +seedParam : (Date.now() & 0x7fffffff);
@@ -2820,6 +3292,8 @@ const App = {
     g.on('destroyed', (b) => { if (b.owner === this.me) this.log(`🔥 ${BUILDINGS[b.type].name}が壊されました`, 'bad', b.cell); if (this.sel && this.sel.b === b) this.hidePanel(); });
     g.on('flipped', (e) => { if (e.from === this.me) this.log(`⚠ ${BUILDINGS[e.building.type].name}を${map.prefs[e.to].name}に奪われました`, 'bad', e.building.cell); });
     g.on('eliminated', (p) => { if (p !== this.me) this.log(`${map.prefs[p].name}が全ての拠点を失い、脱落しました`, 'bad', -1); });
+    g.on('buildfail', (m) => { this.marker = { x: m.x, z: m.y, t: this.clock, ok: false }; this.showBuildFail(m.why); });
+    g.on('net', (s) => { if (s === 'down') this.banner('接続が切れました', 'ng', 'つなぎ直しています…'); else this.banner('再接続しました', 'ok', ''); });
     g.on('over', () => setTimeout(() => { if (this.state === STATE.PLAYING) this.setState(STATE.GAMEOVER); }, 900));
     // UI イベント
     $('buildmenu').addEventListener('click', (e) => {
@@ -2845,7 +3319,8 @@ const App = {
     $('minimap').addEventListener('pointerdown', (e) => this.onMinimap(e), { signal });
     signal.addEventListener('abort', () => { this.hidePanel(); this.setMode(null); });
     this.updateHud(true);
-    this.log(`出陣！ ${pr.name}の参加者${g.parts[this.me]}人（あなた＋AI）。下のメニューから建物を建てよう`, 'good', -1);
+    this.log(ONLINE ? `出陣！ ${pr.name}の一員として参加しました。人のいない席はAIが担当します。下のメニューから建物を建てよう`
+      : `出陣！ ${pr.name}の参加者${g.parts[this.me]}人（あなた＋AI）。下のメニューから建物を建てよう`, 'good', -1);
   },
   /** 下の建築メニュー（カード） */
   buildMenu() {
@@ -2901,7 +3376,7 @@ const App = {
     $('toplabel').classList.toggle('hidden', !this.topView);
   },
   confirmTitle() {
-    this.openModal('タイトルに戻りますか？', '<p style="text-align:center">今のゲームの進行は失われます。</p>', [
+    this.openModal('タイトルに戻りますか？', `<p style="text-align:center">${ONLINE ? 'あなたの建物と資源はサーバーに残ります（同じ端末で続きから遊べます）。' : '今のゲームの進行は失われます。'}</p>`, [
       { label: 'やめる', fn: () => this.closeModal() },
       { label: 'タイトルへ', cls: 'warn', fn: () => { this.closeModal(); this.setState(STATE.TITLE); } },
     ]);
@@ -2917,6 +3392,30 @@ const App = {
   },
 
   // ------------------------------------------------ GAMEOVER
+  /** オンライン：サーバーにつないで参加（同じ端末なら前回の続き）。届いた県で始める */
+  async startOnline(p) {
+    if (this.joining) return;
+    this.joining = true;
+    $('btn-start').disabled = true;
+    this.banner('サーバーに接続中…', 'def', '');
+    const url = ONLINE.url || ((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+    const g = new NetGame(this, url);
+    try {
+      const w = await g.join(p, ONLINE.name || '');
+      this.me = w.pref;
+      this.game = g;
+      this.speed = 1;
+      this.renderer.attachGame(g, this.me);
+      this.setState(STATE.PLAYING);
+      if (w.pref !== p) this.banner(`今シーズンは${this.map.prefs[w.pref].name}で参加中`, 'def', '1シーズンに参加できる県は1つです');
+    } catch (e) {
+      g.dispose();
+      this.banner('接続できません', 'ng', e.message);
+    } finally {
+      this.joining = false;
+      $('btn-start').disabled = false;
+    }
+  },
   enterGAMEOVER(signal) {
     const g = this.game, map = this.map, o = g.over;
     this.hidePanel(); this.setMode(null);
@@ -2953,7 +3452,7 @@ const App = {
     const dEl = $('h-delta');
     dEl.textContent = `(${d > 0 ? '+' : d < 0 ? '−' : '±'}${fmt(Math.abs(d))})`;
     dEl.className = d > 0 ? 'up' : d < 0 ? 'down' : '';
-    $('h-today').textContent = `人口 ${fmt(Math.round(g.pop[me]))}万（${(g.pop[me] / g.popTotal * 100).toFixed(1)}%）・拠点 ${g.nodeCount[me]}・兵士 ${g.unitCount(me)}/${g.unitCap(me)}・あなたの建物 ${g.myBuildings()}`;
+    $('h-today').textContent = `人口 ${fmt(Math.round(g.pop[me]))}万（${(g.pop[me] / g.popTotal * 100).toFixed(1)}%）・拠点 ${g.nodeCount[me]}・兵士 ${g.unitCount(me)}/${g.unitCap(me)}・あなたの建物 ${g.myBuildings()}${ONLINE ? `・接続中 ${fmt(g.online)}人` : ''}`;
     // 建築カード：資源が足りないものは暗く
     for (const b of document.querySelectorAll('.bcard')) b.classList.toggle('poor', !g.canAfford(0, BUILDINGS[b.dataset.b].cost));
     const rn = g.rally >= 0 ? g.nodes[g.rally] : null;
@@ -3278,9 +3777,10 @@ const App = {
         if (i < 0) continue;
         const k = t[i] & 7;
         if (k !== 2 && k !== 1) continue;
-        const h = ((i * 2654435761) >>> 0) / 4294967296;
+        const hk = ((x * 73856093) ^ (y * 19349663)) >>> 0;   // 場所から決まる乱数（細かい地図でも木がそろわないよう座標から）
+        const h = ((hk * 2654435761) >>> 0) / 4294967296;
         if (k === 1 ? h > 0.01 : h > 0.5) continue;
-        const h2 = ((i * 40503 + 7) % 997) / 997, h3 = ((i * 69069 + 3) % 991) / 991;
+        const h2 = ((hk * 40503 + 7) % 997) / 997, h3 = ((hk * 69069 + 3) % 991) / 991;
         const px = x + h2, pz = y + h3;
         if (!cam.project(px, 0, pz, v) || v[0] < -20 || v[0] > this.w + 20 || v[1] < -40 || v[1] > this.h + 20) continue;
         const sz = s * (0.8 + h2 * 0.5), snow = t[i] & 8;
@@ -3461,16 +3961,11 @@ const App = {
     const reach = Math.max(2.5, 16 / this.cam.cellPx());
     if (this.mode && this.mode.kind === 'place') {
       const type = this.mode.type;
-      const r = g.playerBuild(type, i);
+      const r = g.playerBuild(type, i, p.x, p.z);
       this.marker = { x: p.x, z: p.z, t: this.clock, ok: r.ok };
       if (r.ok) {
         if (!g.canAfford(0, BUILDINGS[type].cost)) this.setMode(null);   // 資源が尽きたら建設モード終了
-      } else {
-        const msg = { sea: '海には建てられません', notown: '自県の領土の中に建ててください', crowded: 'ほかの建物に近すぎます',
-          nearnode: `町・砦はほかの拠点から${CONFIG.NODE_MIN_DIST}マス以上離してください`, terrain: '農場は山には建てられません',
-          noforest: '製材所は森の近くに建ててください', cost: '資源が足りません' }[r.why] || '建てられません';
-        this.banner('建設できません', 'ng', msg);
-      }
+      } else this.showBuildFail(r.why);
       this.updateHud(true);
       return;
     }
@@ -3488,6 +3983,12 @@ const App = {
       return;
     }
     if (best) this.select(best); else this.hidePanel();
+  },
+  showBuildFail(why) {
+    const msg = { sea: '海には建てられません', notown: '自県の領土の中に建ててください', crowded: 'ほかの建物に近すぎます',
+      nearnode: `町・砦はほかの拠点から${CONFIG.NODE_MIN_DIST * (this.map.scale || 1)}マス以上離してください`, terrain: '農場は山には建てられません',
+      noforest: '製材所は森の近くに建ててください', cost: '資源が足りません' }[why] || '建てられません';
+    this.banner('建設できません', 'ng', msg);
   },
   frame(now) {
     const dt = Math.min(0.1, Math.max(0, (now - this.lastT) / 1000));

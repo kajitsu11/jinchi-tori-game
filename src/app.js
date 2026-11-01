@@ -2,6 +2,8 @@
 // アプリ本体（ステートマシン）
 // =====================================================================
 const STATE = { LOADING: 'LOADING', TITLE: 'TITLE', PLAYING: 'PLAYING', GAMEOVER: 'GAMEOVER' };
+// オンライン版（online.html）：サーバーが細かい地図（元の地図の1マスを S×S）とルールを持つ
+const ONLINE = window.JINCHI_ONLINE || null;
 
 const App = {
   state: null,
@@ -33,6 +35,7 @@ const App = {
       $('mapdata').remove();   // 大きな文字列はもう不要
       this.map = new MapData(raw);
       await this.map.decode(progress);
+      if (ONLINE) { this.map = scaledMap(this.map, ONLINE.S); CONFIG.ZOOM_MAX *= ONLINE.S; }
       progress(0.5, '3D描画を準備中…'); await nextFrame();
       this.renderer = new Renderer($('gl'), this.map);
       this.cam.bounds = [0, 0, this.map.W, this.map.H];
@@ -105,7 +108,7 @@ const App = {
     $('btn-start').disabled = false;
     const b = document.querySelector(`.pbtn[data-p="${p}"]`);
     if (b && fly) b.scrollIntoView({ block: 'nearest' });
-    if (fly) this.flyToPref(p, 700, 0.3);
+    if (fly) this.flyToPref(p, 700 * (this.map.scale || 1), 0.3);
   },
   flyToPref(p, dist, anchorY) {
     const c = this.map.capitalCell[p];
@@ -119,13 +122,14 @@ const App = {
     const title = this.state === STATE.TITLE || this.state === STATE.LOADING || !this.state;
     // タイトル：見出しと下のシートの間（画面の約12%〜48%）に沖縄まで含めた日本全体を収める
     const band = title ? 0.36 : 0.62;
-    const dist = clamp(Math.max(W * (title ? 1.0 : 0.85) / (2 * th * aspect), H / (band * 2 * th)), 500, CONFIG.ZOOM_MAX);
+    const dist = clamp(Math.max(W * (title ? 1.0 : 0.85) / (2 * th * aspect), H / (band * 2 * th)), 500 * (this.map.scale || 1), CONFIG.ZOOM_MAX);
     this.cam.flyTo(W * 0.5, H * 0.5, dist, title ? 0.29 : 0.5);
     if (instant) { const g = this.cam.goal; this.cam.tx = g.x; this.cam.tz = g.z; this.cam.dist = g.dist; this.cam.goal = null; }
   },
 
   // ------------------------------------------------ PLAYING
   startGame(p) {
+    if (ONLINE) return this.startOnline(p);
     this.me = p;
     const seedParam = new URLSearchParams(location.search).get('seed');
     const seed = seedParam ? +seedParam : (Date.now() & 0x7fffffff);
@@ -168,6 +172,8 @@ const App = {
     g.on('destroyed', (b) => { if (b.owner === this.me) this.log(`🔥 ${BUILDINGS[b.type].name}が壊されました`, 'bad', b.cell); if (this.sel && this.sel.b === b) this.hidePanel(); });
     g.on('flipped', (e) => { if (e.from === this.me) this.log(`⚠ ${BUILDINGS[e.building.type].name}を${map.prefs[e.to].name}に奪われました`, 'bad', e.building.cell); });
     g.on('eliminated', (p) => { if (p !== this.me) this.log(`${map.prefs[p].name}が全ての拠点を失い、脱落しました`, 'bad', -1); });
+    g.on('buildfail', (m) => { this.marker = { x: m.x, z: m.y, t: this.clock, ok: false }; this.showBuildFail(m.why); });
+    g.on('net', (s) => { if (s === 'down') this.banner('接続が切れました', 'ng', 'つなぎ直しています…'); else this.banner('再接続しました', 'ok', ''); });
     g.on('over', () => setTimeout(() => { if (this.state === STATE.PLAYING) this.setState(STATE.GAMEOVER); }, 900));
     // UI イベント
     $('buildmenu').addEventListener('click', (e) => {
@@ -193,7 +199,8 @@ const App = {
     $('minimap').addEventListener('pointerdown', (e) => this.onMinimap(e), { signal });
     signal.addEventListener('abort', () => { this.hidePanel(); this.setMode(null); });
     this.updateHud(true);
-    this.log(`出陣！ ${pr.name}の参加者${g.parts[this.me]}人（あなた＋AI）。下のメニューから建物を建てよう`, 'good', -1);
+    this.log(ONLINE ? `出陣！ ${pr.name}の一員として参加しました。人のいない席はAIが担当します。下のメニューから建物を建てよう`
+      : `出陣！ ${pr.name}の参加者${g.parts[this.me]}人（あなた＋AI）。下のメニューから建物を建てよう`, 'good', -1);
   },
   /** 下の建築メニュー（カード） */
   buildMenu() {
@@ -249,7 +256,7 @@ const App = {
     $('toplabel').classList.toggle('hidden', !this.topView);
   },
   confirmTitle() {
-    this.openModal('タイトルに戻りますか？', '<p style="text-align:center">今のゲームの進行は失われます。</p>', [
+    this.openModal('タイトルに戻りますか？', `<p style="text-align:center">${ONLINE ? 'あなたの建物と資源はサーバーに残ります（同じ端末で続きから遊べます）。' : '今のゲームの進行は失われます。'}</p>`, [
       { label: 'やめる', fn: () => this.closeModal() },
       { label: 'タイトルへ', cls: 'warn', fn: () => { this.closeModal(); this.setState(STATE.TITLE); } },
     ]);
@@ -265,6 +272,30 @@ const App = {
   },
 
   // ------------------------------------------------ GAMEOVER
+  /** オンライン：サーバーにつないで参加（同じ端末なら前回の続き）。届いた県で始める */
+  async startOnline(p) {
+    if (this.joining) return;
+    this.joining = true;
+    $('btn-start').disabled = true;
+    this.banner('サーバーに接続中…', 'def', '');
+    const url = ONLINE.url || ((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+    const g = new NetGame(this, url);
+    try {
+      const w = await g.join(p, ONLINE.name || '');
+      this.me = w.pref;
+      this.game = g;
+      this.speed = 1;
+      this.renderer.attachGame(g, this.me);
+      this.setState(STATE.PLAYING);
+      if (w.pref !== p) this.banner(`今シーズンは${this.map.prefs[w.pref].name}で参加中`, 'def', '1シーズンに参加できる県は1つです');
+    } catch (e) {
+      g.dispose();
+      this.banner('接続できません', 'ng', e.message);
+    } finally {
+      this.joining = false;
+      $('btn-start').disabled = false;
+    }
+  },
   enterGAMEOVER(signal) {
     const g = this.game, map = this.map, o = g.over;
     this.hidePanel(); this.setMode(null);
@@ -301,7 +332,7 @@ const App = {
     const dEl = $('h-delta');
     dEl.textContent = `(${d > 0 ? '+' : d < 0 ? '−' : '±'}${fmt(Math.abs(d))})`;
     dEl.className = d > 0 ? 'up' : d < 0 ? 'down' : '';
-    $('h-today').textContent = `人口 ${fmt(Math.round(g.pop[me]))}万（${(g.pop[me] / g.popTotal * 100).toFixed(1)}%）・拠点 ${g.nodeCount[me]}・兵士 ${g.unitCount(me)}/${g.unitCap(me)}・あなたの建物 ${g.myBuildings()}`;
+    $('h-today').textContent = `人口 ${fmt(Math.round(g.pop[me]))}万（${(g.pop[me] / g.popTotal * 100).toFixed(1)}%）・拠点 ${g.nodeCount[me]}・兵士 ${g.unitCount(me)}/${g.unitCap(me)}・あなたの建物 ${g.myBuildings()}${ONLINE ? `・接続中 ${fmt(g.online)}人` : ''}`;
     // 建築カード：資源が足りないものは暗く
     for (const b of document.querySelectorAll('.bcard')) b.classList.toggle('poor', !g.canAfford(0, BUILDINGS[b.dataset.b].cost));
     const rn = g.rally >= 0 ? g.nodes[g.rally] : null;
@@ -626,9 +657,10 @@ const App = {
         if (i < 0) continue;
         const k = t[i] & 7;
         if (k !== 2 && k !== 1) continue;
-        const h = ((i * 2654435761) >>> 0) / 4294967296;
+        const hk = ((x * 73856093) ^ (y * 19349663)) >>> 0;   // 場所から決まる乱数（細かい地図でも木がそろわないよう座標から）
+        const h = ((hk * 2654435761) >>> 0) / 4294967296;
         if (k === 1 ? h > 0.01 : h > 0.5) continue;
-        const h2 = ((i * 40503 + 7) % 997) / 997, h3 = ((i * 69069 + 3) % 991) / 991;
+        const h2 = ((hk * 40503 + 7) % 997) / 997, h3 = ((hk * 69069 + 3) % 991) / 991;
         const px = x + h2, pz = y + h3;
         if (!cam.project(px, 0, pz, v) || v[0] < -20 || v[0] > this.w + 20 || v[1] < -40 || v[1] > this.h + 20) continue;
         const sz = s * (0.8 + h2 * 0.5), snow = t[i] & 8;
@@ -809,16 +841,11 @@ const App = {
     const reach = Math.max(2.5, 16 / this.cam.cellPx());
     if (this.mode && this.mode.kind === 'place') {
       const type = this.mode.type;
-      const r = g.playerBuild(type, i);
+      const r = g.playerBuild(type, i, p.x, p.z);
       this.marker = { x: p.x, z: p.z, t: this.clock, ok: r.ok };
       if (r.ok) {
         if (!g.canAfford(0, BUILDINGS[type].cost)) this.setMode(null);   // 資源が尽きたら建設モード終了
-      } else {
-        const msg = { sea: '海には建てられません', notown: '自県の領土の中に建ててください', crowded: 'ほかの建物に近すぎます',
-          nearnode: `町・砦はほかの拠点から${CONFIG.NODE_MIN_DIST}マス以上離してください`, terrain: '農場は山には建てられません',
-          noforest: '製材所は森の近くに建ててください', cost: '資源が足りません' }[r.why] || '建てられません';
-        this.banner('建設できません', 'ng', msg);
-      }
+      } else this.showBuildFail(r.why);
       this.updateHud(true);
       return;
     }
@@ -836,6 +863,12 @@ const App = {
       return;
     }
     if (best) this.select(best); else this.hidePanel();
+  },
+  showBuildFail(why) {
+    const msg = { sea: '海には建てられません', notown: '自県の領土の中に建ててください', crowded: 'ほかの建物に近すぎます',
+      nearnode: `町・砦はほかの拠点から${CONFIG.NODE_MIN_DIST * (this.map.scale || 1)}マス以上離してください`, terrain: '農場は山には建てられません',
+      noforest: '製材所は森の近くに建ててください', cost: '資源が足りません' }[why] || '建てられません';
+    this.banner('建設できません', 'ng', msg);
   },
   frame(now) {
     const dt = Math.min(0.1, Math.max(0, (now - this.lastT) / 1000));
