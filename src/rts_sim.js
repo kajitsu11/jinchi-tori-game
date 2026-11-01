@@ -171,20 +171,24 @@ class Sim {
     this.counts.set(map.initCounts);
     // 支配人口：各マスは「元の県の人口 ÷ 元の県のマス数」の人口を持つ（万人）
     this.cellPop = new Float64Array(48);
-    for (let p = 1; p <= 47; p++) this.cellPop[p] = map.prefs[p].pop / map.initCounts[p];
+    // 地域を絞った地図（お試し版）では、地図にない県は最初から参加しない
+    this.present = (p) => map.initCounts[p] > 0;
+    for (let p = 1; p <= 47; p++) this.cellPop[p] = this.present(p) ? map.prefs[p].pop / map.initCounts[p] : 0;
     this.pop = new Float64Array(49);
-    for (let p = 1; p <= 47; p++) this.pop[p] = map.prefs[p].pop;
+    for (let p = 1; p <= 47; p++) this.pop[p] = this.present(p) ? map.prefs[p].pop : 0;
     this.popTotal = this.pop.reduce((a, b) => a + b, 0);
     this.landIdx = new Int32Array(map.landCells);
     for (let i = 0, k = 0; i < N; i++) if (map.initPref[i]) this.landIdx[k++] = i;
     // ---- 拠点（県庁・町・砦）
     this.nodes = [];
+    this.capNode = new Int32Array(49).fill(-1);    // 県 → 県庁の拠点の番号
     for (let p = 1; p <= 47; p++) {
-      this.addNode({ cell: map.capitalCell[p], pref: p, type: 'capital', name: `${map.prefs[p].name}庁（${map.prefs[p].capName}）` });
+      if (!this.present(p) || map.capitalCell[p] < 0) continue;
+      this.capNode[p] = this.addNode({ cell: map.capitalCell[p], pref: p, type: 'capital', name: `${map.prefs[p].name}庁（${map.prefs[p].capName}）` }).id;
     }
     for (const t of map.raw.towns) {
       const c = map.capitalCell[t.pref];
-      if (t.cell < 0 || Math.hypot(map.X(t.cell) - map.X(c), map.Y(t.cell) - map.Y(c)) < 36 * S) continue;
+      if (t.cell < 0 || c < 0 || Math.hypot(map.X(t.cell) - map.X(c), map.Y(t.cell) - map.Y(c)) < 36 * S) continue;
       this.addNode({ cell: t.cell, pref: t.pref, type: 'town', name: t.name });
     }
     this.nodeOf = new Int16Array(N).fill(-1);
@@ -200,7 +204,7 @@ class Sim {
     this.humans = new Map();                        // 財布 → { w, pref, name, rally, income }
     if (me) { this.humansIn[me] = 1; this.humans.set(0, { w: 0, pref: me, name: 'あなた', rally: -1, income: { food: 0, wood: 0, gold: 0 } }); }
     this.parts = new Int32Array(49);
-    for (let p = 1; p <= 47; p++) this.parts[p] = Math.max(this.participantCount(p), this.humansIn[p]);
+    for (let p = 1; p <= 47; p++) this.parts[p] = this.present(p) ? Math.max(this.participantCount(p), this.humansIn[p]) : 0;
     this.res = { food: [], wood: [], gold: [] };
     for (let w = 0; w <= 47; w++) {
       const k = w === 0 ? 1 : this.aiCount(w);
@@ -219,7 +223,8 @@ class Sim {
     this.useq = 0;
     for (let p = 1; p <= 47; p++) {
       const n = Math.round(this.parts[p] * CONFIG.START_UNITS_RATIO);
-      for (let k = 0; k < n; k++) this.spawnUnit(p, this.nodes[p - 1].x, this.nodes[p - 1].y, 20 * S, -1);
+      const cn = this.nodes[this.capNode[p]];
+      if (cn) for (let k = 0; k < n; k++) this.spawnUnit(p, cn.x, cn.y, 20 * S, -1);
     }
     this.rally = -1;                                // プレイヤーの兵士の攻撃目標（拠点）
     this.plans = [];
@@ -230,6 +235,7 @@ class Sim {
     this.next = new Int32Array(64);
     this.cnt = new Int32Array(49);
     this.eliminated = new Set();
+    for (let p = 1; p <= 47; p++) if (!this.present(p)) this.eliminated.add(p);
     this.over = null;
     this.recent = [];
     this.stats = { captures: 0, kills: 0, built: 0, destroyed: 0, trained: 0, trainedMine: 0, paths: 0 };
@@ -609,7 +615,7 @@ class Sim {
     if (!cur || cur.owner === P || this.time - pl.since > CONFIG.AI_TARGET_TIMEOUT) {
       let sx = 0, sy = 0, k = 0;
       for (const u of this.units) if (u.pref === P) { sx += u.x; sy += u.y; k++; }
-      const cap = this.nodes[P - 1];
+      const cap = this.nodes[this.capNode[P]] || this.nodes.find((n) => n.owner === P);
       const cx = k ? sx / k : cap.x, cy = k ? sy / k : cap.y;
       let best = -1, bs = -1e9;
       const seen = new Set();
@@ -883,7 +889,7 @@ class Sim {
   }
   ranking() {
     const arr = [];
-    for (let p = 1; p <= 47; p++) arr.push(p);
+    for (let p = 1; p <= 47; p++) if (this.present(p)) arr.push(p);
     arr.sort((a, b) => this.pop[b] - this.pop[a] || this.counts[b] - this.counts[a] || a - b);   // 順位は支配人口
     return arr;
   }

@@ -11,7 +11,7 @@ const NET_NODE_TYPES = ['capital', 'town', 'fort'];
 /** 元の地図を S 倍に細かくした座標で扱う（中身は元の地図のまま。座標 → 元のマス） */
 function scaledMap(c, S) {
   const m = Object.create(c);
-  m.W = c.W * S; m.H = c.H * S; m.scale = S; m.coarse = c;
+  m.W = c.W * S; m.H = c.H * S; m.scale = S; m.texScale = S; m.coarse = c;
   m.id = (x, y) => c.id(Math.floor(x / S), Math.floor(y / S));
   m.X = (i) => c.X(i) * S + (S >> 1);
   m.Y = (i) => c.Y(i) * S + (S >> 1);

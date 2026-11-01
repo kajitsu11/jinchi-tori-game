@@ -4,6 +4,8 @@
 const STATE = { LOADING: 'LOADING', TITLE: 'TITLE', PLAYING: 'PLAYING', GAMEOVER: 'GAMEOVER' };
 // オンライン版（online.html）：サーバーが細かい地図（元の地図の1マスを S×S）とルールを持つ
 const ONLINE = window.JINCHI_ONLINE || null;
+// お試し版（trial.html）：地域を絞り、オンライン版と同じ細かさ（元の1マスを S×S）の地図を端末の中で動かす
+const TRIAL = window.JINCHI_TRIAL || null;
 
 const App = {
   state: null,
@@ -36,6 +38,11 @@ const App = {
       this.map = new MapData(raw);
       await this.map.decode(progress);
       if (ONLINE) { this.map = scaledMap(this.map, ONLINE.S); CONFIG.ZOOM_MAX *= ONLINE.S; }
+      if (TRIAL) {
+        progress(0.45, `細かい地図（1マス≒90m）を作成中…`); await nextFrame();
+        this.map = MapData.upscale(this.map, TRIAL.S, new Set(TRIAL.prefs));
+        CONFIG.PARTICIPANTS_PER_MILLION *= TRIAL.mul;   // 1県に大勢いる状態（AIが担当）
+      }
       progress(0.5, '3D描画を準備中…'); await nextFrame();
       this.renderer = new Renderer($('gl'), this.map);
       this.cam.bounds = [0, 0, this.map.W, this.map.H];
@@ -75,6 +82,7 @@ const App = {
     $('title').classList.remove('hidden');
     $('hud').classList.add('hidden');
     $('t-cells').textContent = Math.round(this.map.landCells / 10000) + '万';
+    if (TRIAL) $('t-cells').parentNode.textContent = `お試し版：中国・四国の${TRIAL.prefs.length}県を1マス≒90m（${Math.round(this.map.landCells / 10000)}万マス）で。1県に大勢いる状態をAIで再現`;
     this.resetCamera(false);
     $('pref-list').addEventListener('click', (e) => {
       const b = e.target.closest('.pbtn');
@@ -88,7 +96,7 @@ const App = {
   },
   buildTitleList() {
     const regions = {};
-    for (const p of this.map.prefs) if (p) (regions[p.area] || (regions[p.area] = [])).push(p);
+    for (const p of this.map.prefs) if (p && this.map.initCounts[p.id]) (regions[p.area] || (regions[p.area] = [])).push(p);
     let html = '';
     for (const [area, list] of Object.entries(regions)) {
       html += `<div class="region"><h3>${area}</h3><div class="prefs">`;
@@ -115,15 +123,16 @@ const App = {
     this.cam.flyTo(this.map.X(c) + 0.5, this.map.Y(c) + 0.5, dist, anchorY);
   },
   resetCamera(instant) {
-    const W = this.map.W, H = this.map.H;
+    const V = this.map.view || { x0: 0, y0: 0, w: this.map.W, h: this.map.H };   // お試し版は地域だけ
+    const W = V.w, H = V.h;
     const aspect = this.w / this.h;
     const th = Math.tan(this.cam.fovY / 2);
     // タイトルでは下のシートに隠れないよう、画面上側に日本全体を出す
     const title = this.state === STATE.TITLE || this.state === STATE.LOADING || !this.state;
     // タイトル：見出しと下のシートの間（画面の約12%〜48%）に沖縄まで含めた日本全体を収める
     const band = title ? 0.36 : 0.62;
-    const dist = clamp(Math.max(W * (title ? 1.0 : 0.85) / (2 * th * aspect), H / (band * 2 * th)), 500 * (this.map.scale || 1), CONFIG.ZOOM_MAX);
-    this.cam.flyTo(W * 0.5, H * 0.5, dist, title ? 0.29 : 0.5);
+    const dist = clamp(Math.max(W * (title ? 1.0 : 0.85) / (2 * th * aspect), H / (band * 2 * th)), (this.map.view ? 150 : 500) * (this.map.scale || 1), CONFIG.ZOOM_MAX);
+    this.cam.flyTo(V.x0 + W * 0.5, V.y0 + H * 0.5, dist, title ? 0.29 : 0.5);
     if (instant) { const g = this.cam.goal; this.cam.tx = g.x; this.cam.tz = g.z; this.cam.dist = g.dist; this.cam.goal = null; }
   },
 
@@ -245,7 +254,7 @@ const App = {
     if (this.sel && this.sel.n === n) this.updatePanel();
   },
   goHome(dist) {
-    const g = this.game, cap = g.nodes[this.me - 1];
+    const g = this.game, cap = g.nodes[g.capNode ? g.capNode[this.me] : this.me - 1] || g.nodes[0];
     const n = cap.owner === this.me ? cap : g.nodes.find((q) => q.owner === this.me);
     if (n) this.cam.flyTo(n.x, n.y, dist || 300, 0.42);
   },
@@ -758,7 +767,7 @@ const App = {
     if (g) {
       for (const n of g.nodes) if (n.type === 'capital' || cpx > 2.4 || (n.progress > 0 && cpx > 0.6) || n.id === g.rally) order.push(n);
     } else {
-      for (let p = 1; p <= 47; p++) order.push({ type: 'capital', pref: p, owner: p, x: map.X(map.capitalCell[p]) + 0.5, y: map.Y(map.capitalCell[p]) + 0.5 });
+      for (let p = 1; p <= 47; p++) if (map.capitalCell[p] >= 0) order.push({ type: 'capital', pref: p, owner: p, x: map.X(map.capitalCell[p]) + 0.5, y: map.Y(map.capitalCell[p]) + 0.5 });
     }
     const pri = this.state === STATE.TITLE ? this.titleSel : this.me;
     const score = (n) => (g && n.id === g.rally ? 2e6 : 0) + (n.pref === pri && n.type === 'capital' ? 1e6 : 0) + (n.type === 'capital' ? 1e4 + map.prefs[n.pref].pop : n.type === 'fort' ? 10 : 0);
@@ -955,20 +964,21 @@ const App = {
   // ------------------------------------------------ ミニマップ
   drawMinimap() {
     const cv = $('minimap'), map = this.map, g = this.game;
-    const mw = 236, mh = Math.round(mw * map.H / map.W);
+    const V = map.view || { x0: 0, y0: 0, w: map.W, h: map.H };
+    const mw = 236, mh = Math.round(mw * V.h / V.w);
     if (cv.width !== mw) { cv.width = mw; cv.height = mh; this.mmImage = null; }
     const ctx = cv.getContext('2d');
     if (this.minimapDirty || !this.mmImage) {
       const img = this.mmImage || ctx.createImageData(mw, mh);
       const d = img.data, own = g ? g.owner : map.initPref;
       const cols = map.prefs.map((p) => (p ? hexToRgb(p.color) : [20, 42, 70]));
-      const sx = map.W / mw, sy = map.H / mh;
+      const sx = V.w / mw, sy = V.h / mh;
       for (let y = 0; y < mh; y++) {
         for (let x = 0; x < mw; x++) {
           // 3x3 点サンプリングで小さな島も拾う
           let o = 0;
           for (let k = 0; k < 9 && !o; k++) {
-            const cx = Math.floor((x + (k % 3) / 3 + 0.17) * sx), cy = Math.floor((y + ((k / 3) | 0) / 3 + 0.17) * sy);
+            const cx = V.x0 + Math.floor((x + (k % 3) / 3 + 0.17) * sx), cy = V.y0 + Math.floor((y + ((k / 3) | 0) / 3 + 0.17) * sy);
             const ci = map.id(cx, cy);
             o = ci >= 0 ? own[ci] : 0;
           }
@@ -985,19 +995,20 @@ const App = {
     if (pts.every(Boolean)) {
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
       ctx.beginPath();
-      pts.forEach((p, k) => { const X = p.x / map.W * mw, Y = p.z / map.H * mh; k ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); });
+      pts.forEach((p, k) => { const X = (p.x - V.x0) / V.w * mw, Y = (p.z - V.y0) / V.h * mh; k ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); });
       ctx.closePath(); ctx.stroke();
       ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 1; ctx.stroke();
     }
     const rn = g && g.rally >= 0 ? g.nodes[g.rally] : null;   // 攻撃目標
     if (rn) {
       ctx.fillStyle = '#ff6b3d'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(rn.x / map.W * mw, rn.y / map.H * mh, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc((rn.x - V.x0) / V.w * mw, (rn.y - V.y0) / V.h * mh, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
   },
   onMinimap(e) {
     const r = e.currentTarget.getBoundingClientRect();
-    const x = (e.clientX - r.left) / r.width * this.map.W, z = (e.clientY - r.top) / r.height * this.map.H;
+    const V = this.map.view || { x0: 0, y0: 0, w: this.map.W, h: this.map.H };
+    const x = V.x0 + (e.clientX - r.left) / r.width * V.w, z = V.y0 + (e.clientY - r.top) / r.height * V.h;
     this.cam.flyTo(x, z, null);
     e.preventDefault();
   },

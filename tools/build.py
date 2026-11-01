@@ -26,7 +26,9 @@ def main():
     html = html.replace("/*__STYLE__*/", css)
     html = html.replace("/*__MAPDATA__*/", data_txt)
     # index.html：1人用（端末の中でAIと対戦）／ online.html：オンライン版（server/server.js が配る。地図は3倍細かい）
-    for name, pre in (("index.html", ""), ("online.html", "window.JINCHI_ONLINE = { S: 3 };\n")):
+    # trial.html：お試し版（中国・四国の9県だけ、オンライン版と同じ1マス≒90m。参加者はAIで5倍）
+    trial = "window.JINCHI_TRIAL = { S: 3, prefs: [31, 32, 33, 34, 35, 36, 37, 38, 39], mul: 5 };\n"
+    for name, pre in (("index.html", ""), ("online.html", "window.JINCHI_ONLINE = { S: 3 };\n"), ("trial.html", trial)):
         out = os.path.join(ROOT, name)
         with open(out, "w", encoding="utf-8") as f:
             f.write(html.replace("/*__GAME__*/", pre + js))

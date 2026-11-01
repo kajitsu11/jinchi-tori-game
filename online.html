@@ -525,13 +525,14 @@ class MapData {
    * 細かい地図：元の地図の1マスを S×S マスに分けた地図（サーバー用。県・地形・海岸は元のマスと同じ）。
    * 拠点・連絡マスは元のマスの中央のマスへ移す。標高はそのまま共有する。
    */
-  static upscale(c, S) {
+  static upscale(c, S, keep) {   // keep：残す県の Set（地域を絞るお試し版）。なければ全国
     const m = Object.create(MapData.prototype);
     const W = c.W * S, H = c.H * S, TW = Math.ceil(W / TILE), TH = Math.ceil(H / TILE);
     m.W = W; m.H = H; m.TW = TW; m.TH = TH; m.scale = S; m.coarse = c;
     const has = new Uint8Array(TW * TH), cip = c.initPref;
+    const kept = (p) => p && (!keep || keep.has(p));
     for (let i = 0; i < c.N; i++) {
-      if (!cip[i]) continue;
+      if (!kept(cip[i])) continue;
       const x = c.X(i) * S, y = c.Y(i) * S;
       for (let ty = y >> TSH; ty <= (y + S - 1) >> TSH; ty++) for (let tx = x >> TSH; tx <= (x + S - 1) >> TSH; tx++) has[ty * TW + tx] = 1;
     }
@@ -550,23 +551,29 @@ class MapData {
         const cy = ((y0 + ly) / S) | 0, o = b + (ly << TSH);
         for (let lx = 0; lx < TILE; lx++) {
           const j = c.id(cx[lx], cy);
-          if (j >= 0 && cip[j]) { m.initPref[o + lx] = cip[j]; m.terrain[o + lx] = ct[j]; }
+          if (j >= 0 && kept(cip[j])) { m.initPref[o + lx] = cip[j]; m.terrain[o + lx] = ct[j]; }
         }
       }
     }
-    m.landCells = c.landCells * S * S;
     m.elev = c.elev; m.elevW = c.elevW; m.elevH = c.elevH; m.elevScale = c.elevScale * S;
-    const conv = (i) => (i < 0 ? -1 : m.id(c.X(i) * S + (S >> 1), c.Y(i) * S + (S >> 1)));
+    const conv = (i) => (i < 0 || !kept(cip[i]) ? -1 : m.id(c.X(i) * S + (S >> 1), c.Y(i) * S + (S >> 1)));
     const r0 = c.raw;
     m.prefs = c.prefs.map((p) => (p ? { ...p, capital: conv(p.capital), cells: p.cells * S * S } : null));
     m.raw = { ...r0, W, H, dlon: r0.dlon / S, dlat: r0.dlat / S, scale: S, converted: true,
       prefs: m.prefs.filter(Boolean),
-      links: r0.links.map((l) => ({ ...l, a: conv(l.a), b: conv(l.b) })),
-      autoLinks: r0.autoLinks.map(([a, b]) => [conv(a), conv(b)]),
-      towns: r0.towns.map((t) => ({ ...t, cell: conv(t.cell) })),
+      links: r0.links.map((l) => ({ ...l, a: conv(l.a), b: conv(l.b) })).filter((l) => l.a >= 0 && l.b >= 0),
+      autoLinks: r0.autoLinks.map(([a, b]) => [conv(a), conv(b)]).filter(([a, b]) => a >= 0 && b >= 0),
+      towns: r0.towns.map((t) => ({ ...t, cell: conv(t.cell) })).filter((t) => t.cell >= 0),
       insets: r0.insets.map((r) => ({ ...r, poly: r.poly.map((v) => v * S) })),
       shiftRects: r0.shiftRects.map((q) => ({ ...q, x0: q.x0 * S, y0: q.y0 * S, x1: q.x1 * S + S - 1, y1: q.y1 * S + S - 1 })) };
     m.finish();
+    m.landCells = m.initCounts.reduce((a, b) => a + b, 0);
+    if (keep) {   // 残した県を囲む範囲（カメラ・ミニマップ用）
+      let x0 = 1e9, y0 = 1e9, x1 = 0, y1 = 0;
+      for (let t = 0; t < m.nTiles; t++) { x0 = Math.min(x0, txs[t] * TILE); y0 = Math.min(y0, tys[t] * TILE); x1 = Math.max(x1, (txs[t] + 1) * TILE); y1 = Math.max(y1, (tys[t] + 1) * TILE); }
+      m.view = { x0, y0, w: x1 - x0, h: y1 - y0 };
+    }
+    m.terrScale = S;   // 地形は S×S マスのかたまり（描画では元のマスの単位でなめらかにする）
     return m;
   }
   /** 座標 → マスの番号（海だけの区画・地図の外は -1） */
@@ -758,6 +765,7 @@ uniform float uPlace;
 uniform float uTime;
 uniform float uCpp;
 uniform float uScale;          // 1マスの細かさ（オンライン版は3：地形は元の地図のマス、持ち主は細かいマス）
+uniform float uTS;             // 地形のかたまりの大きさ（お試し版は3：細かい地図の地形は元のマス3×3ずつ同じ）
 uniform float uHasFine;
 uniform sampler2D uFine;       // 細かい持ち主の区画（64×64マスずつ。L=持ち主＋最近占領なら64）
 uniform sampler2D uFInd;       // 細かい区画の表：RG=区画の位置, A=受け取り済みか
@@ -785,7 +793,8 @@ vec3 cellData(vec2 cell){
   float a = floor(d.a * 255.0 + 0.5);
   return vec3(floor(d.r * 255.0 + 0.5), floor(a / 16.0), step(7.5, mod(a, 16.0)));
 }
-float landAt(vec2 cell){ return step(0.5, cellData(cell).y); }
+float landAt(vec2 tc){ return step(0.5, cellData(tc * uTS + floor(uTS * 0.5)).y); }
+float terrAt(vec2 tc){ return cellData(tc * uTS + floor(uTS * 0.5)).y; }
 // 細かいマスの持ち主（x=持ち主・まだ届いていなければ -1, y=最近占領されたか）
 vec2 fineData(vec2 fc){
   vec2 t = floor(fc / 64.0);
@@ -824,9 +833,10 @@ void main(){
   // まわり4マスの地形の色を混ぜて、マスの角が見えないように（海のマスはこのマスの色で埋める）
   // 境目がマスの形（階段）に見えないよう、読む位置をゆらす（地形の色は大きく、海岸線は少しだけ）
   vec2 warp = vec2(noise(vWorld * 0.09 + 1.7), noise(vWorld * 0.09 - 5.3)) - 0.5;
-  vec2 q = cw - 0.5 + warp * 0.9, qf = fract(q), q0 = floor(q);
+  vec2 tw = cw / uTS;
+  vec2 q = tw - 0.5 + warp * 0.9, qf = fract(q), q0 = floor(q);
   vec3 hc = texture2D(uPalette, vec2((cls + 0.5) / 64.0, 0.75)).rgb;
-  float k00 = cellData(q0).y, k10 = cellData(q0 + vec2(1.0, 0.0)).y, k01 = cellData(q0 + vec2(0.0, 1.0)).y, k11 = cellData(q0 + vec2(1.0, 1.0)).y;
+  float k00 = terrAt(q0), k10 = terrAt(q0 + vec2(1.0, 0.0)), k01 = terrAt(q0 + vec2(0.0, 1.0)), k11 = terrAt(q0 + vec2(1.0, 1.0));
   vec3 c00 = k00 > 0.5 ? texture2D(uPalette, vec2((k00 + 0.5) / 64.0, 0.75)).rgb : hc;
   vec3 c10 = k10 > 0.5 ? texture2D(uPalette, vec2((k10 + 0.5) / 64.0, 0.75)).rgb : hc;
   vec3 c01 = k01 > 0.5 ? texture2D(uPalette, vec2((k01 + 0.5) / 64.0, 0.75)).rgb : hc;
@@ -835,7 +845,7 @@ void main(){
   vec3 tcol = cls > 0.5 ? mix(mix(c00, c10, sf.x), mix(c01, c11, sf.x), sf.y) : hc;
   if (cls > 0.5 && cls < 7.5) tcol = mix(tcol, vec3(0.49, 0.44, 0.36), clamp((e.r - 0.35) * 1.6, 0.0, 0.75));
   // 海岸線もまわり4マスの陸／海からなめらかに
-  vec2 p2 = cw - 0.5 + warp * 0.35, pf = fract(p2), p0 = floor(p2);
+  vec2 p2 = tw - 0.5 + warp * 0.35, pf = fract(p2), p0 = floor(p2);
   float landA = mix(mix(landAt(p0), landAt(p0 + vec2(1.0, 0.0)), pf.x), mix(landAt(p0 + vec2(0.0, 1.0)), landAt(p0 + vec2(1.0, 1.0)), pf.x), pf.y);
   vec4 t = vec4(tcol, landA);
   // 標高から陰影（北西から光）
@@ -1408,7 +1418,8 @@ class Renderer {
     tex.forEach(([t, name], k) => { gl.activeTexture(gl.TEXTURE0 + k); gl.bindTexture(gl.TEXTURE_2D, t); gl.uniform1i(g.u[name], k); });
     gl.uniform2f(g.u.uGrid, map.W, map.H);
     gl.uniform2f(g.u.uTiles, map.TW, map.TH);
-    gl.uniform1f(g.u.uScale, map.scale || 1);
+    gl.uniform1f(g.u.uScale, map.texScale || 1);
+    gl.uniform1f(g.u.uTS, map.terrScale || 1);
     gl.uniform1f(g.u.uHasFine, this.hasFine ? 1 : 0);
     gl.uniform2f(g.u.uFTiles, this.fineTW || 1, this.fineTH || 1);
     gl.uniform2f(g.u.uAtlas, this.AW, this.AH);
@@ -2101,20 +2112,24 @@ class Sim {
     this.counts.set(map.initCounts);
     // 支配人口：各マスは「元の県の人口 ÷ 元の県のマス数」の人口を持つ（万人）
     this.cellPop = new Float64Array(48);
-    for (let p = 1; p <= 47; p++) this.cellPop[p] = map.prefs[p].pop / map.initCounts[p];
+    // 地域を絞った地図（お試し版）では、地図にない県は最初から参加しない
+    this.present = (p) => map.initCounts[p] > 0;
+    for (let p = 1; p <= 47; p++) this.cellPop[p] = this.present(p) ? map.prefs[p].pop / map.initCounts[p] : 0;
     this.pop = new Float64Array(49);
-    for (let p = 1; p <= 47; p++) this.pop[p] = map.prefs[p].pop;
+    for (let p = 1; p <= 47; p++) this.pop[p] = this.present(p) ? map.prefs[p].pop : 0;
     this.popTotal = this.pop.reduce((a, b) => a + b, 0);
     this.landIdx = new Int32Array(map.landCells);
     for (let i = 0, k = 0; i < N; i++) if (map.initPref[i]) this.landIdx[k++] = i;
     // ---- 拠点（県庁・町・砦）
     this.nodes = [];
+    this.capNode = new Int32Array(49).fill(-1);    // 県 → 県庁の拠点の番号
     for (let p = 1; p <= 47; p++) {
-      this.addNode({ cell: map.capitalCell[p], pref: p, type: 'capital', name: `${map.prefs[p].name}庁（${map.prefs[p].capName}）` });
+      if (!this.present(p) || map.capitalCell[p] < 0) continue;
+      this.capNode[p] = this.addNode({ cell: map.capitalCell[p], pref: p, type: 'capital', name: `${map.prefs[p].name}庁（${map.prefs[p].capName}）` }).id;
     }
     for (const t of map.raw.towns) {
       const c = map.capitalCell[t.pref];
-      if (t.cell < 0 || Math.hypot(map.X(t.cell) - map.X(c), map.Y(t.cell) - map.Y(c)) < 36 * S) continue;
+      if (t.cell < 0 || c < 0 || Math.hypot(map.X(t.cell) - map.X(c), map.Y(t.cell) - map.Y(c)) < 36 * S) continue;
       this.addNode({ cell: t.cell, pref: t.pref, type: 'town', name: t.name });
     }
     this.nodeOf = new Int16Array(N).fill(-1);
@@ -2130,7 +2145,7 @@ class Sim {
     this.humans = new Map();                        // 財布 → { w, pref, name, rally, income }
     if (me) { this.humansIn[me] = 1; this.humans.set(0, { w: 0, pref: me, name: 'あなた', rally: -1, income: { food: 0, wood: 0, gold: 0 } }); }
     this.parts = new Int32Array(49);
-    for (let p = 1; p <= 47; p++) this.parts[p] = Math.max(this.participantCount(p), this.humansIn[p]);
+    for (let p = 1; p <= 47; p++) this.parts[p] = this.present(p) ? Math.max(this.participantCount(p), this.humansIn[p]) : 0;
     this.res = { food: [], wood: [], gold: [] };
     for (let w = 0; w <= 47; w++) {
       const k = w === 0 ? 1 : this.aiCount(w);
@@ -2149,7 +2164,8 @@ class Sim {
     this.useq = 0;
     for (let p = 1; p <= 47; p++) {
       const n = Math.round(this.parts[p] * CONFIG.START_UNITS_RATIO);
-      for (let k = 0; k < n; k++) this.spawnUnit(p, this.nodes[p - 1].x, this.nodes[p - 1].y, 20 * S, -1);
+      const cn = this.nodes[this.capNode[p]];
+      if (cn) for (let k = 0; k < n; k++) this.spawnUnit(p, cn.x, cn.y, 20 * S, -1);
     }
     this.rally = -1;                                // プレイヤーの兵士の攻撃目標（拠点）
     this.plans = [];
@@ -2160,6 +2176,7 @@ class Sim {
     this.next = new Int32Array(64);
     this.cnt = new Int32Array(49);
     this.eliminated = new Set();
+    for (let p = 1; p <= 47; p++) if (!this.present(p)) this.eliminated.add(p);
     this.over = null;
     this.recent = [];
     this.stats = { captures: 0, kills: 0, built: 0, destroyed: 0, trained: 0, trainedMine: 0, paths: 0 };
@@ -2539,7 +2556,7 @@ class Sim {
     if (!cur || cur.owner === P || this.time - pl.since > CONFIG.AI_TARGET_TIMEOUT) {
       let sx = 0, sy = 0, k = 0;
       for (const u of this.units) if (u.pref === P) { sx += u.x; sy += u.y; k++; }
-      const cap = this.nodes[P - 1];
+      const cap = this.nodes[this.capNode[P]] || this.nodes.find((n) => n.owner === P);
       const cx = k ? sx / k : cap.x, cy = k ? sy / k : cap.y;
       let best = -1, bs = -1e9;
       const seen = new Set();
@@ -2813,7 +2830,7 @@ class Sim {
   }
   ranking() {
     const arr = [];
-    for (let p = 1; p <= 47; p++) arr.push(p);
+    for (let p = 1; p <= 47; p++) if (this.present(p)) arr.push(p);
     arr.sort((a, b) => this.pop[b] - this.pop[a] || this.counts[b] - this.counts[a] || a - b);   // 順位は支配人口
     return arr;
   }
@@ -2836,7 +2853,7 @@ const NET_NODE_TYPES = ['capital', 'town', 'fort'];
 /** 元の地図を S 倍に細かくした座標で扱う（中身は元の地図のまま。座標 → 元のマス） */
 function scaledMap(c, S) {
   const m = Object.create(c);
-  m.W = c.W * S; m.H = c.H * S; m.scale = S; m.coarse = c;
+  m.W = c.W * S; m.H = c.H * S; m.scale = S; m.texScale = S; m.coarse = c;
   m.id = (x, y) => c.id(Math.floor(x / S), Math.floor(y / S));
   m.X = (i) => c.X(i) * S + (S >> 1);
   m.Y = (i) => c.Y(i) * S + (S >> 1);
@@ -2929,6 +2946,11 @@ class NetGame {
         if (m.over && !this.over) this.setOver(m.over);
         break;
       }
+      case 'reset':   // 新しいシーズンが始まった
+        try { localStorage.removeItem('jinchi47_token'); } catch (e) { /* 使えない環境 */ }
+        this.closed = true;
+        setTimeout(() => location.reload(), 500);
+        break;
       case 'nodes':
         for (const r of m.n) this.nodeFrom(r);
         break;
@@ -3125,6 +3147,8 @@ class NetGame {
 const STATE = { LOADING: 'LOADING', TITLE: 'TITLE', PLAYING: 'PLAYING', GAMEOVER: 'GAMEOVER' };
 // オンライン版（online.html）：サーバーが細かい地図（元の地図の1マスを S×S）とルールを持つ
 const ONLINE = window.JINCHI_ONLINE || null;
+// お試し版（trial.html）：地域を絞り、オンライン版と同じ細かさ（元の1マスを S×S）の地図を端末の中で動かす
+const TRIAL = window.JINCHI_TRIAL || null;
 
 const App = {
   state: null,
@@ -3157,6 +3181,11 @@ const App = {
       this.map = new MapData(raw);
       await this.map.decode(progress);
       if (ONLINE) { this.map = scaledMap(this.map, ONLINE.S); CONFIG.ZOOM_MAX *= ONLINE.S; }
+      if (TRIAL) {
+        progress(0.45, `細かい地図（1マス≒90m）を作成中…`); await nextFrame();
+        this.map = MapData.upscale(this.map, TRIAL.S, new Set(TRIAL.prefs));
+        CONFIG.PARTICIPANTS_PER_MILLION *= TRIAL.mul;   // 1県に大勢いる状態（AIが担当）
+      }
       progress(0.5, '3D描画を準備中…'); await nextFrame();
       this.renderer = new Renderer($('gl'), this.map);
       this.cam.bounds = [0, 0, this.map.W, this.map.H];
@@ -3196,6 +3225,7 @@ const App = {
     $('title').classList.remove('hidden');
     $('hud').classList.add('hidden');
     $('t-cells').textContent = Math.round(this.map.landCells / 10000) + '万';
+    if (TRIAL) $('t-cells').parentNode.textContent = `お試し版：中国・四国の${TRIAL.prefs.length}県を1マス≒90m（${Math.round(this.map.landCells / 10000)}万マス）で。1県に大勢いる状態をAIで再現`;
     this.resetCamera(false);
     $('pref-list').addEventListener('click', (e) => {
       const b = e.target.closest('.pbtn');
@@ -3209,7 +3239,7 @@ const App = {
   },
   buildTitleList() {
     const regions = {};
-    for (const p of this.map.prefs) if (p) (regions[p.area] || (regions[p.area] = [])).push(p);
+    for (const p of this.map.prefs) if (p && this.map.initCounts[p.id]) (regions[p.area] || (regions[p.area] = [])).push(p);
     let html = '';
     for (const [area, list] of Object.entries(regions)) {
       html += `<div class="region"><h3>${area}</h3><div class="prefs">`;
@@ -3236,15 +3266,16 @@ const App = {
     this.cam.flyTo(this.map.X(c) + 0.5, this.map.Y(c) + 0.5, dist, anchorY);
   },
   resetCamera(instant) {
-    const W = this.map.W, H = this.map.H;
+    const V = this.map.view || { x0: 0, y0: 0, w: this.map.W, h: this.map.H };   // お試し版は地域だけ
+    const W = V.w, H = V.h;
     const aspect = this.w / this.h;
     const th = Math.tan(this.cam.fovY / 2);
     // タイトルでは下のシートに隠れないよう、画面上側に日本全体を出す
     const title = this.state === STATE.TITLE || this.state === STATE.LOADING || !this.state;
     // タイトル：見出しと下のシートの間（画面の約12%〜48%）に沖縄まで含めた日本全体を収める
     const band = title ? 0.36 : 0.62;
-    const dist = clamp(Math.max(W * (title ? 1.0 : 0.85) / (2 * th * aspect), H / (band * 2 * th)), 500 * (this.map.scale || 1), CONFIG.ZOOM_MAX);
-    this.cam.flyTo(W * 0.5, H * 0.5, dist, title ? 0.29 : 0.5);
+    const dist = clamp(Math.max(W * (title ? 1.0 : 0.85) / (2 * th * aspect), H / (band * 2 * th)), (this.map.view ? 150 : 500) * (this.map.scale || 1), CONFIG.ZOOM_MAX);
+    this.cam.flyTo(V.x0 + W * 0.5, V.y0 + H * 0.5, dist, title ? 0.29 : 0.5);
     if (instant) { const g = this.cam.goal; this.cam.tx = g.x; this.cam.tz = g.z; this.cam.dist = g.dist; this.cam.goal = null; }
   },
 
@@ -3366,7 +3397,7 @@ const App = {
     if (this.sel && this.sel.n === n) this.updatePanel();
   },
   goHome(dist) {
-    const g = this.game, cap = g.nodes[this.me - 1];
+    const g = this.game, cap = g.nodes[g.capNode ? g.capNode[this.me] : this.me - 1] || g.nodes[0];
     const n = cap.owner === this.me ? cap : g.nodes.find((q) => q.owner === this.me);
     if (n) this.cam.flyTo(n.x, n.y, dist || 300, 0.42);
   },
@@ -3879,7 +3910,7 @@ const App = {
     if (g) {
       for (const n of g.nodes) if (n.type === 'capital' || cpx > 2.4 || (n.progress > 0 && cpx > 0.6) || n.id === g.rally) order.push(n);
     } else {
-      for (let p = 1; p <= 47; p++) order.push({ type: 'capital', pref: p, owner: p, x: map.X(map.capitalCell[p]) + 0.5, y: map.Y(map.capitalCell[p]) + 0.5 });
+      for (let p = 1; p <= 47; p++) if (map.capitalCell[p] >= 0) order.push({ type: 'capital', pref: p, owner: p, x: map.X(map.capitalCell[p]) + 0.5, y: map.Y(map.capitalCell[p]) + 0.5 });
     }
     const pri = this.state === STATE.TITLE ? this.titleSel : this.me;
     const score = (n) => (g && n.id === g.rally ? 2e6 : 0) + (n.pref === pri && n.type === 'capital' ? 1e6 : 0) + (n.type === 'capital' ? 1e4 + map.prefs[n.pref].pop : n.type === 'fort' ? 10 : 0);
@@ -4076,20 +4107,21 @@ const App = {
   // ------------------------------------------------ ミニマップ
   drawMinimap() {
     const cv = $('minimap'), map = this.map, g = this.game;
-    const mw = 236, mh = Math.round(mw * map.H / map.W);
+    const V = map.view || { x0: 0, y0: 0, w: map.W, h: map.H };
+    const mw = 236, mh = Math.round(mw * V.h / V.w);
     if (cv.width !== mw) { cv.width = mw; cv.height = mh; this.mmImage = null; }
     const ctx = cv.getContext('2d');
     if (this.minimapDirty || !this.mmImage) {
       const img = this.mmImage || ctx.createImageData(mw, mh);
       const d = img.data, own = g ? g.owner : map.initPref;
       const cols = map.prefs.map((p) => (p ? hexToRgb(p.color) : [20, 42, 70]));
-      const sx = map.W / mw, sy = map.H / mh;
+      const sx = V.w / mw, sy = V.h / mh;
       for (let y = 0; y < mh; y++) {
         for (let x = 0; x < mw; x++) {
           // 3x3 点サンプリングで小さな島も拾う
           let o = 0;
           for (let k = 0; k < 9 && !o; k++) {
-            const cx = Math.floor((x + (k % 3) / 3 + 0.17) * sx), cy = Math.floor((y + ((k / 3) | 0) / 3 + 0.17) * sy);
+            const cx = V.x0 + Math.floor((x + (k % 3) / 3 + 0.17) * sx), cy = V.y0 + Math.floor((y + ((k / 3) | 0) / 3 + 0.17) * sy);
             const ci = map.id(cx, cy);
             o = ci >= 0 ? own[ci] : 0;
           }
@@ -4106,19 +4138,20 @@ const App = {
     if (pts.every(Boolean)) {
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
       ctx.beginPath();
-      pts.forEach((p, k) => { const X = p.x / map.W * mw, Y = p.z / map.H * mh; k ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); });
+      pts.forEach((p, k) => { const X = (p.x - V.x0) / V.w * mw, Y = (p.z - V.y0) / V.h * mh; k ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); });
       ctx.closePath(); ctx.stroke();
       ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 1; ctx.stroke();
     }
     const rn = g && g.rally >= 0 ? g.nodes[g.rally] : null;   // 攻撃目標
     if (rn) {
       ctx.fillStyle = '#ff6b3d'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(rn.x / map.W * mw, rn.y / map.H * mh, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc((rn.x - V.x0) / V.w * mw, (rn.y - V.y0) / V.h * mh, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
   },
   onMinimap(e) {
     const r = e.currentTarget.getBoundingClientRect();
-    const x = (e.clientX - r.left) / r.width * this.map.W, z = (e.clientY - r.top) / r.height * this.map.H;
+    const V = this.map.view || { x0: 0, y0: 0, w: this.map.W, h: this.map.H };
+    const x = V.x0 + (e.clientX - r.left) / r.width * V.w, z = V.y0 + (e.clientY - r.top) / r.height * V.h;
     this.cam.flyTo(x, z, null);
     e.preventDefault();
   },

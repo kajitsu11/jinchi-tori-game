@@ -239,13 +239,14 @@ class MapData {
    * 細かい地図：元の地図の1マスを S×S マスに分けた地図（サーバー用。県・地形・海岸は元のマスと同じ）。
    * 拠点・連絡マスは元のマスの中央のマスへ移す。標高はそのまま共有する。
    */
-  static upscale(c, S) {
+  static upscale(c, S, keep) {   // keep：残す県の Set（地域を絞るお試し版）。なければ全国
     const m = Object.create(MapData.prototype);
     const W = c.W * S, H = c.H * S, TW = Math.ceil(W / TILE), TH = Math.ceil(H / TILE);
     m.W = W; m.H = H; m.TW = TW; m.TH = TH; m.scale = S; m.coarse = c;
     const has = new Uint8Array(TW * TH), cip = c.initPref;
+    const kept = (p) => p && (!keep || keep.has(p));
     for (let i = 0; i < c.N; i++) {
-      if (!cip[i]) continue;
+      if (!kept(cip[i])) continue;
       const x = c.X(i) * S, y = c.Y(i) * S;
       for (let ty = y >> TSH; ty <= (y + S - 1) >> TSH; ty++) for (let tx = x >> TSH; tx <= (x + S - 1) >> TSH; tx++) has[ty * TW + tx] = 1;
     }
@@ -264,23 +265,29 @@ class MapData {
         const cy = ((y0 + ly) / S) | 0, o = b + (ly << TSH);
         for (let lx = 0; lx < TILE; lx++) {
           const j = c.id(cx[lx], cy);
-          if (j >= 0 && cip[j]) { m.initPref[o + lx] = cip[j]; m.terrain[o + lx] = ct[j]; }
+          if (j >= 0 && kept(cip[j])) { m.initPref[o + lx] = cip[j]; m.terrain[o + lx] = ct[j]; }
         }
       }
     }
-    m.landCells = c.landCells * S * S;
     m.elev = c.elev; m.elevW = c.elevW; m.elevH = c.elevH; m.elevScale = c.elevScale * S;
-    const conv = (i) => (i < 0 ? -1 : m.id(c.X(i) * S + (S >> 1), c.Y(i) * S + (S >> 1)));
+    const conv = (i) => (i < 0 || !kept(cip[i]) ? -1 : m.id(c.X(i) * S + (S >> 1), c.Y(i) * S + (S >> 1)));
     const r0 = c.raw;
     m.prefs = c.prefs.map((p) => (p ? { ...p, capital: conv(p.capital), cells: p.cells * S * S } : null));
     m.raw = { ...r0, W, H, dlon: r0.dlon / S, dlat: r0.dlat / S, scale: S, converted: true,
       prefs: m.prefs.filter(Boolean),
-      links: r0.links.map((l) => ({ ...l, a: conv(l.a), b: conv(l.b) })),
-      autoLinks: r0.autoLinks.map(([a, b]) => [conv(a), conv(b)]),
-      towns: r0.towns.map((t) => ({ ...t, cell: conv(t.cell) })),
+      links: r0.links.map((l) => ({ ...l, a: conv(l.a), b: conv(l.b) })).filter((l) => l.a >= 0 && l.b >= 0),
+      autoLinks: r0.autoLinks.map(([a, b]) => [conv(a), conv(b)]).filter(([a, b]) => a >= 0 && b >= 0),
+      towns: r0.towns.map((t) => ({ ...t, cell: conv(t.cell) })).filter((t) => t.cell >= 0),
       insets: r0.insets.map((r) => ({ ...r, poly: r.poly.map((v) => v * S) })),
       shiftRects: r0.shiftRects.map((q) => ({ ...q, x0: q.x0 * S, y0: q.y0 * S, x1: q.x1 * S + S - 1, y1: q.y1 * S + S - 1 })) };
     m.finish();
+    m.landCells = m.initCounts.reduce((a, b) => a + b, 0);
+    if (keep) {   // 残した県を囲む範囲（カメラ・ミニマップ用）
+      let x0 = 1e9, y0 = 1e9, x1 = 0, y1 = 0;
+      for (let t = 0; t < m.nTiles; t++) { x0 = Math.min(x0, txs[t] * TILE); y0 = Math.min(y0, tys[t] * TILE); x1 = Math.max(x1, (txs[t] + 1) * TILE); y1 = Math.max(y1, (tys[t] + 1) * TILE); }
+      m.view = { x0, y0, w: x1 - x0, h: y1 - y0 };
+    }
+    m.terrScale = S;   // 地形は S×S マスのかたまり（描画では元のマスの単位でなめらかにする）
     return m;
   }
   /** 座標 → マスの番号（海だけの区画・地図の外は -1） */
@@ -472,6 +479,7 @@ uniform float uPlace;
 uniform float uTime;
 uniform float uCpp;
 uniform float uScale;          // 1マスの細かさ（オンライン版は3：地形は元の地図のマス、持ち主は細かいマス）
+uniform float uTS;             // 地形のかたまりの大きさ（お試し版は3：細かい地図の地形は元のマス3×3ずつ同じ）
 uniform float uHasFine;
 uniform sampler2D uFine;       // 細かい持ち主の区画（64×64マスずつ。L=持ち主＋最近占領なら64）
 uniform sampler2D uFInd;       // 細かい区画の表：RG=区画の位置, A=受け取り済みか
@@ -499,7 +507,8 @@ vec3 cellData(vec2 cell){
   float a = floor(d.a * 255.0 + 0.5);
   return vec3(floor(d.r * 255.0 + 0.5), floor(a / 16.0), step(7.5, mod(a, 16.0)));
 }
-float landAt(vec2 cell){ return step(0.5, cellData(cell).y); }
+float landAt(vec2 tc){ return step(0.5, cellData(tc * uTS + floor(uTS * 0.5)).y); }
+float terrAt(vec2 tc){ return cellData(tc * uTS + floor(uTS * 0.5)).y; }
 // 細かいマスの持ち主（x=持ち主・まだ届いていなければ -1, y=最近占領されたか）
 vec2 fineData(vec2 fc){
   vec2 t = floor(fc / 64.0);
@@ -538,9 +547,10 @@ void main(){
   // まわり4マスの地形の色を混ぜて、マスの角が見えないように（海のマスはこのマスの色で埋める）
   // 境目がマスの形（階段）に見えないよう、読む位置をゆらす（地形の色は大きく、海岸線は少しだけ）
   vec2 warp = vec2(noise(vWorld * 0.09 + 1.7), noise(vWorld * 0.09 - 5.3)) - 0.5;
-  vec2 q = cw - 0.5 + warp * 0.9, qf = fract(q), q0 = floor(q);
+  vec2 tw = cw / uTS;
+  vec2 q = tw - 0.5 + warp * 0.9, qf = fract(q), q0 = floor(q);
   vec3 hc = texture2D(uPalette, vec2((cls + 0.5) / 64.0, 0.75)).rgb;
-  float k00 = cellData(q0).y, k10 = cellData(q0 + vec2(1.0, 0.0)).y, k01 = cellData(q0 + vec2(0.0, 1.0)).y, k11 = cellData(q0 + vec2(1.0, 1.0)).y;
+  float k00 = terrAt(q0), k10 = terrAt(q0 + vec2(1.0, 0.0)), k01 = terrAt(q0 + vec2(0.0, 1.0)), k11 = terrAt(q0 + vec2(1.0, 1.0));
   vec3 c00 = k00 > 0.5 ? texture2D(uPalette, vec2((k00 + 0.5) / 64.0, 0.75)).rgb : hc;
   vec3 c10 = k10 > 0.5 ? texture2D(uPalette, vec2((k10 + 0.5) / 64.0, 0.75)).rgb : hc;
   vec3 c01 = k01 > 0.5 ? texture2D(uPalette, vec2((k01 + 0.5) / 64.0, 0.75)).rgb : hc;
@@ -549,7 +559,7 @@ void main(){
   vec3 tcol = cls > 0.5 ? mix(mix(c00, c10, sf.x), mix(c01, c11, sf.x), sf.y) : hc;
   if (cls > 0.5 && cls < 7.5) tcol = mix(tcol, vec3(0.49, 0.44, 0.36), clamp((e.r - 0.35) * 1.6, 0.0, 0.75));
   // 海岸線もまわり4マスの陸／海からなめらかに
-  vec2 p2 = cw - 0.5 + warp * 0.35, pf = fract(p2), p0 = floor(p2);
+  vec2 p2 = tw - 0.5 + warp * 0.35, pf = fract(p2), p0 = floor(p2);
   float landA = mix(mix(landAt(p0), landAt(p0 + vec2(1.0, 0.0)), pf.x), mix(landAt(p0 + vec2(0.0, 1.0)), landAt(p0 + vec2(1.0, 1.0)), pf.x), pf.y);
   vec4 t = vec4(tcol, landA);
   // 標高から陰影（北西から光）
@@ -1122,7 +1132,8 @@ class Renderer {
     tex.forEach(([t, name], k) => { gl.activeTexture(gl.TEXTURE0 + k); gl.bindTexture(gl.TEXTURE_2D, t); gl.uniform1i(g.u[name], k); });
     gl.uniform2f(g.u.uGrid, map.W, map.H);
     gl.uniform2f(g.u.uTiles, map.TW, map.TH);
-    gl.uniform1f(g.u.uScale, map.scale || 1);
+    gl.uniform1f(g.u.uScale, map.texScale || 1);
+    gl.uniform1f(g.u.uTS, map.terrScale || 1);
     gl.uniform1f(g.u.uHasFine, this.hasFine ? 1 : 0);
     gl.uniform2f(g.u.uFTiles, this.fineTW || 1, this.fineTH || 1);
     gl.uniform2f(g.u.uAtlas, this.AW, this.AH);
