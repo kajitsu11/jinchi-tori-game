@@ -41,6 +41,8 @@ const App = {
       this.renderer.uploadTerrain();
       if (!this.painter) this.painter = new SoldierPainter().paint();   // 兵士の絵を描く（初回だけ）
       this.renderer.uploadSprites(this.painter);
+      if (!this.groundPainter) this.groundPainter = new GroundPainter().paint();   // 草の筋の絵
+      this.renderer.uploadGround(this.groundPainter);
       progress(0.85, '領土テクスチャを作成中…'); await nextFrame();
       this.renderer.attachGame(null, 0);
       progress(1, '準備完了');
@@ -1070,6 +1072,8 @@ const App = {
       this.renderer.uploadTerrain();
       if (!this.painter) this.painter = new SoldierPainter().paint();   // 兵士の絵を描く（初回だけ）
       this.renderer.uploadSprites(this.painter);
+      if (!this.groundPainter) this.groundPainter = new GroundPainter().paint();   // 草の筋の絵
+      this.renderer.uploadGround(this.groundPainter);
       this.renderer.attachGame(this.game, this.game ? this.me : 0);
       this.resize();
       this.glLost = false;

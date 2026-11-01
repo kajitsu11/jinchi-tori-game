@@ -273,3 +273,52 @@ class SoldierPainter {
     ctx.fill(); ctx.stroke();
   }
 }
+
+// =====================================================================
+// 地面の質感：筆で描いたような草の筋の絵（くり返し貼れる 512×512）を起動時に描く。
+//   grass：短く刈られた緑の草地 / dry：黄金色の枯れ草（長めの筋）
+// =====================================================================
+class GroundPainter {
+  constructor(size = 512) { this.size = size; }
+  paint() {
+    // 鮮やかな黄緑の草（明るい黄色の筋と濃い緑の筋）
+    this.grass = this.paintOne([[132, 172, 40], [104, 150, 30], [176, 196, 62], [200, 204, 80], [80, 124, 26], [150, 176, 44], [214, 210, 96]], [134, 170, 44], 9, 18000, 1.5);
+    // 黄金色の枯れ草（橙がかった筋）
+    this.dry = this.paintOne([[218, 170, 56], [236, 194, 78], [196, 138, 40], [172, 124, 38], [244, 214, 112], [190, 160, 52], [160, 150, 50]], [212, 166, 58], 14, 16000, 1.7);
+    return this;
+  }
+  paintOne(palette, base, len, count, width) {
+    const N = this.size, cv = document.createElement('canvas');
+    cv.width = N; cv.height = N;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = `rgb(${base})`;
+    ctx.fillRect(0, 0, N, N);
+    // ゆるいむら（大きな淡い円）
+    let seed = palette[0][0] * 7 + len;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    for (let k = 0; k < 60; k++) {
+      const c = palette[(rnd() * palette.length) | 0], x = rnd() * N, y = rnd() * N, r = 20 + rnd() * 60;
+      for (const [ox, oy] of [[0, 0], [N, 0], [-N, 0], [0, N], [0, -N]]) {
+        const g = ctx.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+        g.addColorStop(0, `rgba(${c},0.35)`); g.addColorStop(1, `rgba(${c},0)`);
+        ctx.fillStyle = g; ctx.fillRect(x + ox - r, y + oy - r, r * 2, r * 2);
+      }
+    }
+    // 草の筋：だいたい同じ向き（右上がり）の短いストローク。端はつながるように折り返して描く
+    ctx.lineCap = 'round';
+    for (let k = 0; k < count; k++) {
+      const c = palette[(rnd() * palette.length) | 0];
+      const x = rnd() * N, y = rnd() * N, L = len * (0.5 + rnd());
+      const a = -1.05 + (rnd() - 0.5) * 0.7;
+      const dx = Math.cos(a) * L, dy = Math.sin(a) * L;
+      const light = rnd() < 0.22 ? 45 : rnd() < 0.3 ? -40 : 0;
+      ctx.strokeStyle = `rgba(${c[0] + light},${c[1] + light},${c[2] + light * 0.4},${0.45 + rnd() * 0.5})`;
+      ctx.lineWidth = width * (0.6 + rnd() * 0.8);
+      for (const [ox, oy] of [[0, 0], [N, 0], [-N, 0], [0, N], [0, -N]]) {
+        if (x + ox + Math.max(0, dx) < -2 || x + ox + Math.min(0, dx) > N + 2 || y + oy + Math.max(0, dy) < -2 || y + oy + Math.min(0, dy) > N + 2) continue;
+        ctx.beginPath(); ctx.moveTo(x + ox, y + oy); ctx.lineTo(x + ox + dx, y + oy + dy); ctx.stroke();
+      }
+    }
+    return cv;
+  }
+}

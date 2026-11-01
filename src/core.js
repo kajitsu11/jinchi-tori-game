@@ -350,6 +350,9 @@ uniform sampler2D uTerrain;   // RGB=地形の色, A=陸(1)/海(0)
 uniform sampler2D uElev;      // L=標高, A=陸地への近さ（浅瀬用）
 uniform sampler2D uOwner;     // L=持ち主, A=最近占領された
 uniform sampler2D uPalette;
+uniform sampler2D uGrass;      // 緑の草の筋（くり返し）
+uniform sampler2D uDry;        // 黄金色の枯れ草の筋（くり返し）
+uniform float uHasGrass;
 uniform vec2 uGrid;
 uniform float uFill;
 uniform float uMe;
@@ -388,10 +391,29 @@ void main(){
   float fine = clamp(0.5 - cpp * 3.0, 0.0, 1.0);
   nz += (noise(vWorld * 17.0) - 0.5) * 0.35 * fine + (noise(vWorld * 41.0) - 0.5) * 0.25 * fine;
   vec3 land = t.rgb * (0.82 + 0.36 * nz);
-  // 低い周波数の「土の色の斑」と「濃い緑の斑」（草原のむら）
-  float patch = noise(vWorld * 0.06 + 7.3), patch2 = noise(vWorld * 0.11 - 3.1);
-  land = mix(land, vec3(0.6, 0.6, 0.3), smoothstep(0.66, 0.9, patch) * 0.22 * t.a);
-  land = mix(land, t.rgb * vec3(0.72, 0.86, 0.66), smoothstep(0.55, 0.8, patch2) * 0.4);
+  if (uHasGrass > 0.5) {
+    // 草の筋の絵を2つの大きさで重ねて貼る（くり返しが目立たないように）
+    vec2 w1 = vWorld / 5.0, w2 = vec2(vWorld.y, -vWorld.x) / 17.0 + 0.37;
+    vec3 g = texture2D(uGrass, w1).rgb * 0.6 + texture2D(uGrass, w2).rgb * 0.4;
+    vec3 d = texture2D(uDry, w1 * 0.9 + 0.21).rgb * 0.6 + texture2D(uDry, w2 * 1.1).rgb * 0.4;
+    // 黄金色の枯れ草の帯（大きなむら。ふちはやわらかく）
+    float m = noise(vWorld * 0.022 + 3.7) * 0.65 + noise(vWorld * 0.07 - 1.3) * 0.35;
+    float dry = smoothstep(0.47, 0.6, m);
+    vec3 grassCol = mix(g, d, dry);
+    // 地形の色（平地＝緑、森＝濃い緑、岩、雪）に合わせて、草の絵の色を寄せる
+    float plainLike = clamp(1.0 - distance(t.rgb, vec3(0.6, 0.66, 0.29)) * 3.0, 0.0, 1.0);
+    vec3 tinted = grassCol * (t.rgb / vec3(0.5, 0.6, 0.23));
+    land = mix(tinted * 0.86, grassCol * 1.06, plainLike) * (0.92 + 0.16 * nz);
+    float lum = dot(land, vec3(0.299, 0.587, 0.114));
+    land = mix(vec3(lum), land, 1.25);   // 少し彩度を上げる
+    // 道のように踏み固められた土の斑
+    float worn = smoothstep(0.78, 0.86, noise(vWorld * 0.05 - 9.1));
+    land = mix(land, vec3(0.62, 0.52, 0.34) * (0.85 + 0.3 * g.g), worn * 0.55 * plainLike);
+  } else {
+    float patch = noise(vWorld * 0.06 + 7.3), patch2 = noise(vWorld * 0.11 - 3.1);
+    land = mix(land, vec3(0.6, 0.6, 0.3), smoothstep(0.66, 0.9, patch) * 0.22 * t.a);
+    land = mix(land, t.rgb * vec3(0.72, 0.86, 0.66), smoothstep(0.55, 0.8, patch2) * 0.4);
+  }
   land *= shade;
   // 海：岸に近いほど浅い色、さざ波
   float near = e.a;
@@ -633,6 +655,8 @@ class Renderer {
     this.spriteQuad = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.spriteQuad);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-0.5, 0, 0.5, 0, -0.5, 1, 0.5, 0, 0.5, 1, -0.5, 1]), gl.STATIC_DRAW);
+    this.grassTex = gl.createTexture();
+    this.dryTex = gl.createTexture();
     this.spriteColor = gl.createTexture();
     this.spriteMask = gl.createTexture();
     this.instExt = gl.getExtension('ANGLE_instanced_arrays');
@@ -657,7 +681,7 @@ class Renderer {
   }
   dispose() {
     const gl = this.gl;
-    for (const t of [this.palette, this.ownerTex, this.terrainTex, this.elevTex, this.spriteColor, this.spriteMask]) gl.deleteTexture(t);
+    for (const t of [this.palette, this.ownerTex, this.terrainTex, this.elevTex, this.spriteColor, this.spriteMask, this.grassTex, this.dryTex]) gl.deleteTexture(t);
     for (const b of [this.spriteBuf, this.spriteQuad]) gl.deleteBuffer(b);
     gl.deleteProgram(this.sprite.p);
     for (const b of [this.groundBuf, this.lineBuf, this.instBuf]) gl.deleteBuffer(b);
@@ -713,6 +737,20 @@ class Renderer {
     gl.bindTexture(gl.TEXTURE_2D, this.elevTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE_ALPHA, ew, eh, 0, gl.LUMINANCE_ALPHA, gl.UNSIGNED_BYTE, la);
     this.texParams(gl, true);
+  }
+  /** 草の筋の絵（GroundPainter）を、くり返し貼れるテクスチャにする */
+  uploadGround(gp) {
+    const gl = this.gl;
+    for (const [tex, cv] of [[this.grassTex, gp.grass], [this.dryTex, gp.dry]]) {
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, cv);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    }
+    this.hasGrass = true;
   }
   /** 兵士の絵（SoldierPainter）をテクスチャにする。縮小してもきれいなようにミップマップ付き */
   uploadSprites(painter) {
@@ -836,10 +874,11 @@ class Renderer {
     gl.enableVertexAttribArray(g.a.aPos);
     gl.vertexAttribPointer(g.a.aPos, 2, gl.FLOAT, false, 0, 0);
     gl.uniformMatrix4fv(g.u.uVP, false, vp);
-    const tex = [[this.terrainTex, 'uTerrain'], [this.elevTex, 'uElev'], [this.ownerTex, 'uOwner'], [this.palette, 'uPalette']];
+    const tex = [[this.terrainTex, 'uTerrain'], [this.elevTex, 'uElev'], [this.ownerTex, 'uOwner'], [this.palette, 'uPalette'], [this.grassTex, 'uGrass'], [this.dryTex, 'uDry']];
     tex.forEach(([t, name], k) => { gl.activeTexture(gl.TEXTURE0 + k); gl.bindTexture(gl.TEXTURE_2D, t); gl.uniform1i(g.u[name], k); });
     gl.uniform2f(g.u.uGrid, map.W, map.H);
     gl.uniform1f(g.u.uFill, opt.fill);
+    gl.uniform1f(g.u.uHasGrass, this.hasGrass ? 1 : 0);
     gl.uniform1f(g.u.uMe, this.me);
     gl.uniform1f(g.u.uPlace, opt.place ? 1 : 0);
     gl.uniform1f(g.u.uTime, opt.time || 0);
