@@ -275,8 +275,20 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     assert((await page.textContent('#btn-rally')).includes('目標'), 'label');
   });
 
+  await test('兵士を間近で描く（関節のある足軽・戦闘の構え）', async () => {
+    await ev(() => {
+      const { App } = window.__jinchi, g = App.game;
+      const u = g.units.find((q) => q.engaged >= 0) || g.units[0];
+      App.cam.goal = null; App.cam.tx = u.x; App.cam.tz = u.y + 1; App.cam.dist = 9;
+    });
+    await page.waitForTimeout(800);
+    const n = await ev(() => { const { App } = window.__jinchi; App.cam.compute(); return App.buildScene().cyl.count; });
+    assert(n > 0, 'limbs drawn');
+    await shot('14_soldiers');
+  });
+
   await test('建物をタップすると情報パネルが出る', async () => {
-    const b = await ev(() => { const g = window.__jinchi.game; const b = g.buildings.find((q) => q.owner === g.me); return [b.x, b.y, b.type]; });
+    const b = await ev(() => { const g = window.__jinchi.game; const b = g.buildings.find((q) => q.owner === g.me) || g.buildings[0]; return [b.x, b.y, b.type]; });
     const v = await toScreen(b[0], b[1], 50);
     await page.mouse.click(v[0], v[1]);
     await page.waitForSelector('#cellpanel:not(.hidden)');
@@ -395,11 +407,26 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
   });
 
   await test('勝利: 全国の規定割合を支配すると GAMEOVER（勝利）', async () => {
-    await ev(() => { const J = window.__jinchi, g = J.game; J.CONFIG.WIN_RATIO = (g.counts[g.me] - 0.5) / g.map.landCells; g.checkEnd(); });
+    await ev(() => { const J = window.__jinchi, g = J.game; J.CONFIG.WIN_RATIO = (g.pop[g.me] - 0.01) / g.popTotal; g.checkEnd(); });
     await page.waitForFunction(() => window.__jinchi.App.state === 'GAMEOVER', null, { timeout: 5000 });
     assert((await page.textContent('#m-body')).includes('天下統一'), 'win text');
     await shot('10_win');
     await ev(() => { window.__jinchi.CONFIG.WIN_RATIO = 0.5; });
+    await page.click('#m-btns button');
+    await page.waitForFunction(() => window.__jinchi.App.state === 'TITLE');
+  });
+
+  await test('シーズン: 7日たつと支配人口1位の県が優勝して終わる', async () => {
+    await page.click('.pbtn[data-p="13"]');
+    await page.click('#btn-start');
+    await page.waitForFunction(() => window.__jinchi.App.state === 'PLAYING');
+    const t = await page.textContent('#h-left');
+    assert(t.includes('残り7日') || t.includes('残り6日'), 'left ' + t);
+    await ev(() => { const g = window.__jinchi.game; g.time = window.__jinchi.CONFIG.SEASON_DAYS * 86400 - 1; g.step(2); });
+    await page.waitForFunction(() => window.__jinchi.App.state === 'GAMEOVER', null, { timeout: 5000 });
+    const r = await ev(() => window.__jinchi.game.over);
+    assert(r.reason === 'season', JSON.stringify(r));
+    assert((await page.textContent('#m-body')).includes(r.win ? 'シーズン優勝' : 'シーズン終了'), 'season text');
     await page.click('#m-btns button');
     await page.waitForFunction(() => window.__jinchi.App.state === 'TITLE');
   });

@@ -265,7 +265,7 @@ const App = {
     const g = this.game, map = this.map, o = g.over;
     this.hidePanel(); this.setMode(null);
     let head, cls, detail;
-    if (o.win) { head = '天下統一！'; cls = 'win'; detail = `${map.prefs[this.me].name}が全国の人口の${Math.round(CONFIG.WIN_RATIO * 100)}%を支配しました。`; }
+    if (o.win && o.reason !== 'season') { head = '天下統一！'; cls = 'win'; detail = `${map.prefs[this.me].name}が全国の人口の${Math.round(CONFIG.WIN_RATIO * 100)}%を支配しました。`; }
     else if (o.reason === 'rival') { head = '敗北…'; cls = 'lose'; detail = `${map.prefs[o.rival].name}が全国の人口の${Math.round(CONFIG.WIN_RATIO * 100)}%を支配しました。`; }
     else if (o.reason === 'season') {
       head = o.win ? 'シーズン優勝！' : 'シーズン終了';
