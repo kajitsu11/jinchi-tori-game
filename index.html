@@ -372,6 +372,8 @@ const CONFIG = {
   FLAG_SIZE: 20,                 // 正方形の一辺（マス。細かい地図では3倍）
   FLAG_DECAY: 100 / 600,         // 正方形の中に自分の兵がいないと、体力が毎秒この%ずつ減る（10分で消える）
   FLAG_PER_PART: 0.12,
+  EVENT_EVERY: 6 * 3600,         // 出来事（大雨・士気高揚・疫病・援軍）が起きる間隔（秒）
+  EVENT_LEN: 3 * 3600,           // 大雨・士気高揚が続く時間
   PLAYER_GENERAL: 600,           // あなたの大将：やられたらこの秒数で県庁に復活（0で大将なし）
   FINAL_PHASE: 0.75,             // シーズンの最後の1/4は「決戦」：旗が FINAL_RATE 倍の速さで取れる（終盤に逆転が起きやすく）
   FINAL_RATE: 2,
@@ -2447,6 +2449,7 @@ class Sim {
     if (this.incomeT >= 1) { const s = Math.floor(this.incomeT); this.incomeT -= s; this.produce(s); }   // 刻みが1秒より長くても収入を取りこぼさない
     this.runPending();
     this.updateGeneral();
+    this.updateEvents();
     this.buildHash();
     this.planAll();
     this.aiBuildAll();
@@ -3075,7 +3078,7 @@ class Sim {
       if (!e && this.time >= (u.scanAt || 0)) { e = this.nearestEnemy(u.x, u.y, u.pref, def.range, def.mask, true); u.scanAt = this.time + 0.4 + this.rng() * 0.3; }
       u.tgt = e ? e.id : -1;
       const onHome = u.bit === 1 && this.owner[this.cellAt(u.x, u.y)] === u.pref;
-      const mult = (onHome ? CONFIG.HOME_BONUS : 1) * (buff.dps || 1) * (buff.navy || 1) * (u.boostUntil > this.time ? 1.5 : 1);
+      const mult = (onHome ? CONFIG.HOME_BONUS : 1) * (buff.dps || 1) * (buff.navy || 1) * (u.boostUntil > this.time ? 1.5 : 1) * (this.morale && this.morale[u.pref] > this.time ? 1.3 : 1);
       if (e) {
         u.engaged = e.id;
         if (def.gas) {   // 毒ガス兵：敵の位置に毒ガスを撒く
@@ -3169,7 +3172,9 @@ class Sim {
     for (const u of this.units) {
       u.px = u.x; u.py = u.y;
       if (u.engaged >= 0 || u.hitB) continue;
-      const def = UNITS[u.type], sp = base * def.spd * (u.buff ? u.buff.spd : 1) * (u.boostUntil > this.time ? 1.3 : 1);
+      let sp = base * UNITS[u.type].spd * (u.buff ? u.buff.spd : 1) * (u.boostUntil > this.time ? 1.3 : 1);
+      const def = UNITS[u.type];
+      if (u.bit === 1 && this.rains) for (const r of this.rains) if (r.until > this.time && Math.abs(u.x - r.x) < r.r && Math.abs(u.y - r.y) < r.r) { sp *= 0.55; break; }   // 大雨で足が遅い
       let tx, ty, stopAt = 0;
       if (u.chase >= 0) {
         const e = this.unitIndex.get(u.chase);
@@ -3437,6 +3442,40 @@ class Sim {
       if (p.kind === 'shell') this.boom(p.x, p.y, 2.5 * Math.max(1, this.S * 0.7), 95, p.P, 110, 0, p.ox, p.oy, { hw: p.w });
     }
     this.pending = keep;
+  }
+  // ---------------------------------------------------------- 出来事
+  updateEvents() {
+    if (!CONFIG.EVENT_EVERY) return;
+    if (!this.nextEvent) this.nextEvent = CONFIG.EVENT_EVERY * (0.6 + this.rng() * 0.4);
+    if (this.time < this.nextEvent) return;
+    this.nextEvent = this.time + CONFIG.EVENT_EVERY * (0.7 + this.rng() * 0.6);
+    const alive = [];
+    for (let p = 1; p <= 47; p++) if (this.present(p) && this.nodeCount[p]) alive.push(p);
+    if (!alive.length) return;
+    const pick = () => alive[(this.rng() * alive.length) | 0];
+    const r = this.rng();
+    if (r < 0.3) {   // 大雨：ある県のまわりで兵の足が遅くなる
+      const p = pick(), c = this.nodes[this.capNode[p]] || this.nodes.find((n) => n.owner === p);
+      if (!this.rains) this.rains = [];
+      this.rains = this.rains.filter((q) => q.until > this.time);
+      this.rains.push({ x: c.x, y: c.y, r: 90 * this.S, until: this.time + CONFIG.EVENT_LEN });
+      this.emit('event', { kind: 'rain', pref: p, x: c.x, y: c.y });
+    } else if (r < 0.55) {   // 士気高揚：ある県の兵の攻撃が上がる
+      const p = pick();
+      if (!this.morale) this.morale = new Float64Array(49);
+      this.morale[p] = this.time + CONFIG.EVENT_LEN;
+      this.emit('event', { kind: 'morale', pref: p });
+    } else if (r < 0.75) {   // 疫病：ある県の兵が体力の3割を失う
+      const p = pick();
+      for (const u of this.units) if (u.pref === p && u.bit === 1) u.hp = Math.max(1, u.hp - UNITS[u.type].hp * 0.3);
+      this.emit('event', { kind: 'plague', pref: p });
+    } else {   // 援軍：いちばん支配人口が少ない県に足軽30人（逆転の後押し）
+      let p = alive[0];
+      for (const q of alive) if (this.pop[q] < this.pop[p]) p = q;
+      const c = this.nodes[this.capNode[p]] && this.nodes[this.capNode[p]].owner === p ? this.nodes[this.capNode[p]] : this.nodes.find((n) => n.owner === p);
+      for (let k = 0; k < 30; k++) this.spawnUnit(p, c.x, c.y, 10 * this.S, -1, 'ashigaru');
+      this.emit('event', { kind: 'aid', pref: p });
+    }
   }
   /** 大将：いなければ（やられたら）県庁で復活させる */
   updateGeneral() {
@@ -3884,7 +3923,7 @@ function applyFastMode() {
     FREE_HUMANS: true, SEASON_DAYS: 1 / 24, TRAIN_MULT: 1 / 15, AI_PLAN_INTERVAL: 10, AI_TARGET_TIMEOUT: 300, RECENT_HATCH: 120,
     AI_BUILD_INTERVAL: CONFIG.AI_BUILD_INTERVAL / 10, UNIT_SPEED: CONFIG.UNIT_SPEED * 1.5, START_UNITS_RATIO: 1,
     CAPTURE_NEED: { capital: 3000, town: 1200, fort: 1600, castle: 2400 },
-    FLAG_HOLD: 180, FLAG_DECAY: 100 / 60, WAR_TIME: 600, ABILITY_CD_MULT: 0.25,   // 作戦の待ち時間は1/4   // 旗：6時間 → 3分（1シーズン7日 → 1時間と同じ縮め方）・誰もいなければ1分で消える
+    FLAG_HOLD: 180, FLAG_DECAY: 100 / 60, WAR_TIME: 600, EVENT_EVERY: 240, EVENT_LEN: 150, ABILITY_CD_MULT: 0.25,   // 作戦の待ち時間は1/4   // 旗：6時間 → 3分（1シーズン7日 → 1時間と同じ縮め方）・誰もいなければ1分で消える
   });
   for (const r of RES_KEYS) { CONFIG.BASE_INCOME[r] *= 10; CONFIG.CAPITAL_MAKE[r] *= 10; }
 }
@@ -4119,6 +4158,13 @@ const App = {
       this.setMode({ kind: 'gen' });
       this.banner('大将をどこへ？', 'def', '地図をタップすると大将が向かい、あなたの兵がついて行きます');
     }, { signal });
+    g.on('event', (e) => {
+      const nm = map.prefs[e.pref].name, mine = e.pref === this.me;
+      const t = { rain: [`🌧 大雨：${nm}のまわり`, '兵の足がしばらく遅くなる'], morale: [`🔥 士気高揚：${nm}`, '兵の攻撃がしばらく1.3倍'],
+        plague: [`🦠 疫病：${nm}`, '兵が体力の3割を失った'], aid: [`🛡 援軍：${nm}`, '支配人口が最も少ない県に足軽30人'] }[e.kind];
+      this.log(`${t[0]}（${t[1]}）`, mine ? (e.kind === 'plague' ? 'bad' : 'good') : '', map.capitalCell[e.pref]);
+      if (mine) { this.banner(t[0], e.kind === 'plague' ? 'ng' : 'ok', t[1]); if (e.kind === 'plague') Sfx.alert(); }
+    });
     g.on('general', (s) => {
       if (s === 'down') { this.banner('大将がやられた！', 'ng', `${this.fmtDur(CONFIG.PLAYER_GENERAL)}後に県庁で復活`); this.log('⚠ あなたの大将がやられました', 'bad', -1); }
       else this.log('🐎 大将が県庁で復活しました', 'good', -1);
@@ -5162,6 +5208,17 @@ const App = {
           ctx.fillStyle = f.own ? '#fff5dc' : '#ffb3a8'; ctx.fillText(txt, v[0], v[1] - 27);
         }
       }
+    }
+    // 大雨：カメラが雨の地域の中にあるとき、画面に雨の筋と少し暗い色
+    if (g && g.rains && g.rains.some((r) => r.until > g.time && Math.abs(cam.tx - r.x) < r.r && Math.abs(cam.tz - r.y) < r.r)) {
+      ctx.fillStyle = 'rgba(40,55,75,.18)'; ctx.fillRect(0, 0, this.w, this.h);
+      ctx.strokeStyle = 'rgba(200,215,235,.45)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let k = 0; k < 90; k++) {
+        const sx = ((k * 97.3 + this.clock * 260) % (this.w + 60)) - 30, sy = ((k * 53.7 + this.clock * 620 + k * k) % (this.h + 40)) - 20;
+        ctx.moveTo(sx, sy); ctx.lineTo(sx - 5, sy + 14);
+      }
+      ctx.stroke();
     }
     // 領土を手に入れた瞬間：正方形が県の色で光る・拠点を取った所に光の輪
     if (this.capFx && this.capFx.length) {

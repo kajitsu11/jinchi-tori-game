@@ -23,7 +23,7 @@ function applyFastMode() {
     FREE_HUMANS: true, SEASON_DAYS: 1 / 24, TRAIN_MULT: 1 / 15, AI_PLAN_INTERVAL: 10, AI_TARGET_TIMEOUT: 300, RECENT_HATCH: 120,
     AI_BUILD_INTERVAL: CONFIG.AI_BUILD_INTERVAL / 10, UNIT_SPEED: CONFIG.UNIT_SPEED * 1.5, START_UNITS_RATIO: 1,
     CAPTURE_NEED: { capital: 3000, town: 1200, fort: 1600, castle: 2400 },
-    FLAG_HOLD: 180, FLAG_DECAY: 100 / 60, WAR_TIME: 600, ABILITY_CD_MULT: 0.25,   // 作戦の待ち時間は1/4   // 旗：6時間 → 3分（1シーズン7日 → 1時間と同じ縮め方）・誰もいなければ1分で消える
+    FLAG_HOLD: 180, FLAG_DECAY: 100 / 60, WAR_TIME: 600, EVENT_EVERY: 240, EVENT_LEN: 150, ABILITY_CD_MULT: 0.25,   // 作戦の待ち時間は1/4   // 旗：6時間 → 3分（1シーズン7日 → 1時間と同じ縮め方）・誰もいなければ1分で消える
   });
   for (const r of RES_KEYS) { CONFIG.BASE_INCOME[r] *= 10; CONFIG.CAPITAL_MAKE[r] *= 10; }
 }
@@ -258,6 +258,13 @@ const App = {
       this.setMode({ kind: 'gen' });
       this.banner('大将をどこへ？', 'def', '地図をタップすると大将が向かい、あなたの兵がついて行きます');
     }, { signal });
+    g.on('event', (e) => {
+      const nm = map.prefs[e.pref].name, mine = e.pref === this.me;
+      const t = { rain: [`🌧 大雨：${nm}のまわり`, '兵の足がしばらく遅くなる'], morale: [`🔥 士気高揚：${nm}`, '兵の攻撃がしばらく1.3倍'],
+        plague: [`🦠 疫病：${nm}`, '兵が体力の3割を失った'], aid: [`🛡 援軍：${nm}`, '支配人口が最も少ない県に足軽30人'] }[e.kind];
+      this.log(`${t[0]}（${t[1]}）`, mine ? (e.kind === 'plague' ? 'bad' : 'good') : '', map.capitalCell[e.pref]);
+      if (mine) { this.banner(t[0], e.kind === 'plague' ? 'ng' : 'ok', t[1]); if (e.kind === 'plague') Sfx.alert(); }
+    });
     g.on('general', (s) => {
       if (s === 'down') { this.banner('大将がやられた！', 'ng', `${this.fmtDur(CONFIG.PLAYER_GENERAL)}後に県庁で復活`); this.log('⚠ あなたの大将がやられました', 'bad', -1); }
       else this.log('🐎 大将が県庁で復活しました', 'good', -1);
@@ -1301,6 +1308,17 @@ const App = {
           ctx.fillStyle = f.own ? '#fff5dc' : '#ffb3a8'; ctx.fillText(txt, v[0], v[1] - 27);
         }
       }
+    }
+    // 大雨：カメラが雨の地域の中にあるとき、画面に雨の筋と少し暗い色
+    if (g && g.rains && g.rains.some((r) => r.until > g.time && Math.abs(cam.tx - r.x) < r.r && Math.abs(cam.tz - r.y) < r.r)) {
+      ctx.fillStyle = 'rgba(40,55,75,.18)'; ctx.fillRect(0, 0, this.w, this.h);
+      ctx.strokeStyle = 'rgba(200,215,235,.45)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let k = 0; k < 90; k++) {
+        const sx = ((k * 97.3 + this.clock * 260) % (this.w + 60)) - 30, sy = ((k * 53.7 + this.clock * 620 + k * k) % (this.h + 40)) - 20;
+        ctx.moveTo(sx, sy); ctx.lineTo(sx - 5, sy + 14);
+      }
+      ctx.stroke();
     }
     // 領土を手に入れた瞬間：正方形が県の色で光る・拠点を取った所に光の輪
     if (this.capFx && this.capFx.length) {

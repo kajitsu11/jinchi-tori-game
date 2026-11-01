@@ -386,6 +386,7 @@ class Sim {
     if (this.incomeT >= 1) { const s = Math.floor(this.incomeT); this.incomeT -= s; this.produce(s); }   // 刻みが1秒より長くても収入を取りこぼさない
     this.runPending();
     this.updateGeneral();
+    this.updateEvents();
     this.buildHash();
     this.planAll();
     this.aiBuildAll();
@@ -1014,7 +1015,7 @@ class Sim {
       if (!e && this.time >= (u.scanAt || 0)) { e = this.nearestEnemy(u.x, u.y, u.pref, def.range, def.mask, true); u.scanAt = this.time + 0.4 + this.rng() * 0.3; }
       u.tgt = e ? e.id : -1;
       const onHome = u.bit === 1 && this.owner[this.cellAt(u.x, u.y)] === u.pref;
-      const mult = (onHome ? CONFIG.HOME_BONUS : 1) * (buff.dps || 1) * (buff.navy || 1) * (u.boostUntil > this.time ? 1.5 : 1);
+      const mult = (onHome ? CONFIG.HOME_BONUS : 1) * (buff.dps || 1) * (buff.navy || 1) * (u.boostUntil > this.time ? 1.5 : 1) * (this.morale && this.morale[u.pref] > this.time ? 1.3 : 1);
       if (e) {
         u.engaged = e.id;
         if (def.gas) {   // 毒ガス兵：敵の位置に毒ガスを撒く
@@ -1108,7 +1109,9 @@ class Sim {
     for (const u of this.units) {
       u.px = u.x; u.py = u.y;
       if (u.engaged >= 0 || u.hitB) continue;
-      const def = UNITS[u.type], sp = base * def.spd * (u.buff ? u.buff.spd : 1) * (u.boostUntil > this.time ? 1.3 : 1);
+      let sp = base * UNITS[u.type].spd * (u.buff ? u.buff.spd : 1) * (u.boostUntil > this.time ? 1.3 : 1);
+      const def = UNITS[u.type];
+      if (u.bit === 1 && this.rains) for (const r of this.rains) if (r.until > this.time && Math.abs(u.x - r.x) < r.r && Math.abs(u.y - r.y) < r.r) { sp *= 0.55; break; }   // 大雨で足が遅い
       let tx, ty, stopAt = 0;
       if (u.chase >= 0) {
         const e = this.unitIndex.get(u.chase);
@@ -1376,6 +1379,40 @@ class Sim {
       if (p.kind === 'shell') this.boom(p.x, p.y, 2.5 * Math.max(1, this.S * 0.7), 95, p.P, 110, 0, p.ox, p.oy, { hw: p.w });
     }
     this.pending = keep;
+  }
+  // ---------------------------------------------------------- 出来事
+  updateEvents() {
+    if (!CONFIG.EVENT_EVERY) return;
+    if (!this.nextEvent) this.nextEvent = CONFIG.EVENT_EVERY * (0.6 + this.rng() * 0.4);
+    if (this.time < this.nextEvent) return;
+    this.nextEvent = this.time + CONFIG.EVENT_EVERY * (0.7 + this.rng() * 0.6);
+    const alive = [];
+    for (let p = 1; p <= 47; p++) if (this.present(p) && this.nodeCount[p]) alive.push(p);
+    if (!alive.length) return;
+    const pick = () => alive[(this.rng() * alive.length) | 0];
+    const r = this.rng();
+    if (r < 0.3) {   // 大雨：ある県のまわりで兵の足が遅くなる
+      const p = pick(), c = this.nodes[this.capNode[p]] || this.nodes.find((n) => n.owner === p);
+      if (!this.rains) this.rains = [];
+      this.rains = this.rains.filter((q) => q.until > this.time);
+      this.rains.push({ x: c.x, y: c.y, r: 90 * this.S, until: this.time + CONFIG.EVENT_LEN });
+      this.emit('event', { kind: 'rain', pref: p, x: c.x, y: c.y });
+    } else if (r < 0.55) {   // 士気高揚：ある県の兵の攻撃が上がる
+      const p = pick();
+      if (!this.morale) this.morale = new Float64Array(49);
+      this.morale[p] = this.time + CONFIG.EVENT_LEN;
+      this.emit('event', { kind: 'morale', pref: p });
+    } else if (r < 0.75) {   // 疫病：ある県の兵が体力の3割を失う
+      const p = pick();
+      for (const u of this.units) if (u.pref === p && u.bit === 1) u.hp = Math.max(1, u.hp - UNITS[u.type].hp * 0.3);
+      this.emit('event', { kind: 'plague', pref: p });
+    } else {   // 援軍：いちばん支配人口が少ない県に足軽30人（逆転の後押し）
+      let p = alive[0];
+      for (const q of alive) if (this.pop[q] < this.pop[p]) p = q;
+      const c = this.nodes[this.capNode[p]] && this.nodes[this.capNode[p]].owner === p ? this.nodes[this.capNode[p]] : this.nodes.find((n) => n.owner === p);
+      for (let k = 0; k < 30; k++) this.spawnUnit(p, c.x, c.y, 10 * this.S, -1, 'ashigaru');
+      this.emit('event', { kind: 'aid', pref: p });
+    }
   }
   /** 大将：いなければ（やられたら）県庁で復活させる */
   updateGeneral() {
