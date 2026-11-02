@@ -126,28 +126,35 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     assert(site >= 0, 'site');
     const [x, z] = await cellXY(site);
     const before = await ev(() => { const g = window.__jinchi.game; return { wood: g.res.wood[0], n: g.buildings.length }; });
+    // 三人称視点：建築 → カードを選ぶ → 大将の目の前のマスに設計図 → 「建てる」
+    await page.click('#t-build');
     await page.click('.bcard[data-b="farm"]');
-    assert(await page.isVisible('#hint'), 'hint visible');
-    assert((await ev(() => window.__jinchi.App.mode && window.__jinchi.App.mode.type)) === 'farm', 'place mode');
-    const v = await toScreen(x, z, 70);
-    await page.mouse.click(v[0], v[1]);
+    assert((await ev(() => window.__jinchi.App.build && window.__jinchi.App.build.type)) === 'farm', 'build mode');
+    await ev(([x, z]) => { const { App, TPS } = window.__jinchi, g = App.game.general; g.x = x; g.y = z + TPS.REACH; App.tps.yaw = 0; }, [x, z]);
+    await page.waitForFunction((c) => { const G = window.__jinchi.App.ghost; return G && G.cell === c; }, site, { timeout: 20000 }).catch(() => {});
+    const gh = await ev(() => { const G = window.__jinchi.App.ghost; return G && [G.cell, G.why]; });
+    assert(gh && gh[0] === site && !gh[1], 'ghost on site ' + JSON.stringify(gh) + ' ' + site);
+    await page.click('#bc-place');
     const after = await ev(() => { const g = window.__jinchi.game; const b = g.buildings[g.buildings.length - 1]; return { wood: g.res.wood[0], n: g.buildings.length, type: b && b.type, wallet: b && b.wallet }; });
     assert(after.n === before.n + 1 && after.type === 'farm' && after.wallet === 0, JSON.stringify(after));
     // タップするまでの間にも木材の収入（+1.2/秒）が入るので、建設費60から少し小さくてもよい
     assert(before.wood - after.wood >= 50, 'paid ' + (before.wood - after.wood));
     assert((await page.textContent('#log')).includes('農場を建てました'), 'log');
-    await page.keyboard.press('Escape');
-    assert((await ev(() => window.__jinchi.App.mode)) === null, 'esc cancels');
     await page.waitForTimeout(300);
     await shot('03_farm');
+    await page.keyboard.press('Escape');
+    assert((await ev(() => window.__jinchi.App.build)) === null, 'esc cancels');
   });
 
   await test('建設できない場所（他県・海）では建たない', async () => {
-    const enemy = await ev(() => { const g = window.__jinchi.game; window.__jinchi.App.setMode(null); const n = g.nodes.find((q) => q.owner !== g.me && q.owner === 15); return [n.x + 3, n.y + 3]; });
+    const enemy = await ev(() => { const g = window.__jinchi.game; const n = g.nodes.find((q) => q.owner !== g.me && q.owner === 15); return [n.x + 3, n.y + 3]; });
+    await page.click('#t-build');
     await page.click('.bcard[data-b="farm"]');
-    const v = await toScreen(enemy[0], enemy[1], 70);
+    await ev(([x, z]) => { const { App, TPS } = window.__jinchi, g = App.game.general; g.x = x; g.y = z + TPS.REACH; App.tps.yaw = 0; }, enemy);
+    await page.waitForFunction(() => document.getElementById('bc-place').textContent.includes('自県の領土の外'), null, { timeout: 20000 }).catch(() => {});
+    assert((await page.textContent('#bc-place')).includes('自県の領土の外'), 'reason shown');
     const n0 = await ev(() => window.__jinchi.game.buildings.length);
-    await page.mouse.click(v[0], v[1]);
+    await page.click('#bc-place');
     assert((await ev(() => window.__jinchi.game.buildings.length)) === n0, 'not built');
     assert((await page.textContent('#banner')).includes('建設できません'), 'banner');
     await page.keyboard.press('Escape');
@@ -254,6 +261,40 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     assert(s.owner === s.enemy && s.wallet === s.enemy && s.cell === s.enemy, JSON.stringify(s));
   });
 
+  await test('三人称視点: スティック・WASDで大将が歩き、なぞると見回す。地図ビューでは建てられない', async () => {
+    const p0 = await ev(() => { const { App } = window.__jinchi, g = App.game.general; const c = App.game.nodes.find((n) => n.owner === App.me && n.type === 'capital'); g.x = c.x; g.y = c.y + 4; App.tps.yaw = 0; return [g.x, g.y, App.view]; });
+    assert(p0[2] === 'tps', 'starts in tps');
+    await page.keyboard.down('w'); await page.waitForTimeout(700); await page.keyboard.up('w');
+    const p1 = await ev(() => { const g = window.__jinchi.App.game.general; return [g.x, g.y]; });
+    assert(p1[1] < p0[1] - 0.05 && Math.abs(p1[0] - p0[0]) < 0.05, 'walks forward (−z) ' + JSON.stringify([p0, p1]));
+    // スティック
+    const jb = await page.locator('#joy').boundingBox();
+    await page.mouse.move(jb.x + jb.width / 2, jb.y + jb.height / 2); await page.mouse.down();
+    await page.mouse.move(jb.x + jb.width / 2 + 40, jb.y + jb.height / 2, { steps: 3 }); await page.waitForTimeout(600);
+    const p2 = await ev(() => { const g = window.__jinchi.App.game.general; return [g.x, g.y]; });
+    await page.mouse.up();
+    assert(p2[0] > p1[0] + 0.05, 'joystick right ' + JSON.stringify([p1, p2]));
+    const y0 = await ev(() => window.__jinchi.App.tps.yaw);
+    await page.mouse.move(300, 450); await page.mouse.down(); await page.mouse.move(220, 450, { steps: 5 }); await page.mouse.up();
+    assert((await ev(() => window.__jinchi.App.tps.yaw)) !== y0, 'drag looks around');
+    const cam = await ev(() => { const { App } = window.__jinchi, c = App.cam, g = App.game.general; return { d: Math.hypot(c.tx - g.x, c.tz - g.y), dist: c.dist, pitch: c.pitch }; });
+    assert(cam.d < 1 && cam.dist < 10 && cam.pitch < 40, 'camera behind general ' + JSON.stringify(cam));
+    await shot('04_tps');
+    // 地図ビュー：見るだけ
+    await page.click('#t-map');
+    assert((await ev(() => window.__jinchi.App.view)) === 'map', 'map view');
+    assert(!(await page.isVisible('#joy')) && !(await page.isVisible('#buildmenu')), 'no controls on map');
+    await ev(() => window.__jinchi.App.startPlace('farm'));
+    assert((await ev(() => window.__jinchi.App.build)) == null, 'cannot build on map');
+    const gp = await ev(() => { const g = window.__jinchi.App.game.general; return [g.x, g.y]; });
+    await page.keyboard.down('w'); await page.waitForTimeout(400); await page.keyboard.up('w');
+    const gp2 = await ev(() => { const g = window.__jinchi.App.game.general; return [g.x, g.y]; });
+    assert(gp[0] === gp2[0] && gp[1] === gp2[1], 'general does not move in map view');
+    await page.click('#mb-back');
+    assert((await ev(() => window.__jinchi.App.view)) === 'tps', 'back to tps');
+    await page.click('#t-map');   // 以下のテストは地図ビューで
+  });
+
   await test('攻撃目標: 敵の拠点を指定すると、あなたの兵士がそこへ向かう', async () => {
     const tgt = await ev(() => {
       const g = window.__jinchi.game, me = g.me;
@@ -261,7 +302,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
       return null;
     });
     assert(tgt, 'target');
-    await page.click('#btn-rally');
+    await ev(() => window.__jinchi.App.toggleRallyMode());
     assert((await ev(() => window.__jinchi.App.mode && window.__jinchi.App.mode.kind)) === 'rally', 'rally mode');
     const v = await toScreen(tgt[1], tgt[2], 80);
     await page.mouse.click(v[0], v[1]);

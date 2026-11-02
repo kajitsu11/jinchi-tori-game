@@ -311,6 +311,42 @@ img.ico.pic { object-fit: cover; border-radius: 5px; box-shadow: 0 0 0 1.5px #d9
 #log .ico.lg { width: 17px; height: 17px; margin-right: 5px; vertical-align: -4px; }
 #race .ico.sm { width: 15px; height: 15px; margin-right: 4px; vertical-align: -3px; }
 #cellpanel .cp-name .ico { width: 30px; height: 30px; }
+
+/* ---------- 三人称視点（大将を操作）と地図ビュー ---------- */
+#tpsbar, #joy, #mapbar, #buildctl { display: none; }
+body.v-tps #tpsbar { display: flex; }
+body.v-tps #oldrow, body.v-map #oldrow { display: none; }
+body.v-tps #joy { display: block; }
+body.v-tps #bcats, body.v-tps #buildmenu { display: none; }
+body.v-tps.building #bcats, body.v-tps.building #buildmenu { display: flex; }
+body.v-tps.building #buildctl { display: flex; }
+body.v-tps.building #tpsbar #t-build { background: linear-gradient(#8a6630, #4b3417); border-color: var(--gold-hi); color: var(--gold-hi); }
+body.v-tps #btn-top, body.v-tps #sidebtns [data-act="home"], body.v-tps #sidebtns [data-act="squad"] { display: none; }
+body.v-map #bottombar { display: none; }
+body.v-map #mapbar { display: flex; }
+body.v-map #log { bottom: calc(76px + var(--sab)); }
+body.v-map #cellpanel { bottom: calc(76px + var(--sab)); }
+body.v-tps #log { bottom: calc(var(--bbh, 130px) + 150px); right: 40%; }
+body.v-tps.building #log { display: none; }
+#tpsbar button { flex: 1; text-align: center; padding: 9px 6px; font-size: 14px; }
+#mapbar { position: absolute; left: 8px; right: 8px; bottom: calc(10px + var(--sab)); gap: 8px; }
+#mapbar button { flex: 1; height: 54px; border-radius: 8px; border: 1px solid var(--gold-dk); background: var(--panel-bg); color: var(--parch); font: 700 15px var(--serif);
+  display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 3px 10px rgba(0,0,0,.55); }
+#mapbar .btn-primary { flex: 1.4; background: linear-gradient(#9b2f1c, #5e180b); border-color: var(--gold-hi); color: #fff3d6; }
+/* 移動のスティック（左下） */
+#joy { position: absolute; left: 14px; bottom: calc(var(--bbh, 130px) + 14px); width: 124px; height: 124px; border-radius: 50%; touch-action: none; z-index: 2;
+  background: radial-gradient(circle, rgba(20,12,4,.18) 0 52%, rgba(20,12,4,.38) 53% 64%, rgba(243,217,142,.0) 65%);
+  border: 2px solid rgba(243,217,142,.55); box-shadow: 0 2px 10px rgba(0,0,0,.35), inset 0 0 18px rgba(0,0,0,.25); }
+#joy i { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #f6e2a8, #b88a3a 60%, #6b4a1a); border: 2px solid #3a2610; box-shadow: 0 3px 8px rgba(0,0,0,.5); }
+#joy.on { border-color: var(--gold-hi); }
+/* 建築の操作（建築メニューの上の行） */
+#buildctl button { border: 1px solid var(--gold-dk); border-radius: 8px; background: rgba(0,0,0,.3); color: var(--parch); font: 700 14px var(--serif); padding: 10px 12px; }
+#bc-close { flex: 0 0 48px; }
+#bc-rot { flex: 0 0 auto; }
+#bc-place { flex: 1; background: linear-gradient(#2f6a2a, #1b3f17) !important; border-color: #b8f0a0 !important; color: #e8ffd8 !important; font-size: 15px !important; }
+#bc-place.ng { background: linear-gradient(#6a2a1e, #3f1710) !important; border-color: #ffb08a !important; color: #ffd8cc !important; }
+body.v-tps.building #abilrow, body.v-tps.building #tpsbar { display: none; }
 </style>
 </head>
 <body>
@@ -393,15 +429,30 @@ img.ico.pic { object-fit: cover; border-radius: 5px; box-shadow: 0 0 0 1.5px #d9
       <div class="cp-meta" id="cp-meta"></div>
       <div class="cp-note" id="cp-note"></div>
     </div>
+    <div id="joy" class="tps-only" aria-label="移動"><i></i></div>
+    <div id="mapbar" class="map-only">
+      <button id="mb-back" class="btn-primary"><i data-ico="general"></i><span>大将に戻る</span></button>
+      <button id="mb-top"><i data-ico="top"></i><span>真上／斜め</span></button>
+    </div>
     <div id="bottombar">
       <div id="hint" class="hidden"></div>
-      <div class="actrow">
+      <div class="actrow" id="tpsbar">
+        <button id="t-build" class="b-rally"><i data-ico="build"></i><span>建築</span></button>
+        <button id="t-flag" class="b-rally b-flag"><i data-ico="flag"></i><span>旗を立てる</span></button>
+        <button id="t-map" class="b-rally"><i data-ico="top"></i><span>地図</span></button>
+      </div>
+      <div class="actrow" id="oldrow">
         <button id="btn-rally" class="b-rally"><i data-ico="attack"></i><span>攻撃目標</span></button>
         <button id="btn-flag" class="b-rally b-flag"><i data-ico="flag"></i><span>旗を立てる</span></button>
         <button id="btn-gen" class="b-rally b-gen"><i data-ico="general"></i><span>大将</span></button>
         <button id="btn-cancel" class="b-cancel hidden">✕ やめる</button>
       </div>
       <div class="actrow" id="abilrow"></div>
+      <div class="actrow" id="buildctl">
+        <button id="bc-close" aria-label="建築をやめる">✕</button>
+        <button id="bc-rot" aria-label="回転">⟳ 回転</button>
+        <button id="bc-place"><span>ここに建てる</span></button>
+      </div>
       <div id="bcats"></div>
       <div id="buildmenu"></div>
     </div>
@@ -839,6 +890,7 @@ class MapData {
 class Camera {
   constructor() {
     this.tx = 1200; this.tz = 1080; this.dist = 3000; this.pitch = CONFIG.CAMERA_PITCH;
+    this.yaw = 0; this.ty = 0;    // 三人称視点用（yaw=水平回転[rad], ty=注視点の高さ）
     this.goal = null;             // flyTo アニメーション
     this.pitchGoal = this.pitch;
     this.fovY = CONFIG.FOV * Math.PI / 180;
@@ -876,7 +928,7 @@ class Camera {
   }
   clampTarget() {
     const [x0, z0, x1, z1] = this.bounds;
-    this.dist = clamp(this.dist, CONFIG.ZOOM_MIN, CONFIG.ZOOM_MAX);
+    this.dist = clamp(this.dist, this.minDist || CONFIG.ZOOM_MIN, CONFIG.ZOOM_MAX);
     // 引いているときほど注視点を地図の外まで動かせる（画面の端に地図を寄せられるように）
     const m = 100 + this.dist * 0.5;
     this.tx = clamp(this.tx, x0 - m, x1 + m);
@@ -884,8 +936,9 @@ class Camera {
   }
   basis() {
     const p = this.pitch * Math.PI / 180, s = Math.sin(p), c = Math.cos(p);
-    const eye = [this.tx, this.dist * s, this.tz + this.dist * c];
-    const f = [0, -s, -c], r = [1, 0, 0], u = [0, c, -s];
+    const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
+    const eye = [this.tx + this.dist * c * sy, this.ty + this.dist * s, this.tz + this.dist * c * cy];
+    const f = [-c * sy, -s, -c * cy], r = [cy, 0, -sy], u = [-s * sy, c, -s * cy];
     return { eye, f, r, u };
   }
   compute() {
@@ -898,7 +951,7 @@ class Camera {
       -(u[0] * eye[0] + u[1] * eye[1] + u[2] * eye[2]),
       (f[0] * eye[0] + f[1] * eye[1] + f[2] * eye[2]), 1];
     const aspect = this.w / this.h;
-    const near = Math.max(0.5, this.dist * 0.05), far = this.dist * 6 + 500;
+    const near = Math.max(this.nearMin || 0.5, this.dist * 0.05), far = this.dist * 6 + 500;
     const t = 1 / Math.tan(this.fovY / 2);
     const proj = [t / aspect, 0, 0, 0, 0, t, 0, 0, 0, 0, (far + near) / (near - far), -1, 0, 0, (2 * far * near) / (near - far), 0];
     mat4mul(this.vp, proj, view);
@@ -992,7 +1045,15 @@ uniform float uHasFine;
 uniform sampler2D uFine;       // 細かい持ち主の区画（64×64マスずつ。L=持ち主＋最近占領なら64）
 uniform sampler2D uFInd;       // 細かい区画の表：RG=区画の位置, A=受け取り済みか
 uniform vec2 uFTiles;
+uniform vec3 uEye;     // 三人称視点の霧（遠くを空の色に溶かす）
+uniform vec3 uFog;     // x=始まり, y=終わり, z=有効か
+uniform vec3 uFogCol;
 varying vec2 vWorld;
+vec3 fogged(vec3 c){
+  if (uFog.z < 0.5) return c;
+  float d = length(vec3(vWorld.x - uEye.x, uEye.y, vWorld.y - uEye.z));
+  return mix(c, uFogCol, smoothstep(uFog.x, uFog.y, d) * 0.92);
+}
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p){
   vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
@@ -1039,12 +1100,12 @@ void main(){
 #endif
   vec2 uv = vWorld / uGrid;
   vec3 deep = vec3(0.10, 0.22, 0.32);   // 藍色がかった深い海
-  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { gl_FragColor = vec4(deep, 1.0); return; }
+  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { gl_FragColor = vec4(fogged(deep), 1.0); return; }
   vec4 e = texture2D(uElev, uv);
   // 沖合（近くに陸地がない）は区画を読まずに海だけ描く
   if (e.a < 0.004) {
     vec3 w0 = deep + (noise(vWorld * 0.8 + vec2(uTime * 0.15, uTime * 0.07)) - 0.5) * 0.04;
-    gl_FragColor = vec4(w0, 1.0); return;
+    gl_FragColor = vec4(fogged(w0), 1.0); return;
   }
   // 地形：このマスの種類の色（高いところは岩の色に）＋ 4マスの陸／海をなめらかにつないで海岸線を丸く
   vec2 cw = vWorld / uScale;
@@ -1170,7 +1231,30 @@ void main(){
       if (uPlace > 0.0) col = abs(id - uMe) < 0.5 ? mix(col, vec3(0.75, 1.0, 0.6), 0.12) : col * 0.7;
     }
   }
-  gl_FragColor = vec4(col, 1.0);
+  // ごく近く（三人称視点）：草の細かいむらと土の粒
+  float closeK = 1.0 - smoothstep(0.01, 0.06, cpp);
+  if (closeK > 0.0) {
+    float n1 = noise(vWorld * 6.0), n2 = noise(vWorld * 21.0 + 3.1), n3 = noise(vWorld * 1.6 - 4.0), n4 = noise(vWorld * vec2(55.0, 9.0));
+    col *= 1.0 + closeK * isLand * ((n1 - 0.5) * 0.24 + (n2 - 0.5) * 0.2 + (n3 - 0.5) * 0.16 + (n4 - 0.5) * 0.12);
+  }
+  gl_FragColor = vec4(fogged(col), 1.0);
+}`;
+
+// 空（三人称視点）：地平線から上へ、もやの色 → 青空
+const SKY_VS = `
+attribute vec2 aPos;
+varying float vY;
+void main(){ vY = aPos.y; gl_Position = vec4(aPos, 0.999, 1.0); }`;
+const SKY_FS = `
+precision mediump float;
+uniform float uHor;
+uniform vec3 uTop;
+uniform vec3 uHorC;
+varying float vY;
+void main(){
+  float t = smoothstep(uHor, uHor + 1.6, vY);
+  vec3 c = mix(uHorC, uTop, pow(t, 0.7));
+  gl_FragColor = vec4(c, 1.0);
 }`;
 
 const LINE_VS = `
@@ -1236,6 +1320,9 @@ uniform float uAlpha;   // 影は半透明
 uniform float uFlat;    // 影・地面の敷物は陰影をつけない
 uniform float uMat;     // 表面の模様 0:なし 1:屋根(瓦・茅) 2:壁(板目) 3:針葉樹 4:広葉樹 5:幹・柱(木目) 6:土の敷物
 uniform float uDetail;  // 拡大したときだけ模様を出す（0..1）
+uniform vec3 uEye;
+uniform vec3 uFog;
+uniform vec3 uFogCol;
 varying vec3 vN;
 varying vec3 vC;
 varying vec3 vL;
@@ -1278,7 +1365,9 @@ void main(){
   }
   // 光は手前左上から（見えている壁が明るくなるように）
   float l = 0.45 + 0.62 * max(dot(n, normalize(vec3(-0.45, 0.8, 0.5))), 0.0) + 0.06 * n.y;
-  gl_FragColor = vec4(mix(c * l, c, uFlat), uAlpha);
+  vec3 oc = mix(c * l, c, uFlat);
+  if (uFog.z > 0.5) oc = mix(oc, uFogCol, smoothstep(uFog.x, uFog.y, length(vW - uEye)) * 0.92);
+  gl_FragColor = vec4(oc, uAlpha);
 }`;
 const INST_FLOATS = 11;
 /** インスタンスの種類 → 表面の模様（名前の大文字以降は同じ形で模様違い：boxW=板目の箱 など） */
@@ -1371,6 +1460,10 @@ class Renderer {
     this.line = compile(gl, LINE_VS, LINE_FS);
     this.mesh = compile(gl, MESH_VS, MESH_FS);
     this.sprite = compile(gl, SPRITE_VS, SPRITE_FS);
+    this.sky = compile(gl, SKY_VS, SKY_FS);
+    this.skyBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.skyBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     this.spriteBuf = gl.createBuffer();
     this.spriteQuad = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.spriteQuad);
@@ -1652,9 +1745,28 @@ class Renderer {
     const gl = this.gl, map = this.map;
     this.flush();
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-    gl.clearColor(0.10, 0.22, 0.32, 1);
+    const fog = opt.fog, fc = fog ? fog.col : null;
+    if (fog) gl.clearColor(fc[0], fc[1], fc[2], 1); else gl.clearColor(0.10, 0.22, 0.32, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     const vp = cam.compute();
+    const eyeB = cam.basis().eye;
+    const setFog = (P) => {
+      if (!P.u.uFog) return;
+      gl.uniform3f(P.u.uFog, fog ? fog.start : 0, fog ? fog.end : 1, fog ? 1 : 0);
+      if (fog) { gl.uniform3f(P.u.uEye, eyeB[0], eyeB[1], eyeB[2]); gl.uniform3f(P.u.uFogCol, fc[0], fc[1], fc[2]); }
+    };
+    if (fog) {   // 空
+      const K = this.sky;
+      gl.useProgram(K.p); gl.disable(gl.DEPTH_TEST);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.skyBuf);
+      gl.enableVertexAttribArray(K.a.aPos);
+      gl.vertexAttribPointer(K.a.aPos, 2, gl.FLOAT, false, 0, 0);
+      gl.uniform1f(K.u.uHor, Math.tan(cam.pitch * Math.PI / 180) / Math.tan(cam.fovY / 2));
+      gl.uniform3f(K.u.uTop, fog.top[0], fog.top[1], fog.top[2]);
+      gl.uniform3f(K.u.uHorC, fc[0], fc[1], fc[2]);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      gl.disableVertexAttribArray(K.a.aPos);
+    }
     // --- 地面
     const g = this.ground;
     gl.useProgram(g.p);
@@ -1680,6 +1792,7 @@ class Renderer {
     gl.uniform1f(g.u.uPlace, opt.place ? 1 : 0);
     gl.uniform1f(g.u.uTime, opt.time || 0);
     if (g.u.uCpp) gl.uniform1f(g.u.uCpp, 1 / cam.cellPx());
+    setFog(g);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.disableVertexAttribArray(g.a.aPos);
     // --- 連絡線・インセット枠
@@ -1719,6 +1832,7 @@ class Renderer {
       const rank = (n) => (n === 'pad' ? 0 : n === 'shadow' ? 1 : 2);
       const order = Object.keys(meshes).sort((a, b) => rank(a) - rank(b));
       gl.uniform1f(M.u.uDetail, clamp((cam.cellPx() - 4) / 10, 0, 1));
+      setFog(M);
       for (const name of order) {
         const inst = meshes[name];
         if (!inst || !inst.count) continue;
@@ -1772,7 +1886,7 @@ class Renderer {
       if (!meshes) gl.clear(gl.DEPTH_BUFFER_BIT);
       gl.uniformMatrix4fv(Sx.u.uVP, false, vp);
       const b = cam.basis();
-      gl.uniform3f(Sx.u.uRight, 1, 0, 0);
+      gl.uniform3f(Sx.u.uRight, b.r[0], b.r[1], b.r[2]);
       gl.uniform3f(Sx.u.uUp, b.u[0], b.u[1], b.u[2]);
       gl.uniform1f(Sx.u.uFoot, (SPR.FH - SPR.FOOT) / SPR.FH);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.spriteColor); gl.uniform1i(Sx.u.uColor, 0);
@@ -3208,6 +3322,8 @@ class Sim {
   }
   think(u) {
     const def = UNITS[u.type], S = this.S;
+    // 三人称視点であなたが直接動かしている大将は、勝手に歩かない（射程に入った敵とは自動で戦う）
+    if (u.isGeneral && this.genManual) { u.chase = -1; u.dest = null; u.path = null; u.goalNode = -1; return; }
     // 通常の兵士（足軽）は、敵の領土に入ったら旗を立てる
     if (CONFIG.FLAG_MODE && u.type === 'ashigaru' && u.engaged < 0 && (u.role === 'atk' || u.fromPlayer) && u.goalNode !== -2 && u.follow === undefined && this.rng() < 0.5) {
       const gn = this.nodes[u.goalNode];   // 攻め先の拠点の近くで立てる（途中で立てても守れないので）
@@ -4306,6 +4422,7 @@ const App = {
       this.renderer.attachGame(null, 0);
       progress(1, '準備完了');
       this.setupInput();
+      this.setupTpsInput();
       this.resize();
       this.resetCamera(true);
       this.buildTitleList();
@@ -4415,6 +4532,15 @@ const App = {
     $('h-pref').textContent = pr.name;
     this.buildMenu();
     this.goHome(48);   // 最初は自県の都を大きく映す
+    // 大将を背中越しに操作する（オンライン版は地図だけ）
+    g.genManual = this.hasTps();
+    this.build = null; this.ghost = null; this.tps = null; this.tpsLast = null;
+    if (this.hasTps()) {
+      const cap = g.nodes[g.capNode ? g.capNode[this.me] : this.me - 1] || g.nodes[0];
+      this.tpsLast = [cap.x, cap.y];
+      this.cam.tx = cap.x; this.cam.tz = cap.y; this.cam.goal = null;
+    }
+    this.setView(this.hasTps() ? 'tps' : 'map');
     // シミュレーションのイベント
     g.on('cells', (cells) => { for (const i of cells) this.renderer.cellChanged(i); this.minimapDirty = true; });
     g.on('capture', (e) => { (this.capFx || (this.capFx = [])).push({ x: e.node.x, y: e.node.y, pref: e.by, t0: this.clock, sq: false }); if (e.by === this.me) this.myCaps = (this.myCaps || 0) + 1; this.onCapture(e); });
@@ -4472,8 +4598,16 @@ const App = {
       if (!b) return;
       const kind = b.dataset.ab, d = CONFIG.ABILITIES[kind], left = this.game.abilityReady(0, kind);
       if (left > 0) { this.banner(`${d.name}はまだ使えません`, 'ng', `あと${this.fmtDur(left)}`); return; }
+      if (this.view === 'map' && this.hasTps()) return;
+      if (kind === 'barrage' && this.isTps()) {   // 大将の視線の先へ砲撃
+        const pt = this.aimPoint(true), r0 = this.game.useAbility(0, kind, pt.x, pt.z);
+        if (r0.ok) { this.banner('砲撃開始！', 'ok', '大将の前方へ砲弾8発が降りそそぎます'); this.marker = { x: pt.x, z: pt.z, t: this.clock, ok: true }; }
+        else this.banner('使えません', 'ng', '');
+        this.updateHud(true); return;
+      }
       if (kind === 'barrage') { this.setMode(this.mode && this.mode.kind === 'abil' ? null : { kind: 'abil', ab: kind }); return; }
-      const r = this.game.useAbility(0, kind, this.cam.tx, this.cam.tz);
+      const ap = this.aimPoint(false);
+      const r = this.game.useAbility(0, kind, ap.x, ap.z);
       if (r.ok) this.banner(kind === 'reinforce' ? '援軍が到着！' : '鼓舞！', 'ok', kind === 'reinforce' ? '県庁に足軽10人が加わりました' : '近くのあなたの兵の攻撃と足が60秒アップ');
       else this.banner('使えません', 'ng', r.why === 'nounits' ? '画面の中にあなたの兵がいません' : '');
       this.updateHud(true);
@@ -4523,7 +4657,12 @@ const App = {
       if (d && +d.dataset.cell >= 0) this.focusCell(+d.dataset.cell);
     }, { signal });
     $('minimap').addEventListener('pointerdown', (e) => this.onMinimap(e), { signal });
-    signal.addEventListener('abort', () => { this.hidePanel(); this.setMode(null); });
+    signal.addEventListener('abort', () => {
+      this.hidePanel(); this.setMode(null); this.endBuild();
+      this.view = null; document.body.classList.remove('v-tps', 'v-map', 'building');
+      Object.assign(this.cam, { yaw: 0, ty: 0, fovY: CONFIG.FOV * Math.PI / 180, minDist: 0, nearMin: 0, pitchGoal: CONFIG.CAMERA_PITCH });
+    });
+    this.hudReady = true;
     this.updateHud(true);
     // 出陣の演出（墨の文字とほら貝）
     const sj = $('shutsujin');
@@ -4532,7 +4671,8 @@ const App = {
     Sfx.conch();
     if (!ONLINE) setTimeout(() => {
       if (this.state !== STATE.PLAYING) return;
-      if (TRIAL) this.banner('🚩 旗を立てる → 敵の領土をタップ', 'def', 'あなたの部隊15人と仲間が旗を立てて守る。守りきれば領土に');
+      if (this.hasTps()) this.banner('あなたは大将', 'def', '左のスティックで移動・画面をなぞって見回す。「建築」で目の前に建物を置き、敵の領土で「旗を立てる」');
+      else if (TRIAL) this.banner('🚩 旗を立てる → 敵の領土をタップ', 'def', 'あなたの部隊15人と仲間が旗を立てて守る。守りきれば領土に');
       else this.banner('🐎 大将 → 敵の領土をタップ', 'def', '大将が止まった所に旗を立て、仲間と守りきれば領土に');
     }, 2500);
     this.log(ONLINE ? `出陣！ ${pr.name}の一員として参加しました。人のいない席はコンピューターが担当します。下のメニューから建物を建てよう`
@@ -4553,6 +4693,7 @@ const App = {
   },
   startPlace(type) {
     const g = this.game;
+    if (this.hasTps()) { this.startBuild(type); return; }
     if (!g.canAfford(0, BUILDINGS[type].cost)) { this.banner('資源が足りません', 'ng', this.costText(BUILDINGS[type].cost)); return; }
     this.setMode(this.mode && this.mode.type === type ? null : { kind: 'place', type });
   },
@@ -4801,6 +4942,7 @@ const App = {
   // ------------------------------------------------ 3D：建物・兵士・木（日本風）
   buildScene() {
     const g = this.iconStub || this.game, map = this.map, cam = this.cam;
+    cam.compute();   // 見えるかの判定は今のカメラで（アイコン撮影の直後でもずれないように）
     const KINDS = ['pad', 'shadow', 'box', 'boxW', 'roof', 'roofT', 'cone', 'coneT', 'cyl', 'cylW', 'sphere', 'sphereT'];
     if (!this.inst) { this.inst = {}; for (const k of KINDS) this.inst[k] = new InstanceList(); }
     const I = this.inst;
@@ -4808,7 +4950,10 @@ const App = {
     this.smoke = [];
     this.fires = [];
     const v = [0, 0], m = 60;
-    const visible = (x, z) => cam.project(x, 0, z, v) && v[0] > -m && v[0] < this.w + m && v[1] > -m && v[1] < this.h + m;
+    const tps = this.isTps(), R2 = TPS.R * TPS.R;
+    const visible = tps
+      ? (x, z) => (x - cam.tx) ** 2 + (z - cam.tz) ** 2 < R2 && cam.project(x, 0, z, v) && v[0] > -m * 3 && v[0] < this.w + m * 3 && v[1] > -m * 4 && v[1] < this.h + m * 3
+      : (x, z) => cam.project(x, 0, z, v) && v[0] > -m && v[0] < this.w + m && v[1] > -m && v[1] < this.h + m;
     if (!this.colCache) this.colCache = map.prefs.map((p) => (p ? hexToRgb(p.color).map((q) => q / 255) : [0, 0, 0]));
     const col = this.colCache;
     const cpx = cam.cellPx();
@@ -4822,11 +4967,13 @@ const App = {
       red: [0.72, 0.2, 0.15], green: [0.3, 0.55, 0.2],
     };
     let cx = 0, cz = 0, rot = 0, cs = 1, sn = 0, S = 1, OC = C.red;
+    let GH = null;   // 設計図の色（置ける=緑・置けない=赤）
     let TK = 1;   // 建物ごとの色のむら（場所から決まる。古い・新しい・日焼けの違いのように見せる）
     const at = (x, z, r, s, oc) => { cx = x; cz = z; rot = r; cs = Math.cos(r); sn = Math.sin(r); S = s; OC = oc || C.red; TK = 0.84 + (((x * 12.9898 + z * 78.233) * 43758.5453) % 1 + 1) % 1 * 0.3; };
     const P = (mesh, lx, ly, lz, sx, sy, sz, c, r2, tilt) => {
       const wx = cx + (lx * cs - lz * sn) * S, wz = cz + (lx * sn + lz * cs) * S;
-      I[mesh].push(wx, ly * S, wz, sx * S, sy * S, sz * S, c, rot + (r2 || 0), tilt || 0, c === OC ? 1 : TK);
+      if (GH) c = [c[0] * 0.4 + GH[0] * 0.6, c[1] * 0.4 + GH[1] * 0.6, c[2] * 0.4 + GH[2] * 0.6];
+      I[mesh].push(wx, ly * S, wz, sx * S, sy * S, sz * S, c, rot + (r2 || 0), tilt || 0, c === OC || GH ? 1 : TK);
     };
     const pad = (lx, lz, w, d, c) => P('pad', lx, 0.015, lz, w, 0.01, d, c || C.dirt);
     const shadow = (w, d) => I.shadow.push(cx + 0.35 * S, 0.02, cz - 0.4 * S, w * 1.25 * S, 0.01, d * 1.25 * S, [0, 0, 0], rot);   // 影は奥・右へ
@@ -4871,8 +5018,18 @@ const App = {
     };
     // ---- 拠点
     const nodes = g ? g.nodes : map.prefs.filter(Boolean).map((p) => ({ x: map.X(p.capital) + 0.5, y: map.Y(p.capital) + 0.5, owner: p.id, type: 'capital' }));
+      // 三人称視点：カメラと大将の間にある建物は描かない（大将が隠れないように）
+      const gen = tps && g && g.general && g.general.alive ? g.general : null, eye = cam.basis().eye;
+      const ox = eye[0], oz = eye[2], sx2 = gen ? gen.x - ox : 0, sz2 = gen ? gen.y - oz : 0, sl = sx2 * sx2 + sz2 * sz2 || 1;
+      const blocks = (b, rr) => {
+        let t2 = ((b.x - ox) * sx2 + (b.y - oz) * sz2) / sl;
+        if (t2 > 1.05) return false;
+        t2 = Math.max(0, t2);
+        return (b.x - ox - sx2 * t2) ** 2 + (b.y - oz - sz2 * t2) ** 2 < (rr || (b.type in BUILDINGS && BUILDINGS[b.type].node ? 2.6 : 1.6));
+      };
     for (const n of nodes) {
       if (!visible(n.x, n.y)) continue;
+      if (gen && blocks(n, n.type === 'capital' ? 12 : 5)) continue;
       const c = col[n.owner];
       if (n.type === 'capital') {
         // 都：堀・石垣の天守・城下町
@@ -4940,11 +5097,9 @@ const App = {
       // 画面に映る範囲の建物だけを調べる（建物が数万あっても重くならないよう、格子から拾う）
       let blist = g.buildings;
       if (g.bgrid && g.buildings.length > 2000 && cpx >= 0.3) {
-        const pts = [[0, 0], [this.w, 0], [0, this.h], [this.w, this.h]].map(([sx, sy]) => cam.groundAt(sx, sy)).filter(Boolean);
-        if (pts.length === 4) {
-          const m2 = 8, gs = g.bgs;
-          const x0 = Math.min(...pts.map((p) => p.x)) - m2, x1 = Math.max(...pts.map((p) => p.x)) + m2;
-          const z0 = Math.min(...pts.map((p) => p.z)) - m2, z1 = Math.max(...pts.map((p) => p.z)) + m2;
+        const vb = this.viewBox(8);
+        if (vb) {
+          const gs = g.bgs, [x0, z0, x1, z1] = vb;
           if ((x1 - x0) * (z1 - z0) < 4e6) {
             blist = [];
             for (let by = Math.max(0, (z0 / gs) | 0); by <= (z1 / gs) | 0; by++) for (let bx = Math.max(0, (x0 / gs) | 0); bx <= (x1 / gs) | 0; bx++) {
@@ -4954,10 +5109,13 @@ const App = {
           }
         }
       }
+      if (this.ghost && !this.iconStub) blist = blist.concat([this.ghost.b]);   // 建築の設計図（目の前に置く建物）
       for (const b of blist) {
         if (cpx < 0.3 || !visible(b.x, b.y)) continue;
+        if (gen && !b.ghost && blocks(b)) continue;
         const c = col[b.owner];
         at(b.x, b.y, b.rot, big * 0.8, c);
+        GH = b.ghost ? (this.ghost && this.ghost.why ? [1, 0.3, 0.25] : [0.45, 1, 0.5]) : null;
         // 耐久が半分を切った建物は燃える（黒い煙と炎）
         if (b.maxHp && b.hp < b.maxHp * 0.5 && this.fires && this.fires.length < 60) this.fires.push([b.x, b.z === undefined ? b.y : b.z, big * 0.8, b.hp / b.maxHp, b.id]);
         switch (b.type) {
@@ -5194,6 +5352,8 @@ const App = {
    *   動き：歩き4コマ（進んだ距離で進める）・構え／攻撃（戦闘中）・倒れた姿（亡骸）
    *   引いているときは見つけやすいよう大きめに描く
    */
+  /** 兵の背の高さ（引いているときは見つけやすく大きめ。三人称視点は建物と釣り合う大きさ） */
+  unitH() { return this.isTps() ? TPS.H : clamp(this.cam.dist * 0.004, 0.96, 18); },
   drawSoldiers(I, g, cpx, visible, col, C) {
     const a = clamp(g.acc / CONFIG.TICK, 0, 1), t = this.clock;
     if (!this.anim) this.anim = new Map();
@@ -5201,9 +5361,12 @@ const App = {
     const S = this.sprites;
     const anim = this.anim, idx = g.unitIndex;
     const seen = this.animSeen = (this.animSeen || 0) + 1;
-    const H = clamp(this.cam.dist * 0.004, 0.96, 18), Wd = H * SPR.FW / SPR.FH;
+    const H = this.unitH(), Wd = H * SPR.FW / SPR.FH, cyaw = this.cam.yaw || 0;
+    const tpsOn = this.isTps();
     const AW = this.renderer.spriteSize ? this.renderer.spriteSize[0] : 2048, AH = this.renderer.spriteSize ? this.renderer.spriteSize[1] : 1024;
     const put = (x, z, yaw, kind, pose, c, y0 = 0, sc = 1) => {
+      yaw -= cyaw;   // カメラから見た向き（三人称視点で回したとき）
+      yaw = ((yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
       let v = Math.round(Math.abs(yaw) / (Math.PI / 4));
       if (v > 4) v = 4;
       const k = SPR.index(kind, v, pose);
@@ -5232,7 +5395,7 @@ const App = {
       const dy = ((target - s.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
       s.yaw += dy * 0.3;
       if (s.yaw > Math.PI) s.yaw -= Math.PI * 2; else if (s.yaw < -Math.PI) s.yaw += Math.PI * 2;
-      s.phase += moved * 6.5 / Math.max(1, H / 0.96);
+      s.phase += moved * 6.5 * 0.96 / H;
       const type = u.type || 'ashigaru', c0 = col[u.pref];
       if (type === 'ship') {   // 軍艦（安宅船）：箱形の船体・総矢倉・櫓・帆柱と筵の帆（帆は県の色）・大筒
         if (e && t >= (s.fireAt || 0)) { s.fireAt = t + 0.6; this.fire(0, x, 0.7 * H, z, e.x, 0.4 * H, e.y, () => this.blast(9, e.x, 0, e.y, 0.4)); }
@@ -5290,6 +5453,10 @@ const App = {
         V('sphere', 0, A + 0.2 * k2, 0.1 * k2, 0.16 * k2, 0.16 * k2, 0.36 * k2, [0.22, 0.3, 0.36]); // 風防
         V('box', 0, A + 0.27 * k2, 0.08 * k2, 0.02, 0.1 * k2, 0.42 * k2, dark);                     // 風防の枠
         V('cylW', 0, A, -0.35 * k2, 0.245 * k2, 0.08 * k2, 0.245 * k2, c0, 0, Math.PI / 2);        // 胴の帯（県の色）
+        continue;
+      }
+      if (type === 'general' && tpsOn) {   // 三人称視点の大将：歩く鎧武者（立体）
+        this.drawGeneral3D(I, x, z, s, moved, !!(e || u.hitB), c0, H, C);
         continue;
       }
       if (type === 'cavalry' || type === 'general') {   // 騎馬隊・大将：馬の上に兵（大将は金色の旗）
@@ -5369,13 +5536,15 @@ const App = {
   /** 森のマスに木を並べる（場所から決まる乱数。高いところ・北は針葉樹、低いところは広葉樹） */
   addTrees(I, cpx) {
     const map = this.map, cam = this.cam, W = map.W, t = map.terrain, ew = map.elevW, ev = map.elev;
-    const pts = [[0, 0], [this.w, 0], [0, this.h], [this.w, this.h]].map(([x, y]) => cam.groundAt(x, y)).filter(Boolean);
-    if (pts.length < 4) return;
-    const x0 = Math.max(0, Math.floor(Math.min(...pts.map((p) => p.x)))), x1 = Math.min(W - 1, Math.ceil(Math.max(...pts.map((p) => p.x))));
-    const y0 = Math.max(0, Math.floor(Math.min(...pts.map((p) => p.z)))), y1 = Math.min(map.H - 1, Math.ceil(Math.max(...pts.map((p) => p.z))));
+    const tps = this.isTps();
+    const vb = tps ? [cam.tx - 75, cam.tz - 75, cam.tx + 75, cam.tz + 75] : this.viewBox(0);
+    if (!vb) return;
+    const x0 = Math.max(0, Math.floor(vb[0])), x1 = Math.min(W - 1, Math.ceil(vb[2]));
+    const y0 = Math.max(0, Math.floor(vb[1])), y1 = Math.min(map.H - 1, Math.ceil(vb[3]));
     const area = (x1 - x0 + 1) * (y1 - y0 + 1);
     const step = Math.max(1, Math.ceil(Math.sqrt(area / 70000)));
-    const s = clamp(cam.dist * 0.002, 0.55, 2.6) * 1.2;
+    const s = tps ? 1.15 : clamp(cam.dist * 0.002, 0.55, 2.6) * 1.2;   // 三人称視点では人より高い木
+    const eye = cam.basis().eye, gen = tps && this.game && this.game.general;
     const v = [0, 0];
     const rich = cpx > 5;          // かなり拡大したら、木を段重ねにして立体的に
     const shadows = cpx > 3;
@@ -5388,9 +5557,10 @@ const App = {
         if (k !== 2 && k !== 1) continue;
         const hk = ((x * 73856093) ^ (y * 19349663)) >>> 0;   // 場所から決まる乱数（細かい地図でも木がそろわないよう座標から）
         const h = ((hk * 2654435761) >>> 0) / 4294967296;
-        if (k === 1 ? h > 0.004 : h > 0.18) continue;   // 木は控えめに（兵や建物が隠れないように）
+        if (k === 1 ? h > (tps ? 0.012 : 0.004) : h > 0.18) continue;   // 木は控えめに（兵や建物が隠れないように）
         const h2 = ((hk * 40503 + 7) % 997) / 997, h3 = ((hk * 69069 + 3) % 991) / 991;
         const px = x + h2, pz = y + h3;
+        if (tps && ((px - eye[0]) ** 2 + (pz - eye[2]) ** 2 < 2.2 || (gen && (px - gen.x) ** 2 + (pz - gen.y) ** 2 < 1.2) || (px - cam.tx) ** 2 + (pz - cam.tz) ** 2 > 5600)) continue;   // カメラと大将の前の木は描かない
         if (!cam.project(px, 0, pz, v) || v[0] < -20 || v[0] > this.w + 20 || v[1] < -40 || v[1] > this.h + 20) continue;
         const sz = s * (0.8 + h2 * 0.5), snow = t[i] & 8;
         const es = map.elevScale, e = ev[Math.floor(y / es) * ew + Math.floor(x / es)];
@@ -5692,7 +5862,7 @@ const App = {
       }
     }
     // 大将：金色の輪と名前・向かう場所
-    if (g && g.general && g.general.alive) {
+    if (g && g.general && g.general.alive && !this.isTps()) {
       const u = g.general, a2 = clamp(g.acc / CONFIG.TICK, 0, 1);
       if (cam.project(u.px + (u.x - u.px) * a2, 0.05, u.py + (u.y - u.py) * a2, v) && onScreen()) {
         const r = clamp(cpx * 0.8, 7, 20);
@@ -5710,7 +5880,7 @@ const App = {
     // 画面の外にいる大将・あなたの旗・指示の場所は、画面の端に矢印で方向を示す
     if (g && this.state === STATE.PLAYING) {
       const marks = [];
-      if (g.general && g.general.alive) marks.push([g.general.x, g.general.y, '将', '#ffd34d']);
+      if (g.general && g.general.alive && !this.isTps()) marks.push([g.general.x, g.general.y, '将', '#ffd34d']);
       const myF = (g.flags || []).find((q) => q.pref === this.me && q.hw === 0);
       if (myF) marks.push([myF.x, myF.y, '旗', '#b8f0a0']);
       else if (g.flagOrder) marks.push([g.flagOrder.x, g.flagOrder.y, g.flagOrder.defend ? '迎' : '旗', '#b8f0a0']);
@@ -5720,7 +5890,10 @@ const App = {
         const ok = cam.project(x, 0, z, v);
         if (ok && v[0] > 10 && v[0] < this.w - 10 && v[1] > top && v[1] < bot) continue;   // 画面の中にある
         let dx, dy;
-        if (ok) { dx = v[0] - cx; dy = v[1] - cy; } else { dx = x - cam.tx; dy = z - cam.tz; }
+        if (ok) { dx = v[0] - cx; dy = v[1] - cy; } else {
+          const wx = x - cam.tx, wz = z - cam.tz, cy0 = Math.cos(cam.yaw), sy0 = Math.sin(cam.yaw);
+          dx = wx * cy0 - wz * sy0; dy = wx * sy0 + wz * cy0;   // カメラの向きに合わせる（後ろなら画面の下へ）
+        }
         const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
         const k = Math.min((dx > 0 ? this.w - 30 - cx : cx - 30) / Math.max(1e-3, Math.abs(dx)), (dy > 0 ? bot - 20 - cy : cy - top - 20) / Math.max(1e-3, Math.abs(dy)));
         const px = cx + dx * k, py = cy + dy * k, ang = Math.atan2(dy, dx);
@@ -5739,7 +5912,7 @@ const App = {
       let k = 0;
       ctx.lineWidth = 1.5;
       for (const u of g.units) {
-        if (u.bit !== 1 || !(u.fromPlayer && (u.hw === 0 || ONLINE) || u.follow === 0) || k > 300) continue;
+        if (u.bit !== 1 || u.isGeneral || !(u.fromPlayer && (u.hw === 0 || ONLINE) || u.follow === 0) || k > 300) continue;
         if (!cam.project(u.px + (u.x - u.px) * a, 0.05, u.py + (u.y - u.py) * a, v) || !onScreen()) continue;
         const r = clamp(cpx * 0.45, 4, 12);
         ctx.strokeStyle = u.follow === 0 ? 'rgba(200,255,180,.8)' : 'rgba(255,255,255,.95)';
@@ -5749,7 +5922,7 @@ const App = {
     }
     // 兵の残り体力（満タンでない兵だけ。攻撃されると出る）
     if (g && cpx > 0.8) {
-      const H = clamp(cam.dist * 0.004, 0.96, 18), a = clamp(g.acc / CONFIG.TICK, 0, 1);
+      const H = this.unitH(), a = clamp(g.acc / CONFIG.TICK, 0, 1);
       let shown = 0;
       for (const u of g.units) {
         const mh = (UNITS[u.type] || UNITS.ashigaru).hp;
@@ -5787,7 +5960,9 @@ const App = {
     const pri = this.state === STATE.TITLE ? this.titleSel : this.me;
     const score = (n) => (g && n.id === g.rally ? 2e6 : 0) + (n.pref === pri && n.type === 'capital' ? 1e6 : 0) + (n.type === 'capital' ? 1e4 + map.prefs[n.pref].pop : n.type === 'fort' ? 10 : 0);
     order.sort((p, q) => score(q) - score(p));
+    const tpsL = this.isTps();
     for (const n of order) {
+      if (tpsL && (n.x - cam.tx) ** 2 + (n.y - cam.tz) ** 2 > 3600) continue;   // 三人称視点：近くの拠点だけ名前を出す
       if (!cam.project(n.x, n.type === 'capital' ? bh : bh * 0.6, n.y, v) || !onScreen()) continue;
       if (g && n.progress > 0) {
         const r = 11, f = n.progress / g.needFor(n);
@@ -5822,7 +5997,7 @@ const App = {
     }
     // 連絡マスの名前・インセット
     ctx.textBaseline = 'bottom';
-    if (cpx > 0.9) {
+    if (cpx > 0.9 && !tpsL) {
       ctx.font = `600 ${clamp(fs - 2, 9, 13)}px sans-serif`;
       const seen = new Set();
       for (const l of map.raw.links) {
@@ -5836,13 +6011,13 @@ const App = {
     }
     ctx.font = '600 11px sans-serif';
     for (const s of this.renderer.linkStubs) {
-      if (!cam.project(s.x, 0, s.y, v)) continue;
+      if (tpsL || !cam.project(s.x, 0, s.y, v)) continue;
       ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(30,18,6,.7)'; ctx.strokeText(s.name, v[0], v[1] - 3);
       ctx.fillStyle = '#ffe9a8'; ctx.fillText(s.name, v[0], v[1] - 3);
     }
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     for (const r of map.raw.insets) {
-      if (!cam.project(r.poly[2] + 4, 0, r.poly[3] + 4, v)) continue;
+      if (tpsL || !cam.project(r.poly[2] + 4, 0, r.poly[3] + 4, v)) continue;
       ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(30,18,6,.7)'; ctx.strokeText(r.label, v[0], v[1]);
       ctx.fillStyle = '#fff5dc'; ctx.fillText(r.label, v[0], v[1]);
     }
@@ -5861,17 +6036,21 @@ const App = {
         ctx.beginPath(); ctx.ellipse(v[0], v[1], 8 + 20 * k, 4 + 10 * k, 0, 0, Math.PI * 2); ctx.stroke();
       }
     }
+    this.drawGhostOverlay(ctx);
+    this.drawGeneralTag(ctx);
   },
   onTap(sx, sy) {
     // 画面の端の矢印（大将・旗）をタップしたら、その場所へ
-    if (this.state === STATE.PLAYING && this.edgeMarks) for (const m of this.edgeMarks) if (Math.hypot(m.px - sx, m.py - sy) < 26) { this.cam.flyTo(m.x, m.z, Math.min(this.cam.dist, 160), 0.5); return; }
+    if (this.state === STATE.PLAYING && this.edgeMarks && !this.isTps()) for (const m of this.edgeMarks) if (Math.hypot(m.px - sx, m.py - sy) < 26) { this.cam.flyTo(m.x, m.z, Math.min(this.cam.dist, 160), 0.5); return; }
     const i = this.pickCell(sx, sy);
     if (this.state === STATE.TITLE) {
       if (i >= 0 && this.map.isLand(i)) this.selectTitlePref(this.map.initPref[i], true);
       return;
     }
+    if (this.state === STATE.PLAYING && this.isTps() && this.build && !this.paused) { this.placeBuild(); return; }
     if (this.state !== STATE.PLAYING || this.paused || i < 0) return;
     const g = this.game, p = this.cam.groundAt(sx, sy);
+    if (!p) return;
     const reach = Math.max(2.5, 16 / this.cam.cellPx());
     if (this.mode && this.mode.kind === 'place') {
       const type = this.mode.type;
@@ -5933,7 +6112,7 @@ const App = {
     this.clock += dt;
     this.autoQuality(now);
     if (this.renderer && !this.glLost) {
-      this.keyPan(dt);
+      if (this.isTps()) this.tpsUpdate(dt); else this.keyPan(dt);
       this.cam.update(dt);
       if (this.state === STATE.PLAYING && this.game && !this.paused) {
         this.game.update(dt, this.speed);
@@ -5944,7 +6123,7 @@ const App = {
       this.renderer.render(this.cam, {
         fill: CONFIG.FILL + (CONFIG.FILL_TOP - CONFIG.FILL) * mixT,
         place: this.state === STATE.PLAYING && this.mode && this.mode.kind === 'place',
-        time: this.clock, meshes: this.buildScene(), sprites: this.state === STATE.PLAYING || this.state === STATE.GAMEOVER ? this.sprites : null,
+        time: this.clock, fog: this.fogOpt(), meshes: this.buildScene(), sprites: this.state === STATE.PLAYING || this.state === STATE.GAMEOVER ? this.sprites : null,
       });
       this.drawOverlay();
       if (this.state === STATE.PLAYING || this.state === STATE.GAMEOVER) {
@@ -5982,8 +6161,9 @@ const App = {
     const stub = { buildings: [], nodes: [], units: [], flags: [], shots: [], acc: 0, time: 0 };
     if (def.node) stub.nodes.push({ id: 0, x, y, owner: p, pref: p, type, name: '', progress: 0 });
     else stub.buildings.push({ id: 7, type, x, y, owner: p, wallet: -1, hp: 1, maxHp: 1, rot: 0.55, t: 0, mul: 1, forest: 10 });
-    const save = { tx: cam.tx, tz: cam.tz, dist: cam.dist, pitch: cam.pitch, goal: cam.goal };
+    const save = { tx: cam.tx, tz: cam.tz, dist: cam.dist, pitch: cam.pitch, goal: cam.goal, yaw: cam.yaw, ty: cam.ty, fovY: cam.fovY, nearMin: cam.nearMin, minDist: cam.minDist };
     cam.goal = null; cam.tx = x; cam.tz = y; cam.pitch = 40; cam.dist = def.node ? 20 : 13;
+    cam.yaw = 0; cam.ty = 0; cam.fovY = CONFIG.FOV * Math.PI / 180; cam.nearMin = 0; cam.minDist = 0;
     this.iconStub = stub;
     const R = this.renderer;
     R.render(cam, { fill: 0, place: false, time: this.clock, meshes: this.buildScene(), sprites: null });
@@ -6123,6 +6303,13 @@ const App = {
     ctx.fillStyle = '#c8392b'; ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(5, -5); ctx.lineTo(-5, -5); ctx.closePath(); ctx.fill();
     ctx.fillStyle = '#f3d98e'; ctx.font = '700 17px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('北', 0, 4);
     ctx.restore();
+    if (g && g.general && g.general.alive && this.hasTps()) {   // 大将の位置と向き
+      const gx = (g.general.x - V.x0) / V.w * mw, gy = (g.general.y - V.y0) / V.h * mh, an = Math.atan2(-Math.cos(this.cam.yaw), -Math.sin(this.cam.yaw));
+      ctx.save(); ctx.translate(gx, gy); ctx.rotate(this.view === 'tps' ? an : -Math.PI / 2);
+      ctx.fillStyle = '#ffd34d'; ctx.strokeStyle = '#2a1a0a'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(-5, -5); ctx.lineTo(-2, 0); ctx.lineTo(-5, 5); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.restore();
+    }
     const rn = g && g.rally >= 0 ? g.nodes[g.rally] : null;   // 攻撃目標
     if (rn) {
       ctx.fillStyle = '#ff6b3d'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
@@ -6133,6 +6320,7 @@ const App = {
     const r = e.currentTarget.getBoundingClientRect();
     const V = this.map.view || { x0: 0, y0: 0, w: this.map.W, h: this.map.H };
     const x = V.x0 + (e.clientX - r.left) / r.width * V.w, z = V.y0 + (e.clientY - r.top) / r.height * V.h;
+    if (this.isTps()) { this.setView('map'); this.cam.goal = null; this.cam.tx = x; this.cam.tz = z; this.cam.dist = Math.max(this.cam.dist, 200); }
     this.cam.flyTo(x, z, null);
     e.preventDefault();
   },
@@ -6158,15 +6346,19 @@ const App = {
       const prev = ptrs.get(e.pointerId), cur = pos(e);
       if (ptrs.size === 1) {
         if (tap && Math.hypot(cur[0] - tap.x, cur[1] - tap.y) > 8) tap.moved = true;
-        if (!tap || tap.moved) this.cam.panBy(prev[0], prev[1], cur[0], cur[1]);
+        if (this.isTps()) { if (!tap || tap.moved) this.tpsLook(cur[0] - prev[0], cur[1] - prev[1]); }   // 三人称視点：なぞって見回す
+        else if (!tap || tap.moved) this.cam.panBy(prev[0], prev[1], cur[0], cur[1]);
       } else if (ptrs.size === 2) {
         const ids = [...ptrs.keys()];
         const other = ptrs.get(ids[0] === e.pointerId ? ids[1] : ids[0]);
         const d0 = Math.hypot(prev[0] - other[0], prev[1] - other[1]);
         const d1 = Math.hypot(cur[0] - other[0], cur[1] - other[1]);
         const m0 = [(prev[0] + other[0]) / 2, (prev[1] + other[1]) / 2], m1 = [(cur[0] + other[0]) / 2, (cur[1] + other[1]) / 2];
-        if (d1 > 10 && d0 > 10) this.cam.zoomAt(m1[0], m1[1], d0 / d1);
-        this.cam.panBy(m0[0], m0[1], m1[0], m1[1]);
+        if (this.isTps()) { if (d1 > 10 && d0 > 10) this.tpsZoom(d0 / d1); }
+        else {
+          if (d1 > 10 && d0 > 10) this.cam.zoomAt(m1[0], m1[1], d0 / d1);
+          this.cam.panBy(m0[0], m0[1], m1[0], m1[1]);
+        }
       }
       ptrs.set(e.pointerId, cur);
     });
@@ -6180,10 +6372,11 @@ const App = {
     cv.addEventListener('pointercancel', up);
     // ホイール：地図の上（記録や順位の帯の上も）なら拡大・縮小。メニューや一覧の上ではそのままスクロール
     window.addEventListener('wheel', (e) => {
-      if (e.target.closest && e.target.closest('#bottombar, #modal, #title, #cellpanel, #topbar, #sidebtns, #minimap')) return;
+      if (e.target.closest && e.target.closest('#bottombar, #modal, #title, #cellpanel, #topbar, #sidebtns, #minimap, #mapbar')) return;
       e.preventDefault();
       const k = e.deltaMode === 1 ? 0.05 : 0.0015;
-      this.cam.zoomAt(e.clientX, e.clientY, Math.exp(e.deltaY * k));
+      if (this.isTps()) this.tpsZoom(Math.exp(e.deltaY * k));
+      else this.cam.zoomAt(e.clientX, e.clientY, Math.exp(e.deltaY * k));
     }, { passive: false });
     window.addEventListener('keydown', (e) => this.onKey(e));
     window.addEventListener('resize', () => this.resize());
@@ -6201,15 +6394,26 @@ const App = {
     if (e.target && e.target.tagName === 'INPUT') return;
     this.keys.add(e.key);
     const k = e.key;
-    if (k === '+' || k === '=' || k === ';') this.cam.zoomAt(this.w / 2, this.h / 2, 0.8);
-    else if (k === '-' || k === '_') this.cam.zoomAt(this.w / 2, this.h / 2, 1.25);
+    if (k === '+' || k === '=' || k === ';') { if (this.isTps()) this.tpsZoom(0.8); else this.cam.zoomAt(this.w / 2, this.h / 2, 0.8); }
+    else if (k === '-' || k === '_') { if (this.isTps()) this.tpsZoom(1.25); else this.cam.zoomAt(this.w / 2, this.h / 2, 1.25); }
     else if (k === 'Escape') {
       // モーダルは「既定のボタン」と同じ動きにする（日報なら翌日へ進む）
       if (!$('modal').classList.contains('hidden')) { if (this.state === STATE.PLAYING && this.modalEsc) this.modalEsc(); }
+      else if (this.build) this.endBuild();
       else if (this.mode) this.setMode(null);
       else this.hidePanel();
     }
     if (this.state !== STATE.PLAYING || this.paused) return;
+    if (this.hasTps()) {   // 大将の視点：B=建築 R=回転 F=旗 M=地図 Enter/スペース=建てる（WASDで移動は毎フレーム）
+      if (k === 'm' || k === 'M' || k === 'Tab') { e.preventDefault && e.preventDefault(); this.setView(this.view === 'tps' ? 'map' : 'tps'); return; }
+      if (this.view === 'map') { if (k === 't' || k === 'T') this.toggleTop(); return; }
+      if (k === 'b' || k === 'B') this.toggleBuild();
+      else if ((k === 'r' || k === 'R') && this.build) this.rotateBuild();
+      else if (k === 'f' || k === 'F') this.tpsFlag();
+      else if ((k === 'Enter' || k === ' ') && this.build) { e.preventDefault && e.preventDefault(); this.placeBuild(); }
+      else if (k >= '1' && k <= '9') { const list = BUILD_ORDER.filter((t) => BUILDINGS[t].cat === (this.bcat || 'eco')); if (list[+k - 1]) this.startBuild(list[+k - 1]); }
+      return;
+    }
     if (k === 't' || k === 'T') this.toggleTop();
     else if (k === 'h' || k === 'H') this.goHome();
     else if (k === 'r' || k === 'R') this.toggleRallyMode();
@@ -6313,8 +6517,386 @@ const App = {
   },
 };
 
+
+
+// =====================================================================
+// 三人称視点：あなたは「大将」を背中越しに操作する（移動・建築・旗・作戦）。
+// 地図ビュー（斜め／真上）は見るだけ：大将の操作や建物の設置はできない
+// =====================================================================
+const TPS = {
+  H: 0.42,          // 三人称視点での兵の背の高さ（建物と釣り合う大きさ）
+  FOV: 55,          // 視野角（地図ビューより広く）
+  PITCH: 13, PMIN: 2, PMAX: 62,
+  DIST: 2.6, DMIN: 1.2, DMAX: 9,
+  R: 120,           // これより遠いものは描かない（霧に溶ける）
+  REACH: 2.9,       // 建物を置く場所（大将の前、何マス先か）
+  FOG: { start: 22, end: 105, col: [0.79, 0.84, 0.86], top: [0.36, 0.56, 0.8] },
+};
+
+Object.assign(App, {
+  /** 大将を操作できるか（オンライン版は地図ビューだけ） */
+  hasTps() { return !ONLINE && !!(this.game && this.game.moveGeneral && CONFIG.PLAYER_GENERAL); },
+  isTps() { return this.view === 'tps' && this.state === STATE.PLAYING && !this.iconStub; },
+
+  /** 'tps'（大将の視点）か 'map'（地図を見るだけ） */
+  setView(v) {
+    if (v === 'tps' && !this.hasTps()) v = 'map';
+    const prev = this.view;
+    this.view = v;
+    const B = document.body.classList;
+    B.toggle('v-tps', v === 'tps'); B.toggle('v-map', v === 'map' && this.hasTps());
+    const cam = this.cam, g = this.game;
+    if (this.keys) this.keys.clear();
+    this.joyV = [0, 0];
+    if (v === 'map') {
+      this.endBuild();
+      if (this.setMode) this.setMode(null);
+      cam.yaw = 0; cam.ty = 0; cam.fovY = CONFIG.FOV * Math.PI / 180; cam.minDist = 0; cam.nearMin = 0;
+      cam.pitch = cam.pitchGoal = this.topView ? CONFIG.TOP_PITCH : CONFIG.CAMERA_PITCH;
+      if (prev === 'tps') {
+        const gen = g && g.general;
+        const x = gen ? gen.x : cam.tx, z = gen ? gen.y : cam.tz;
+        cam.dist = 40 * (this.map.scale || 1) / 3 + 20; cam.tx = x; cam.tz = z;
+        cam.flyTo(x, z, 150 * (this.map.scale || 1) / 3 + 60, 0.5);
+      }
+    } else {
+      this.hidePanel && this.hidePanel();
+      if (this.setMode) this.setMode(null);
+      cam.goal = null;
+      cam.fovY = TPS.FOV * Math.PI / 180; cam.minDist = TPS.DMIN; cam.nearMin = 0.04;
+      if (!this.tps) this.tps = { yaw: 0, pitch: TPS.PITCH, dist: TPS.DIST };
+      this.tpsSnap = true;
+    }
+    if (this.state === STATE.PLAYING && this.mission !== undefined && this.hudReady) this.updateHud(true);
+  },
+
+  /** 毎フレーム：大将を動かし、カメラを背中の後ろへ */
+  tpsUpdate(dt) {
+    if (!this.isTps()) return;
+    const g = this.game, cam = this.cam, map = this.map, T = this.tps;
+    const gen = g.general && g.general.alive ? g.general : null;
+    const sy = Math.sin(T.yaw), cy = Math.cos(T.yaw);
+    const fx = -sy, fz = -cy, rx = cy, rz = -sy;   // 地面の上の前と右
+    // 入力：スティック＋キー（WASD・矢印）
+    let ix = this.joyV ? this.joyV[0] : 0, iy = this.joyV ? -this.joyV[1] : 0, run = this.joyRun;
+    if (this.keys && this.keys.size && !this.paused) {
+      for (const k of this.keys) {
+        if (k === 'w' || k === 'W' || k === 'ArrowUp') iy += 1;
+        if (k === 's' || k === 'S' || k === 'ArrowDown') iy -= 1;
+        if (k === 'a' || k === 'A' || k === 'ArrowLeft') ix -= 1;
+        if (k === 'd' || k === 'D' || k === 'ArrowRight') ix += 1;
+        if (k === 'Shift') run = true;
+        if (k === 'q' || k === 'Q') T.yaw += dt * 2.2;
+        if (k === 'e' || k === 'E') T.yaw -= dt * 2.2;
+      }
+    }
+    // 大将が（復活して）現れたら、城の門の前に立たせ、城の方を向く
+    if (gen && gen !== this.tpsGen) {
+      this.tpsGen = gen;
+      const S0 = map.scale || 1, big = 0.9 * 1.15, oz = 4.6 * big;
+      if (map.isLand(map.id(Math.floor(gen.x), Math.floor(gen.y + oz)))) gen.y += oz;
+      gen.px = gen.x; gen.py = gen.y;
+      T.yaw = 0; this.tpsSnap = true;
+      void S0;
+    }
+    const mag = Math.min(1, Math.hypot(ix, iy));
+    if (gen && mag > 0.08 && !this.paused) {
+      const S = map.scale || 1;
+      const sp = (0.55 + 0.4 * S) * (run ? 1.75 : 1) * mag * dt;
+      const n = Math.hypot(ix, iy) || 1, dx = (rx * ix + fx * iy) / n, dz = (rz * ix + fz * iy) / n;
+      const land = (x, z) => { const i = map.id(Math.floor(x), Math.floor(z)); return i >= 0 && map.isLand(i); };
+      let nx = gen.x + dx * sp, nz = gen.y + dz * sp;
+      if (!land(nx, nz)) {   // 海には入れない：岸に沿ってすべる
+        if (land(gen.x + dx * sp, gen.y)) nz = gen.y;
+        else if (land(gen.x, gen.y + dz * sp)) nx = gen.x;
+        else { nx = gen.x; nz = gen.y; }
+      }
+      gen.x = nx; gen.y = nz;
+      this.genMoving = true;
+    } else this.genMoving = false;
+    if (gen) { gen.px = gen.x; gen.py = gen.y; gen.dest = null; gen.path = null; }
+    // カメラ：大将の右肩の後ろ
+    const H = TPS.H;
+    const tx = gen ? gen.x : (this.tpsLast ? this.tpsLast[0] : cam.tx), tz = gen ? gen.y : (this.tpsLast ? this.tpsLast[1] : cam.tz);
+    this.tpsLast = [tx, tz];
+    const sh = H * 0.55 * Math.min(1, T.dist / 3);
+    const gx = tx + rx * sh, gz = tz + rz * sh;
+    const k = this.tpsSnap ? 1 : Math.min(1, dt * 12);
+    this.tpsSnap = false;
+    cam.goal = null;
+    cam.tx += (gx - cam.tx) * k; cam.tz += (gz - cam.tz) * k;
+    cam.ty = H * 1.05;
+    // 建築中は少し引いて見下ろす（置く場所と周りが見えるように）
+    this.buildK = (this.buildK || 0) + ((this.build ? 1 : 0) - (this.buildK || 0)) * Math.min(1, dt * 6);
+    const bk = this.buildK;
+    cam.yaw = T.yaw; cam.pitch = cam.pitchGoal = clamp(T.pitch + bk * 16, TPS.PMIN, 75); cam.dist = T.dist * (1 + bk * 0.9);
+    cam.fovY = TPS.FOV * Math.PI / 180; cam.minDist = TPS.DMIN; cam.nearMin = 0.04;
+    this.ghostUpdate();
+  },
+  /** 視点を回す（ドラッグ量 px） */
+  tpsLook(dx, dy) {
+    const T = this.tps;
+    if (!T) return;
+    T.yaw -= dx * 0.0085;
+    T.pitch = clamp(T.pitch + dy * 0.18, TPS.PMIN, TPS.PMAX);
+  },
+  tpsZoom(f) { const T = this.tps; if (T) T.dist = clamp(T.dist * f, TPS.DMIN, TPS.DMAX); },
+
+  // ------------------------------------------------ 建築（大将の前のマスに設計図を出して、決定で建てる）
+  startBuild(type) {
+    if (!this.isTps()) { this.banner('地図の画面では建てられません', 'ng', '「大将に戻る」で大将の視点にしてから建てよう'); return; }
+    const t = type || (this.build && this.build.type) || this.lastBuild || BUILD_ORDER.find((k) => BUILDINGS[k].cat === (this.bcat || 'eco'));
+    if (!this.build) this.build = { type: t, rotK: 0 };
+    this.build.type = t; this.lastBuild = t;
+    document.body.classList.add('building');
+    this.menuHidden = false;
+    this.buildMenu();
+    for (const b of document.querySelectorAll('.bcard')) b.classList.toggle('on', b.dataset.b === t);
+    this.ghostUpdate();
+  },
+  endBuild() {
+    this.build = null; this.ghost = null;
+    document.body.classList.remove('building');
+    for (const b of document.querySelectorAll('.bcard')) b.classList.remove('on');
+  },
+  toggleBuild() { if (this.build) this.endBuild(); else this.startBuild(); },
+  rotateBuild() { if (this.build) { this.build.rotK = (this.build.rotK + 1) % 4; this.ghostUpdate(); } },
+  ghostUpdate() {
+    const g = this.game, B = this.build;
+    if (!B || !this.isTps() || !g.general || !g.general.alive) { this.ghost = null; this.updateBuildBtn(); return; }
+    const gen = g.general, map = this.map, T = this.tps;
+    const def = BUILDINGS[B.type];
+    const reach = TPS.REACH * (def.node ? 1.5 : 1);
+    const x = Math.floor(gen.x - Math.sin(T.yaw) * reach), z = Math.floor(gen.y - Math.cos(T.yaw) * reach);
+    const cell = map.id(x, z);
+    // 正面（戸のある側）を大将の方へ向け、90度ずつ回せる
+    const rot = Math.round(-T.yaw / (Math.PI / 2)) * (Math.PI / 2) + B.rotK * Math.PI / 2;
+    const why = cell < 0 ? 'sea' : g.canBuild(B.type, this.me, cell, 0);
+    if (!this.ghost || this.ghost.cell !== cell || this.ghost.rot !== rot || this.ghost.type !== B.type) {
+      this.ghost = { cell, type: B.type, rot, x: x + 0.5, z: z + 0.5, why,
+        b: { id: -7, type: B.type, cell, x: x + 0.5, y: z + 0.5, owner: this.me, wallet: 0, hp: 1, maxHp: 1, rot, t: 0, mul: 1, forest: 10, ghost: true } };
+    }
+    this.ghost.why = why;
+    this.updateBuildBtn();
+  },
+  updateBuildBtn() {
+    const el = $('bc-place');
+    if (!el) return;
+    const G = this.ghost, ok = G && !G.why;
+    el.classList.toggle('ng', !ok);
+    const lab = el.querySelector('span');
+    if (lab) lab.textContent = !G ? '置けません' : ok ? `${BUILDINGS[G.type].name}を建てる` : this.buildWhy(G.why);
+  },
+  buildWhy(why) {
+    return { sea: '海には置けない', notown: '自県の領土の外', crowded: '近くに建物がある', nearnode: '拠点に近すぎる', terrain: '地形が合わない',
+      noforest: '森の近くに置こう', cost: '資源が足りない', nomountain: '山の近くに置こう', nocoast: '海の近くに置こう' }[why] || '置けません';
+  },
+  placeBuild() {
+    const G = this.ghost, g = this.game;
+    if (!G) return;
+    if (G.why) { this.showBuildFail(G.why); Sfx.alert && Sfx.alert(); return; }
+    const r = g.playerBuild(G.type, G.cell);
+    if (r.ok) {
+      if (r.building) r.building.rot = G.rot;
+      this.marker = { x: G.x, z: G.z, t: this.clock, ok: true };
+      Sfx.boom && Sfx.boom(0.25);
+      this.ghost = null; this.ghostUpdate();
+    } else this.showBuildFail(r.why);
+    this.updateHud(true);
+  },
+
+  // ------------------------------------------------ 旗・作戦（大将のいる場所で）
+  tpsFlag() {
+    const g = this.game, gen = g.general;
+    if (!gen || !gen.alive) { this.banner('大将はいま県庁で立て直し中', 'ng', `あと${this.fmtDur(Math.max(0, (g.generalAt || 0) - g.time))}で復活`); return; }
+    const own = g.owner[g.cellAt(gen.x, gen.y)];
+    if (own === this.me) {
+      if (g.setFlagOrder({ x: gen.x, y: gen.y })) { this.banner('敵の旗を倒しに行け！', 'ok', '正方形の中の敵の兵を倒せば、旗は消えます'); this.updateHud(true); return; }
+      this.banner('ここは自県の領土', 'ng', '敵の領土まで進んでから旗を立てよう（敵の旗の近くなら迎撃）');
+      return;
+    }
+    if (!own) { this.banner('ここには立てられません', 'ng', ''); return; }
+    const f = g.plantFlagAt(this.me, gen.x, gen.y, 0);
+    if (!f) { this.banner('ここには立てられません', 'ng', 'ほかの旗の正方形と重なっています'); return; }
+    if (g.setFlagOrder({ x: f.x, y: f.y }, 0) && g.flagOrder) g.flagOrder.flag = f;
+    this.banner('旗を立てた！', 'ok', `正方形の中で仲間と${this.fmtDur(CONFIG.FLAG_HOLD)}守り抜け`);
+    Sfx.fanfare && Sfx.fanfare();
+    this.updateHud(true);
+  },
+  /** 作戦の目標の場所：大将の視線の先 */
+  aimPoint(far) {
+    const g = this.game, gen = g && g.general, T = this.tps;
+    if (!this.isTps() || !gen || !gen.alive) return { x: this.cam.tx, z: this.cam.tz };
+    const d = far ? 9 * (this.map.scale || 1) / 3 + 3 : 0;
+    return { x: gen.x - Math.sin(T.yaw) * d, z: gen.y - Math.cos(T.yaw) * d };
+  },
+
+  // ------------------------------------------------ 入力（スティック）
+  setupTpsInput() {
+    const joy = $('joy'), knob = joy.firstElementChild;
+    let id = null, c0 = null;
+    const R = 46;
+    const set = (e) => {
+      let dx = e.clientX - c0[0], dy = e.clientY - c0[1];
+      const d = Math.hypot(dx, dy);
+      if (d > R) { dx *= R / d; dy *= R / d; }
+      knob.style.transform = `translate(${dx}px, ${dy}px)`;
+      this.joyV = [dx / R, dy / R];
+      this.joyRun = d > R * 1.25;   // 外まで倒すと走る
+    };
+    joy.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); joy.setPointerCapture(e.pointerId); id = e.pointerId;
+      const r = joy.getBoundingClientRect(); c0 = [r.left + r.width / 2, r.top + r.height / 2];
+      joy.classList.add('on'); set(e);
+    });
+    joy.addEventListener('pointermove', (e) => { if (e.pointerId === id) set(e); });
+    const up = (e) => { if (e.pointerId !== id) return; id = null; this.joyV = [0, 0]; this.joyRun = false; knob.style.transform = ''; joy.classList.remove('on'); };
+    joy.addEventListener('pointerup', up); joy.addEventListener('pointercancel', up);
+    $('bc-rot').addEventListener('click', () => this.rotateBuild());
+    $('bc-close').addEventListener('click', () => this.endBuild());
+    // 下の帯の高さ（スティックと記録をその上に置く）
+    const bb = $('bottombar'), setH = () => document.body.style.setProperty('--bbh', bb.offsetHeight + 'px');
+    if (window.ResizeObserver) new ResizeObserver(setH).observe(bb); else window.addEventListener('resize', setH);
+    setH();
+    $('bc-place').addEventListener('click', () => this.placeBuild());
+    $('t-build').addEventListener('click', () => this.toggleBuild());
+    $('t-flag').addEventListener('click', () => this.tpsFlag());
+    $('t-map').addEventListener('click', () => this.setView('map'));
+    $('mb-back').addEventListener('click', () => this.setView('tps'));
+    $('mb-top').addEventListener('click', () => this.toggleTop());
+  },
+
+  // ------------------------------------------------ 大将の姿（三人称視点では立体の鎧武者）
+  /**
+   * 前が +z。手足は付け根を原点にして下へ伸ばし（高さを負に）、前後に振る。
+   * 漆塗りの胴・県の色の威し糸・大袖・兜と金の鍬形・背中の指物・腰の刀
+   */
+  drawGeneral3D(I, x, z, s, moved, fighting, team, H, C) {
+    const r = -s.yaw, c = Math.cos(r), sn = Math.sin(r);
+    const walk = moved > 1e-4 ? Math.min(1, moved / (0.02 * H)) : 0;
+    s.walkK = (s.walkK || 0) + (walk - (s.walkK || 0)) * 0.2;
+    const ph = s.phase * 0.55, k = s.walkK;
+    const sw = Math.sin(ph) * 0.62 * k, bob = Math.abs(Math.cos(ph)) * 0.025 * k;
+    const V = (mesh, lx, ly, lz, sx, sy, sz, col, r2, tilt) => I[mesh].push(x + (lx * c - lz * sn) * H, (ly + bob) * H, z + (lx * sn + lz * c) * H, sx * H, sy * H, sz * H, col, r + (r2 || 0), tilt || 0);
+    const lac = [0.09, 0.08, 0.09], lac2 = [0.16, 0.14, 0.15], gold = [0.95, 0.76, 0.26], skin = [0.88, 0.7, 0.55];
+    const hak = team.map((q) => q * 0.55 + 0.05), tm = team;
+    I.shadow.push(x, 0.015, z, 0.55 * H, 0.01, 0.45 * H, [0, 0, 0], r);
+    // 脚（袴）と足
+    for (const sd of [-1, 1]) {
+      const t = sw * sd;
+      V('cylW', sd * 0.075, 0.47, 0, 0.14, -0.4, 0.15, hak, 0, t);
+      V('box', sd * 0.075, 0.47 - Math.cos(t) * 0.43, -Math.sin(t) * 0.43 + 0.03, 0.08, 0.05, 0.14, lac);
+      V('cylW', sd * 0.075, 0.25 - Math.cos(t) * 0.0, -Math.sin(t) * 0.24, 0.1, 0.12, 0.1, lac2, 0, t);   // すね当て
+    }
+    // 草摺（腰の板）・胴・威し糸
+    V('cylW', 0, 0.38, 0, 0.36, 0.14, 0.27, lac2);
+    for (let j = 0; j < 3; j++) V('box', 0, 0.4 + j * 0.045, 0.002, 0.37, 0.012, 0.28, tm);
+    V('boxW', 0, 0.5, 0, 0.3, 0.3, 0.2, lac);
+    for (let j = 0; j < 4; j++) V('box', 0, 0.54 + j * 0.06, 0.103, 0.29, 0.014, 0.01, tm);   // 胴の前の威し
+    V('box', 0, 0.78, 0, 0.24, 0.05, 0.18, lac2);   // 胸板
+    V('box', 0, 0.62, 0.105, 0.05, 0.05, 0.01, gold);   // 胴の金具
+    // 腕（大袖・籠手）
+    for (const sd of [-1, 1]) {
+      const t = fighting ? (sd > 0 ? -1.1 + Math.sin(this.clock * 9) * 0.35 : -0.4) : -sw * sd * 0.8;
+      V('cylW', sd * 0.19, 0.78, 0, 0.09, -0.3, 0.09, lac2, 0, t);
+      V('box', sd * 0.205, 0.68, 0, 0.06, 0.17, 0.16, tm, 0, t * 0.6);   // 大袖（県の色）
+      V('sphere', sd * 0.19, 0.78 - Math.cos(t) * 0.31 - 0.03, -Math.sin(t) * 0.31 - 0.03, 0.06, 0.06, 0.06, skin);
+    }
+    // 刀（右手で抜いて振る／歩くときは左腰）
+    if (fighting) {
+      const t = -1.1 + Math.sin(this.clock * 9) * 0.35;
+      V('box', 0.19, 0.78 - Math.cos(t) * 0.31, -Math.sin(t) * 0.31, 0.015, 0.42, 0.03, [0.85, 0.87, 0.9], 0, t + 0.9);
+    } else V('box', -0.17, 0.43, 0.02, 0.025, 0.04, 0.4, lac, 0, 0);
+    // 首・顔・面頬
+    V('cylW', 0, 0.8, 0, 0.08, 0.05, 0.08, skin);
+    V('sphere', 0, 0.82, 0.005, 0.15, 0.16, 0.15, skin);
+    V('box', 0, 0.84, 0.065, 0.11, 0.05, 0.03, [0.55, 0.12, 0.1]);   // 赤い面頬
+    // 兜：鉢・吹返し・しころ・金の鍬形と前立
+    V('sphere', 0, 0.875, 0, 0.19, 0.15, 0.2, lac);
+    V('cylW', 0, 0.86, -0.01, 0.25, 0.035, 0.24, lac2);
+    for (let j = 0; j < 3; j++) V('cylW', 0, 0.8 - j * 0.035, -0.02, 0.27 + j * 0.03, 0.03, 0.25 + j * 0.03, j % 2 ? tm : lac2);   // しころ
+    for (const sd of [-1, 1]) V('box', sd * 0.06, 0.97, 0.1, 0.02, 0.2, 0.015, gold, sd * -0.25, -0.25);   // 鍬形（V字）
+    V('sphere', 0, 0.94, 0.1, 0.05, 0.05, 0.02, gold);
+    // 背中の指物（県の色の旗）
+    V('cylW', 0.05, 0.62, -0.13, 0.02, 0.85, 0.02, [0.3, 0.2, 0.13]);
+    V('box', 0.05, 1.12, -0.13, 0.015, 0.34, 0.22, tm, 0, 0);
+    V('box', 0.05, 1.29, -0.13, 0.016, 0.04, 0.24, gold);
+    // 歩くと土ぼこり
+    if (moved > 0.01 && this.clock >= (s.dustAt || 0)) { s.dustAt = this.clock + 0.3; this.blast(9, x - Math.sin(s.yaw) * 0.2 * H, 0, z - Math.cos(s.yaw) * 0.2 * H, 0.25); }
+  },
+
+  // ------------------------------------------------ 描画の補助
+  /** 設計図のまわりのマス目（マイクラ風）と、置けるか・理由 */
+  drawGhostOverlay(ctx) {
+    const G = this.ghost, cam = this.cam;
+    if (!G || !this.isTps()) return;
+    const v = [0, 0], ok = !G.why;
+    const x0 = Math.floor(G.x), z0 = Math.floor(G.z), n = 3;
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(255,255,255,.22)';
+    ctx.beginPath();
+    for (let k = -n; k <= n + 1; k++) {
+      let a = cam.project(x0 + k, 0.01, z0 - n, [0, 0]), b = cam.project(x0 + k, 0.01, z0 + n + 1, [0, 0]);
+      if (a && b) { ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
+      a = cam.project(x0 - n, 0.01, z0 + k, [0, 0]); b = cam.project(x0 + n + 1, 0.01, z0 + k, [0, 0]);
+      if (a && b) { ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
+    }
+    ctx.stroke();
+    // 建物の大きさの四角（向きつき）
+    const def = BUILDINGS[G.type], hw = (def.node ? 1.6 : 1.15) * 0.72, cs = Math.cos(G.rot), sn = Math.sin(G.rot);
+    const pts = [[-hw, -hw], [hw, -hw], [hw, hw], [-hw, hw]].map(([lx, lz]) => cam.project(G.x + lx * cs - lz * sn, 0.02, G.z + lx * sn + lz * cs, [0, 0]));
+    if (pts.every(Boolean)) {
+      const pulse = 0.6 + 0.4 * Math.sin(this.clock * 6);
+      ctx.strokeStyle = ok ? `rgba(120,255,140,${pulse})` : `rgba(255,90,70,${pulse})`;
+      ctx.fillStyle = ok ? 'rgba(80,220,110,.18)' : 'rgba(240,70,50,.2)';
+      ctx.lineWidth = 3;
+      ctx.beginPath(); pts.forEach((p, k) => (k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.closePath(); ctx.fill(); ctx.stroke();
+      // 正面の印（戸の向き）
+      const f = cam.project(G.x - hw * 1.25 * sn, 0.02, G.z + hw * 1.25 * cs, v);
+      if (f) { ctx.fillStyle = ctx.strokeStyle; ctx.beginPath(); ctx.arc(f[0], f[1], 4, 0, 7); ctx.fill(); }
+    }
+    const top = cam.project(G.x, def.node ? 2.4 : 1.5, G.z, v);
+    if (top) {
+      const txt = ok ? `${BUILDINGS[G.type].name}` : `✕ ${this.buildWhy(G.why)}`;
+      ctx.font = '700 13px ' + getComputedStyle(document.body).getPropertyValue('--serif');
+      const w = ctx.measureText(txt).width + 16;
+      ctx.fillStyle = ok ? 'rgba(20,50,20,.85)' : 'rgba(70,16,10,.88)';
+      ctx.strokeStyle = ok ? '#b8f0a0' : '#ffb08a'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.rect(top[0] - w / 2, top[1] - 24, w, 22); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(txt, top[0], top[1] - 13);
+    }
+    ctx.restore();
+  },
+  /** 大将の頭上の名前と体力（三人称視点） */
+  drawGeneralTag(ctx) {
+    const g = this.game, gen = g && g.general;
+    if (!this.isTps()) return;
+    if (!gen || !gen.alive) {
+      const left = Math.max(0, (g.generalAt || 0) - g.time);
+      ctx.save();
+      ctx.fillStyle = 'rgba(20,10,4,.75)'; ctx.fillRect(this.w / 2 - 130, this.h * 0.42 - 26, 260, 52);
+      ctx.fillStyle = '#f3d98e'; ctx.font = '800 16px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('大将は県庁で立て直し中', this.w / 2, this.h * 0.42 - 8);
+      ctx.font = '600 12px sans-serif'; ctx.fillStyle = '#e8d6aa'; ctx.fillText(`あと${this.fmtDur(left)}で復活`, this.w / 2, this.h * 0.42 + 12);
+      ctx.restore();
+    }
+  },
+  /** 遠くの景色を霧に溶かす */
+  fogOpt() { return this.isTps() ? TPS.FOG : null; },
+  /** 画面に映る地面の範囲（三人称視点は大将のまわり） */
+  viewBox(m) {
+    const cam = this.cam;
+    if (this.isTps()) return [cam.tx - TPS.R, cam.tz - TPS.R, cam.tx + TPS.R, cam.tz + TPS.R];
+    const pts = [[0, 0], [this.w, 0], [0, this.h], [this.w, this.h]].map(([sx, sy]) => cam.groundAt(sx, sy)).filter(Boolean);
+    if (pts.length < 4) return null;
+    return [Math.min(...pts.map((p) => p.x)) - m, Math.min(...pts.map((p) => p.z)) - m, Math.max(...pts.map((p) => p.x)) + m, Math.max(...pts.map((p) => p.z)) + m];
+  },
+});
+
 // テスト・デバッグ用
-window.__jinchi = { App, CONFIG, STATE, get game() { return App.game; } };
+window.__jinchi = { App, CONFIG, STATE, TPS, get game() { return App.game; } };
 App.start();
 
 })();

@@ -87,15 +87,30 @@
       <div class="cp-meta" id="cp-meta"></div>
       <div class="cp-note" id="cp-note"></div>
     </div>
+    <div id="joy" class="tps-only" aria-label="移動"><i></i></div>
+    <div id="mapbar" class="map-only">
+      <button id="mb-back" class="btn-primary"><i data-ico="general"></i><span>大将に戻る</span></button>
+      <button id="mb-top"><i data-ico="top"></i><span>真上／斜め</span></button>
+    </div>
     <div id="bottombar">
       <div id="hint" class="hidden"></div>
-      <div class="actrow">
+      <div class="actrow" id="tpsbar">
+        <button id="t-build" class="b-rally"><i data-ico="build"></i><span>建築</span></button>
+        <button id="t-flag" class="b-rally b-flag"><i data-ico="flag"></i><span>旗を立てる</span></button>
+        <button id="t-map" class="b-rally"><i data-ico="top"></i><span>地図</span></button>
+      </div>
+      <div class="actrow" id="oldrow">
         <button id="btn-rally" class="b-rally"><i data-ico="attack"></i><span>攻撃目標</span></button>
         <button id="btn-flag" class="b-rally b-flag"><i data-ico="flag"></i><span>旗を立てる</span></button>
         <button id="btn-gen" class="b-rally b-gen"><i data-ico="general"></i><span>大将</span></button>
         <button id="btn-cancel" class="b-cancel hidden">✕ やめる</button>
       </div>
       <div class="actrow" id="abilrow"></div>
+      <div class="actrow" id="buildctl">
+        <button id="bc-close" aria-label="建築をやめる">✕</button>
+        <button id="bc-rot" aria-label="回転">⟳ 回転</button>
+        <button id="bc-place"><span>ここに建てる</span></button>
+      </div>
       <div id="bcats"></div>
       <div id="buildmenu"></div>
     </div>

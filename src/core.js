@@ -416,6 +416,7 @@ class MapData {
 class Camera {
   constructor() {
     this.tx = 1200; this.tz = 1080; this.dist = 3000; this.pitch = CONFIG.CAMERA_PITCH;
+    this.yaw = 0; this.ty = 0;    // 三人称視点用（yaw=水平回転[rad], ty=注視点の高さ）
     this.goal = null;             // flyTo アニメーション
     this.pitchGoal = this.pitch;
     this.fovY = CONFIG.FOV * Math.PI / 180;
@@ -453,7 +454,7 @@ class Camera {
   }
   clampTarget() {
     const [x0, z0, x1, z1] = this.bounds;
-    this.dist = clamp(this.dist, CONFIG.ZOOM_MIN, CONFIG.ZOOM_MAX);
+    this.dist = clamp(this.dist, this.minDist || CONFIG.ZOOM_MIN, CONFIG.ZOOM_MAX);
     // 引いているときほど注視点を地図の外まで動かせる（画面の端に地図を寄せられるように）
     const m = 100 + this.dist * 0.5;
     this.tx = clamp(this.tx, x0 - m, x1 + m);
@@ -461,8 +462,9 @@ class Camera {
   }
   basis() {
     const p = this.pitch * Math.PI / 180, s = Math.sin(p), c = Math.cos(p);
-    const eye = [this.tx, this.dist * s, this.tz + this.dist * c];
-    const f = [0, -s, -c], r = [1, 0, 0], u = [0, c, -s];
+    const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
+    const eye = [this.tx + this.dist * c * sy, this.ty + this.dist * s, this.tz + this.dist * c * cy];
+    const f = [-c * sy, -s, -c * cy], r = [cy, 0, -sy], u = [-s * sy, c, -s * cy];
     return { eye, f, r, u };
   }
   compute() {
@@ -475,7 +477,7 @@ class Camera {
       -(u[0] * eye[0] + u[1] * eye[1] + u[2] * eye[2]),
       (f[0] * eye[0] + f[1] * eye[1] + f[2] * eye[2]), 1];
     const aspect = this.w / this.h;
-    const near = Math.max(0.5, this.dist * 0.05), far = this.dist * 6 + 500;
+    const near = Math.max(this.nearMin || 0.5, this.dist * 0.05), far = this.dist * 6 + 500;
     const t = 1 / Math.tan(this.fovY / 2);
     const proj = [t / aspect, 0, 0, 0, 0, t, 0, 0, 0, 0, (far + near) / (near - far), -1, 0, 0, (2 * far * near) / (near - far), 0];
     mat4mul(this.vp, proj, view);
@@ -569,7 +571,15 @@ uniform float uHasFine;
 uniform sampler2D uFine;       // 細かい持ち主の区画（64×64マスずつ。L=持ち主＋最近占領なら64）
 uniform sampler2D uFInd;       // 細かい区画の表：RG=区画の位置, A=受け取り済みか
 uniform vec2 uFTiles;
+uniform vec3 uEye;     // 三人称視点の霧（遠くを空の色に溶かす）
+uniform vec3 uFog;     // x=始まり, y=終わり, z=有効か
+uniform vec3 uFogCol;
 varying vec2 vWorld;
+vec3 fogged(vec3 c){
+  if (uFog.z < 0.5) return c;
+  float d = length(vec3(vWorld.x - uEye.x, uEye.y, vWorld.y - uEye.z));
+  return mix(c, uFogCol, smoothstep(uFog.x, uFog.y, d) * 0.92);
+}
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p){
   vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
@@ -616,12 +626,12 @@ void main(){
 #endif
   vec2 uv = vWorld / uGrid;
   vec3 deep = vec3(0.10, 0.22, 0.32);   // 藍色がかった深い海
-  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { gl_FragColor = vec4(deep, 1.0); return; }
+  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { gl_FragColor = vec4(fogged(deep), 1.0); return; }
   vec4 e = texture2D(uElev, uv);
   // 沖合（近くに陸地がない）は区画を読まずに海だけ描く
   if (e.a < 0.004) {
     vec3 w0 = deep + (noise(vWorld * 0.8 + vec2(uTime * 0.15, uTime * 0.07)) - 0.5) * 0.04;
-    gl_FragColor = vec4(w0, 1.0); return;
+    gl_FragColor = vec4(fogged(w0), 1.0); return;
   }
   // 地形：このマスの種類の色（高いところは岩の色に）＋ 4マスの陸／海をなめらかにつないで海岸線を丸く
   vec2 cw = vWorld / uScale;
@@ -664,7 +674,7 @@ void main(){
   if (uHasGrass > 0.5) {
     // 草の筋の絵を2つの大きさで重ねて貼る（くり返しが目立たないように）
     // 引いたときも筋がつぶれて平らな色にならないよう、拡大率に合わせて絵の大きさを2倍ずつ切り替える（となりの段となめらかに混ぜる）
-    float lod = max(0.0, log2(cpp * 40.0));
+    float lod = max(-2.5, log2(cpp * 40.0));   // ごく近く（三人称視点）では絵を細かくくり返して、ぼやけないように
     float s0 = exp2(floor(lod)), lf = fract(lod);
     vec2 r2 = vec2(vWorld.y, -vWorld.x);
     vec2 w1 = vWorld / (5.0 * s0), w2 = r2 / (17.0 * s0) + 0.37;
@@ -747,7 +757,30 @@ void main(){
       if (uPlace > 0.0) col = abs(id - uMe) < 0.5 ? mix(col, vec3(0.75, 1.0, 0.6), 0.12) : col * 0.7;
     }
   }
-  gl_FragColor = vec4(col, 1.0);
+  // ごく近く（三人称視点）：草の細かいむらと土の粒
+  float closeK = 1.0 - smoothstep(0.01, 0.06, cpp);
+  if (closeK > 0.0) {
+    float n1 = noise(vWorld * 6.0), n2 = noise(vWorld * 21.0 + 3.1), n3 = noise(vWorld * 1.6 - 4.0), n4 = noise(vWorld * vec2(55.0, 9.0));
+    col *= 1.0 + closeK * isLand * ((n1 - 0.5) * 0.24 + (n2 - 0.5) * 0.2 + (n3 - 0.5) * 0.16 + (n4 - 0.5) * 0.12);
+  }
+  gl_FragColor = vec4(fogged(col), 1.0);
+}`;
+
+// 空（三人称視点）：地平線から上へ、もやの色 → 青空
+const SKY_VS = `
+attribute vec2 aPos;
+varying float vY;
+void main(){ vY = aPos.y; gl_Position = vec4(aPos, 0.999, 1.0); }`;
+const SKY_FS = `
+precision mediump float;
+uniform float uHor;
+uniform vec3 uTop;
+uniform vec3 uHorC;
+varying float vY;
+void main(){
+  float t = smoothstep(uHor, uHor + 1.6, vY);
+  vec3 c = mix(uHorC, uTop, pow(t, 0.7));
+  gl_FragColor = vec4(c, 1.0);
 }`;
 
 const LINE_VS = `
@@ -813,6 +846,9 @@ uniform float uAlpha;   // 影は半透明
 uniform float uFlat;    // 影・地面の敷物は陰影をつけない
 uniform float uMat;     // 表面の模様 0:なし 1:屋根(瓦・茅) 2:壁(板目) 3:針葉樹 4:広葉樹 5:幹・柱(木目) 6:土の敷物
 uniform float uDetail;  // 拡大したときだけ模様を出す（0..1）
+uniform vec3 uEye;
+uniform vec3 uFog;
+uniform vec3 uFogCol;
 varying vec3 vN;
 varying vec3 vC;
 varying vec3 vL;
@@ -855,7 +891,9 @@ void main(){
   }
   // 光は手前左上から（見えている壁が明るくなるように）
   float l = 0.45 + 0.62 * max(dot(n, normalize(vec3(-0.45, 0.8, 0.5))), 0.0) + 0.06 * n.y;
-  gl_FragColor = vec4(mix(c * l, c, uFlat), uAlpha);
+  vec3 oc = mix(c * l, c, uFlat);
+  if (uFog.z > 0.5) oc = mix(oc, uFogCol, smoothstep(uFog.x, uFog.y, length(vW - uEye)) * 0.92);
+  gl_FragColor = vec4(oc, uAlpha);
 }`;
 const INST_FLOATS = 11;
 /** インスタンスの種類 → 表面の模様（名前の大文字以降は同じ形で模様違い：boxW=板目の箱 など） */
@@ -948,6 +986,10 @@ class Renderer {
     this.line = compile(gl, LINE_VS, LINE_FS);
     this.mesh = compile(gl, MESH_VS, MESH_FS);
     this.sprite = compile(gl, SPRITE_VS, SPRITE_FS);
+    this.sky = compile(gl, SKY_VS, SKY_FS);
+    this.skyBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.skyBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     this.spriteBuf = gl.createBuffer();
     this.spriteQuad = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.spriteQuad);
@@ -1229,9 +1271,28 @@ class Renderer {
     const gl = this.gl, map = this.map;
     this.flush();
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-    gl.clearColor(0.10, 0.22, 0.32, 1);
+    const fog = opt.fog, fc = fog ? fog.col : null;
+    if (fog) gl.clearColor(fc[0], fc[1], fc[2], 1); else gl.clearColor(0.10, 0.22, 0.32, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     const vp = cam.compute();
+    const eyeB = cam.basis().eye;
+    const setFog = (P) => {
+      if (!P.u.uFog) return;
+      gl.uniform3f(P.u.uFog, fog ? fog.start : 0, fog ? fog.end : 1, fog ? 1 : 0);
+      if (fog) { gl.uniform3f(P.u.uEye, eyeB[0], eyeB[1], eyeB[2]); gl.uniform3f(P.u.uFogCol, fc[0], fc[1], fc[2]); }
+    };
+    if (fog) {   // 空
+      const K = this.sky;
+      gl.useProgram(K.p); gl.disable(gl.DEPTH_TEST);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.skyBuf);
+      gl.enableVertexAttribArray(K.a.aPos);
+      gl.vertexAttribPointer(K.a.aPos, 2, gl.FLOAT, false, 0, 0);
+      gl.uniform1f(K.u.uHor, Math.tan(cam.pitch * Math.PI / 180) / Math.tan(cam.fovY / 2));
+      gl.uniform3f(K.u.uTop, fog.top[0], fog.top[1], fog.top[2]);
+      gl.uniform3f(K.u.uHorC, fc[0], fc[1], fc[2]);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      gl.disableVertexAttribArray(K.a.aPos);
+    }
     // --- 地面
     const g = this.ground;
     gl.useProgram(g.p);
@@ -1257,6 +1318,7 @@ class Renderer {
     gl.uniform1f(g.u.uPlace, opt.place ? 1 : 0);
     gl.uniform1f(g.u.uTime, opt.time || 0);
     if (g.u.uCpp) gl.uniform1f(g.u.uCpp, 1 / cam.cellPx());
+    setFog(g);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.disableVertexAttribArray(g.a.aPos);
     // --- 連絡線・インセット枠
@@ -1296,6 +1358,7 @@ class Renderer {
       const rank = (n) => (n === 'pad' ? 0 : n === 'shadow' ? 1 : 2);
       const order = Object.keys(meshes).sort((a, b) => rank(a) - rank(b));
       gl.uniform1f(M.u.uDetail, clamp((cam.cellPx() - 4) / 10, 0, 1));
+      setFog(M);
       for (const name of order) {
         const inst = meshes[name];
         if (!inst || !inst.count) continue;
@@ -1349,7 +1412,7 @@ class Renderer {
       if (!meshes) gl.clear(gl.DEPTH_BUFFER_BIT);
       gl.uniformMatrix4fv(Sx.u.uVP, false, vp);
       const b = cam.basis();
-      gl.uniform3f(Sx.u.uRight, 1, 0, 0);
+      gl.uniform3f(Sx.u.uRight, b.r[0], b.r[1], b.r[2]);
       gl.uniform3f(Sx.u.uUp, b.u[0], b.u[1], b.u[2]);
       gl.uniform1f(Sx.u.uFoot, (SPR.FH - SPR.FOOT) / SPR.FH);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.spriteColor); gl.uniform1i(Sx.u.uColor, 0);

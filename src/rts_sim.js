@@ -877,6 +877,8 @@ class Sim {
   }
   think(u) {
     const def = UNITS[u.type], S = this.S;
+    // 三人称視点であなたが直接動かしている大将は、勝手に歩かない（射程に入った敵とは自動で戦う）
+    if (u.isGeneral && this.genManual) { u.chase = -1; u.dest = null; u.path = null; u.goalNode = -1; return; }
     // 通常の兵士（足軽）は、敵の領土に入ったら旗を立てる
     if (CONFIG.FLAG_MODE && u.type === 'ashigaru' && u.engaged < 0 && (u.role === 'atk' || u.fromPlayer) && u.goalNode !== -2 && u.follow === undefined && this.rng() < 0.5) {
       const gn = this.nodes[u.goalNode];   // 攻め先の拠点の近くで立てる（途中で立てても守れないので）
