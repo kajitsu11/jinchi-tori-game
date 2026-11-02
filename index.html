@@ -5455,6 +5455,19 @@ const App = {
         }
       }
     }
+    // 鳥の群れ：ときどき画面を横切る（拡大しているときだけ。羽ばたく「へ」の字）
+    if (cpx > 1.5 && this.state === STATE.PLAYING) {
+      const cyc = 38, ph = (this.clock % cyc) / cyc, fid = Math.floor(this.clock / cyc);
+      if (ph < 0.45 && fid % 2 === 0) {
+        const k = ph / 0.45, dir = (fid / 2) % 2 ? 1 : -1, y0 = this.h * (0.22 + ((fid * 37) % 30) / 100);
+        ctx.strokeStyle = 'rgba(30,24,20,.75)'; ctx.lineWidth = 1.3;
+        for (let q = 0; q < 7; q++) {
+          const bx = (dir > 0 ? -60 + k * (this.w + 120) : this.w + 60 - k * (this.w + 120)) - dir * ((q % 3) * 16 + q * 5), by = y0 + (q % 3) * 9 + Math.floor(q / 3) * 7 + Math.sin(this.clock * 2 + q) * 2;
+          const wing = 3.2 + Math.sin(this.clock * 11 + q * 1.3) * 2.2;
+          ctx.beginPath(); ctx.moveTo(bx - 5, by - wing); ctx.quadraticCurveTo(bx - 2, by - 1, bx, by); ctx.quadraticCurveTo(bx + 2, by - 1, bx + 5, by - wing); ctx.stroke();
+        }
+      }
+    }
     // 燃えている建物：揺れる炎と、立ちのぼる黒い煙
     if (this.fires && this.fires.length) {
       for (const [x, z, sc, f, id] of this.fires) {
