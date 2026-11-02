@@ -699,6 +699,9 @@ void main(){
     land = mix(land, t.rgb * vec3(0.72, 0.86, 0.66), smoothstep(0.55, 0.8, patch2) * 0.4);
   }
   land *= shade;
+  // 流れる雲の影（大きくやわらかい影が、ゆっくり東へ動く）
+  float cloud = noise(vWorld * 0.0045 / uScale + vec2(uTime * 0.012, uTime * 0.004)) * 0.7 + noise(vWorld * 0.011 / uScale - vec2(uTime * 0.02, 0.0)) * 0.3;
+  land *= 1.0 - 0.16 * smoothstep(0.56, 0.74, cloud);
   // 海：岸に近いほど浅い色、さざ波
   float near = min(1.0, e.a * 2.2);
   vec3 shallow = vec3(0.30, 0.50, 0.50);   // 岸の近くは青緑（浅葱）
