@@ -615,7 +615,7 @@ void main(){
   float cpp = uCpp;
 #endif
   vec2 uv = vWorld / uGrid;
-  vec3 deep = vec3(0.09, 0.25, 0.40);
+  vec3 deep = vec3(0.10, 0.22, 0.32);   // 藍色がかった深い海
   if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { gl_FragColor = vec4(deep, 1.0); return; }
   vec4 e = texture2D(uElev, uv);
   // 沖合（近くに陸地がない）は区画を読まずに海だけ描く
@@ -701,9 +701,12 @@ void main(){
   land *= shade;
   // 海：岸に近いほど浅い色、さざ波
   float near = min(1.0, e.a * 2.2);
-  vec3 shallow = vec3(0.24, 0.52, 0.58);
+  vec3 shallow = vec3(0.30, 0.50, 0.50);   // 岸の近くは青緑（浅葱）
   vec3 water = mix(deep, shallow, near * near);
   water += (noise(vWorld * 0.8 + vec2(uTime * 0.15, uTime * 0.07)) - 0.5) * 0.04;
+  // 岸と平行な白い波の筋（浅いところだけ、ゆっくり寄せては返す）
+  float wv = sin(near * 26.0 - uTime * 1.3 + noise(vWorld * 0.15) * 4.0);
+  water += smoothstep(0.86, 1.0, wv) * smoothstep(0.25, 0.7, near) * (1.0 - smoothstep(0.85, 1.0, near)) * 0.09;
   float isLand = smoothstep(0.42, 0.58, t.a);
   float foam = smoothstep(0.25, 0.45, t.a) * (1.0 - isLand);
   vec3 col = mix(water + foam * 0.25, land, isLand);
@@ -1216,7 +1219,7 @@ class Renderer {
     const gl = this.gl, map = this.map;
     this.flush();
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-    gl.clearColor(0.09, 0.25, 0.40, 1);
+    gl.clearColor(0.10, 0.22, 0.32, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     const vp = cam.compute();
     // --- 地面
