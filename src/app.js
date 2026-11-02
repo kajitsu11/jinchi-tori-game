@@ -1559,6 +1559,7 @@ const App = {
     const dt = Math.min(0.1, Math.max(0, (now - this.lastT) / 1000));
     this.lastT = now;
     this.clock += dt;
+    this.autoQuality(now);
     if (this.renderer && !this.glLost) {
       this.keyPan(dt);
       this.cam.update(dt);
@@ -1809,9 +1810,26 @@ const App = {
       window.__jinchiError = e.message;
     }
   },
+  /**
+   * 画質の自動調整：描きかえが遅い端末（1秒に約22回未満）は描く細かさ（解像度）を下げ、余裕があれば戻す。
+   * 3秒ごとに、その間のフレームの平均時間で判断する
+   */
+  autoQuality(now) {
+    if (navigator.webdriver) return;   // 自動テストでは調整しない（ソフトウェア描画で遅いため）
+    if (!this.qT) { this.qT = now; this.qN = 0; this.quality = 1; return; }
+    this.qN++;
+    if (now - this.qT < 3000) return;
+    const ms = (now - this.qT) / this.qN;
+    this.qT = now; this.qN = 0;
+    if (document.hidden || this.state !== STATE.PLAYING) return;
+    let q = this.quality;
+    if (ms > 45 && q > 0.5) q = Math.max(0.5, q - 0.25);
+    else if (ms < 22 && q < 1) q = Math.min(1, q + 0.25);
+    if (q !== this.quality) { this.quality = q; this.resize(); }
+  },
   resize() {
     this.w = window.innerWidth; this.h = window.innerHeight;
-    this.dpr = Math.min(window.devicePixelRatio || 1, CONFIG.MAX_DPR);
+    this.dpr = Math.min(window.devicePixelRatio || 1, CONFIG.MAX_DPR) * (this.quality || 1);
     this.cam.setViewport(this.w, this.h);
     if (this.renderer) this.renderer.resize(this.w, this.h, this.dpr);
   },
