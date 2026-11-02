@@ -172,13 +172,18 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
 .cp-note { font-size: 12px; margin-top: 6px; color: #7a2c12; font-weight: 600; }
 .cp-note:empty { display: none; }
 
-#banner { position: absolute; left: 50%; top: 34%; transform: translate(-50%, -50%) scale(.8); z-index: 30; pointer-events: none; opacity: 0;
-  font-size: 28px; font-weight: 900; padding: 12px 26px; border-radius: 6px; white-space: nowrap; font-family: var(--serif); letter-spacing: .08em; text-shadow: 0 2px 4px rgba(0,0,0,.6); }
+#banner { position: absolute; left: 50%; top: 30%; transform: translate(-50%, -50%) scale(.8); z-index: 30; pointer-events: none; opacity: 0;
+  max-width: calc(100% - 40px); white-space: nowrap; padding: 10px 20px 10px 26px; border-radius: 3px; font-family: var(--serif); font-size: 20px; font-weight: 700; letter-spacing: .08em; text-align: center;
+  color: #2a1a0c; background: linear-gradient(180deg, #f6ecd2, #e9d8b0); border: 1px solid #a88850;
+  box-shadow: 0 6px 18px rgba(0,0,0,.45), inset 0 0 0 3px rgba(255,250,236,.6), inset 0 0 24px rgba(160,120,60,.25); }
+/* 札の左端の色の帯（知らせの種類） */
+#banner::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 8px; border-radius: 3px 0 0 3px; background: #2c4570; }
 #banner.show { animation: banner 1.8s ease-out forwards; }
-#banner.ok { background: linear-gradient(#b8862f, #6e4a14); border: 2px solid var(--gold-hi); color: #fff7dc; }
-#banner.def { background: linear-gradient(#2f6f8f, #173f55); border: 2px solid #bfe6ff; color: #fff; }
-#banner.ng { background: linear-gradient(#6a3a2a, #3a1d12); border: 2px solid #d9a58f; color: #ffe6dc; }
-#banner small { display: block; font-size: 13px; font-weight: 700; text-align: center; margin-top: 2px; font-family: var(--sans); letter-spacing: 0; }
+#banner.ok::before { background: #3a6a36; }
+#banner.ng::before { background: #a8271d; }
+#banner.ok { color: #1f2a12; }
+#banner.ng { color: #3a120c; }
+#banner small { display: block; white-space: normal; font-size: 12.5px; font-weight: 600; text-align: center; margin-top: 3px; font-family: var(--sans); letter-spacing: 0; color: #5a4630; }
 @keyframes banner { 0% { opacity: 0; transform: translate(-50%,-50%) scale(.6); } 12% { opacity: 1; transform: translate(-50%,-50%) scale(1.06); }
   20% { transform: translate(-50%,-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%,-60%) scale(1); } }
 
