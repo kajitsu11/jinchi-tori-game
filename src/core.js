@@ -680,7 +680,7 @@ void main(){
     vec3 tinted = grassCol * (t.rgb / vec3(0.5, 0.6, 0.23));
     land = mix(tinted * 0.86, grassCol * 1.06, plainLike) * (0.92 + 0.16 * nz);
     float lum = dot(land, vec3(0.299, 0.587, 0.114));
-    land = mix(vec3(lum), land, 1.25);   // 少し彩度を上げる
+    land = mix(vec3(lum), land, 1.05);   // 彩度は控えめに（蛍光色のようにならないよう）
     // 道のように踏み固められた土の斑
     // 市街地：ぼやけた灰色の四角にならないよう、小さな屋根と道の区画をくっきり描く（拡大したときだけ）
     // 市街地の広がり：まわり4マスから求め（ゆらした位置）、ふちをなめらかに
