@@ -296,6 +296,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
   });
 
   await test('攻撃目標: 敵の拠点を指定すると、あなたの兵士がそこへ向かう', async () => {
+    await ev(() => { const A = window.__jinchi.App; A.endBuild(); A.setView('map'); });   // 前のテストが途中で止まっても地図ビューで続ける
     const tgt = await ev(() => {
       const g = window.__jinchi.game, me = g.me;
       for (const n of g.nodes) if (n.owner === me) for (const a of g.nodeAdj[n.id]) { const e = g.nodes[a]; if (e.owner !== me) return [e.id, e.x, e.y]; }
