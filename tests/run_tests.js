@@ -97,7 +97,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
         food: g.res.food[0], wood: g.res.wood[0], cards: document.querySelectorAll('.bcard').length, pref: document.getElementById('h-pref').textContent };
     });
     assert(s.parts === Math.max(3, Math.round(204.8 / 100 * 8)), 'participants');
-    assert(s.nodes > 500 && s.units > 400 && s.mineU === Math.round(s.parts * 0.5), JSON.stringify(s));
+    assert(s.nodes > 500 && s.units > 400 && s.mineU === Math.round(s.parts * 0.5) + 1, JSON.stringify(s));   // ＋あなたの大将
     assert(s.food > 0 && s.wood > 0 && s.cards >= 5 && s.pref === '長野県', JSON.stringify(s));
     await page.waitForTimeout(1500);
     await shot('02_playing');
