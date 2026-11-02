@@ -739,8 +739,13 @@ class Sim {
       const nb = new Map();
       for (const n of this.nodes) if (n.owner === P) for (const a of this.nodeAdj[n.id]) { const o = this.nodes[a].owner; if (o !== P) nb.set(o, (nb.get(o) || 0) + 1); }
       let best = 0, bs = -1e9;
+      // 包囲網：支配人口が12%を超えた先頭の県は、隣の県から狙われやすい（独走しにくく）
+      let lead = 0;
+      for (let p = 1; p <= 47; p++) if (this.pop[p] > (lead ? this.pop[lead] : 0)) lead = p;
+      const leadShare = lead ? this.pop[lead] / this.popTotal : 0;
       for (const [o, border] of nb) {
-        const s = this.rng() * 0.8 + Math.min(1, border / 6) * 0.4 - (this.pop[o] / Math.max(1, this.pop[P])) * 0.5;
+        const s = this.rng() * 0.8 + Math.min(1, border / 6) * 0.4 - (this.pop[o] / Math.max(1, this.pop[P])) * 0.5
+          + (o === lead && leadShare > 0.12 ? 1.2 : 0);
         if (s > bs) { bs = s; best = o; }
       }
       const was = pl.war;
