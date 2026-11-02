@@ -1397,8 +1397,10 @@ void main(){
   vec4 c = texture2D(uColor, vUV);
   if (c.a < 0.45) discard;
   float m = texture2D(uMask, vUV).r;
-  vec3 col = mix(c.rgb, c.rgb * vTeam * 1.45, m);
-  gl_FragColor = vec4(col / max(c.a, 0.001) * min(1.0, c.a * 1.6), 1.0);
+  vec3 col = mix(c.rgb, c.rgb * vTeam * 1.2, m);
+  col = col / max(c.a, 0.001) * min(1.0, c.a * 1.6);
+  col = pow(col, vec3(1.12)) * 1.04;   // 少しだけ締まった色に（白っぽく浮かないよう）
+  gl_FragColor = vec4(col, 1.0);
 }`;
 const SPRITE_FLOATS = 12;
 class SpriteList {

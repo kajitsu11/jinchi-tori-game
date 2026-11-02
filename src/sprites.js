@@ -9,7 +9,7 @@ const SPR = {
   COLS: 21,                 // アトラスの横のコマ数（2048 / 96）
   VIEWS: 5,                 // 0:正面 1:斜め前 2:横 3:斜め後ろ 4:背中（右向き。左向きは反転）
   POSES: ['idle', 'walk0', 'walk1', 'walk2', 'walk3', 'atk0', 'atk1', 'dead'],
-  KINDS: 4,                 // 0:鉄砲 1:鉄砲+旗 2:槍 3:槍+旗
+  KINDS: 8,                 // 0:鉄砲 1:鉄砲+旗 2:槍 3:槍+旗（4〜7：同じで陣笠の代わりに鉢巻・ちょんまげ）
   FOOT: 118,                // 足元の y（px）
   HEIGHT: 100,              // 体の高さ（px）
 };
@@ -75,14 +75,14 @@ class SoldierPainter {
     return p;
   }
   drawFigure(ctx, mode, kind, view, poseName) {
-    const gun = kind < 2, flag = kind % 2 === 1;
+    const gun = (kind & 3) < 2, flag = kind % 2 === 1, bare = kind >= 4;
     if (poseName === 'dead') {
       // 倒れた姿：横向きに寝かせて描く
       ctx.save();
       ctx.translate(-8, -6);
       ctx.rotate(-Math.PI / 2 + 0.08);
       ctx.translate(0, 34);
-      this.drawFigure(ctx, mode, kind & 2, 2, 'idle');
+      this.drawFigure(ctx, mode, kind & 6, 2, 'idle');
       ctx.restore();
       return;
     }
@@ -208,6 +208,17 @@ class SoldierPainter {
         ctx.beginPath(); ctx.moveTo(h.x - 5, h.y - 3); ctx.quadraticCurveTo(h.x, h.y + 9, h.x + 5, h.y - 3); ctx.stroke();
       } else { ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(h.x, h.y, 7.2, 8, 0, 0, Math.PI * 2); ctx.fill(); }
       // 陣笠：つばの楕円と低い円錐
+      if (bare) {
+        // 鉢巻（県の色）とちょんまげ
+        if (!M) {
+          ctx.fillStyle = '#1c1612'; ctx.beginPath(); ctx.ellipse(h.x, h.y - 3.2, 7.4, 5.2, 0, Math.PI, Math.PI * 2); ctx.fill();   // 髪
+          ctx.beginPath(); ctx.ellipse(h.x - st * 1.5, h.y - 8.6, 2.6, 1.6, -0.3 * st, 0, Math.PI * 2); ctx.fill();               // まげ
+        }
+        ctx.strokeStyle = M ? '#fff' : '#e8e8e8'; ctx.lineWidth = 2.4;
+        ctx.beginPath(); ctx.ellipse(h.x, h.y - 2.4, 7.5, 2.2, 0, Math.PI * 0.05, Math.PI * 0.95, true); ctx.stroke();
+        if (ct < 0.3) { ctx.beginPath(); ctx.moveTo(h.x - st * 6, h.y - 2.5); ctx.lineTo(h.x - st * 10, h.y + 2); ctx.stroke(); }    // 結び目の端
+        return;
+      }
       // 陣笠：浅く広い円錐（黒漆・金の縁）
       const hy = h.y - 4.5, rw = 18.5, rh = 5.6, peak = 8.5;
       const hat = () => { ctx.beginPath(); ctx.moveTo(h.x - rw, hy); ctx.lineTo(h.x - 2, hy - peak); ctx.lineTo(h.x + 2, hy - peak); ctx.lineTo(h.x + rw, hy); ctx.ellipse(h.x, hy, rw, rh, 0, 0, Math.PI); ctx.closePath(); };

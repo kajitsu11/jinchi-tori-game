@@ -961,7 +961,7 @@ const App = {
     const seen = this.animSeen = (this.animSeen || 0) + 1;
     const H = clamp(this.cam.dist * 0.004, 0.96, 18), Wd = H * SPR.FW / SPR.FH;
     const AW = this.renderer.spriteSize ? this.renderer.spriteSize[0] : 2048, AH = this.renderer.spriteSize ? this.renderer.spriteSize[1] : 1024;
-    const put = (x, z, yaw, kind, pose, c, y0 = 0) => {
+    const put = (x, z, yaw, kind, pose, c, y0 = 0, sc = 1) => {
       let v = Math.round(Math.abs(yaw) / (Math.PI / 4));
       if (v > 4) v = 4;
       const k = SPR.index(kind, v, pose);
@@ -969,7 +969,7 @@ const App = {
       let u1 = u0 + SPR.FW / AW;
       const v1 = v0 + SPR.FH / AH;
       if (yaw < 0) { const tmp = u0; u0 = u1; u1 = tmp; }   // 左向きは反転
-      S.push(x, y0, z, Wd, H, u0, v0, u1, v1, c);
+      S.push(x, y0, z, Wd * sc, H * sc, u0, v0, u1, v1, c);
     };
     // 乗り物（馬・大砲・軍艦・飛行機）：向き yaw の前が +z になるよう回して、箱や筒を並べる
     let vx = 0, vz = 0, vy = 0, vc = 1, vs = 0, vr = 0;
@@ -1057,7 +1057,7 @@ const App = {
         continue;
       }
       const gun = u.id % 3 !== 0, flag = u.id % 3 === 1;
-      const kind = (gun ? 0 : 2) + (flag ? 1 : 0);
+      const kind = (gun ? 0 : 2) + (flag ? 1 : 0) + (u.id % 5 === 2 ? 4 : 0);   // 5人に1人は陣笠なし（鉢巻）
       let pose = P_IDLE;
       if (e || u.hitB) pose = P_ATK + ((((t + u.id * 0.37) * (gun ? 0.8 : 1.6)) % 1) < (gun ? 0.15 : 0.5) ? 1 : 0);
       else if (moved > 1e-4) pose = P_WALK + (Math.floor(s.phase / (Math.PI / 2)) & 3);
@@ -1071,7 +1071,7 @@ const App = {
       }
       // 忍者は黒装束、毒ガス兵は防毒衣の黄緑（県の色を少しだけ）
       const pc = type === 'ninja' ? c0.map((q) => 0.12 + q * 0.18) : type === 'gas' ? c0.map((q, k) => [0.55, 0.62, 0.3][k] * 0.75 + q * 0.25) : c0;
-      put(x, z, s.yaw, type === 'ninja' ? 2 : type === 'gas' ? 0 : kind, pose, pc);
+      put(x, z, s.yaw, type === 'ninja' ? 6 : type === 'gas' ? 0 : kind, pose, pc, 0, 0.93 + ((u.id * 7) % 15) / 100);   // 背丈は1人ずつ少しちがう
     }
     // 亡骸（倒れてからしばらく残る）
     if (this.corpses && this.corpses.length) {
