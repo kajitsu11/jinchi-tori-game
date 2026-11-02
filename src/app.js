@@ -1739,6 +1739,14 @@ const App = {
       ctx.fillStyle = map.prefs[f.pref].color; ctx.strokeStyle = f.hw === 0 ? '#fff' : '#000'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.arc((f.x - V.x0) / V.w * mw, (f.y - V.y0) / V.h * mh, f.hw === 0 ? 3 : 2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
+    // 方位の印（北）
+    ctx.save();
+    ctx.translate(mw - 22, 22);
+    ctx.fillStyle = 'rgba(20,12,4,.75)'; ctx.beginPath(); ctx.arc(0, 0, 17, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#d9b45c'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#c8392b'; ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(5, -5); ctx.lineTo(-5, -5); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#f3d98e'; ctx.font = '700 17px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('北', 0, 4);
+    ctx.restore();
     const rn = g && g.rally >= 0 ? g.nodes[g.rally] : null;   // 攻撃目標
     if (rn) {
       ctx.fillStyle = '#ff6b3d'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
