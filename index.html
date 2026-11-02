@@ -210,6 +210,28 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
   #banner.show, #cellpanel, #modal .card, #log div { animation: none; }
   #banner.show { opacity: 1; }
 }
+
+/* ---- 判子（朱印）：絵文字の代わりの漢字一文字の印 ---- */
+.seal { display: inline-flex; align-items: center; justify-content: center; font-style: normal; font-family: "Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif; font-weight: 700;
+  width: 1.45em; height: 1.45em; line-height: 1; color: #fff7e8; border-radius: 3px; transform: rotate(-3deg);
+  background: radial-gradient(circle at 30% 28%, #d4483a, #a8271d 70%, #8e1e16); box-shadow: inset 0 0 0 1.5px rgba(255,236,210,.55), 0 1px 0 rgba(0,0,0,.45);
+  text-shadow: 0 0 1px rgba(80,10,5,.6); flex: 0 0 auto; }
+.seal.big { width: 30px; height: 30px; font-size: 19px; border-radius: 4px; margin-bottom: 2px; }
+.seal.mini { width: 13px; height: 13px; font-size: 9.5px; border-radius: 2px; margin-right: 1px; box-shadow: inset 0 0 0 1px rgba(255,236,210,.5); transform: none; }
+.seal.r-food { background: radial-gradient(circle at 30% 28%, #c8963c, #9a6a1e 70%, #7c5414); }
+.seal.r-wood { background: radial-gradient(circle at 30% 28%, #7d8a3a, #56631f 70%, #434d16); }
+.seal.r-gold { background: radial-gradient(circle at 30% 28%, #d2ac3e, #a5801c 70%, #866512); }
+.seal.c-eco { background: radial-gradient(circle at 30% 28%, #c8963c, #9a6a1e 70%, #7c5414); }
+.seal.c-def { background: radial-gradient(circle at 30% 28%, #4d6a9a, #2c4570 70%, #22375a); }
+.seal.c-sup { background: radial-gradient(circle at 30% 28%, #5e8f5a, #3a6a36 70%, #2c5229); }
+.seal.c-node { background: radial-gradient(circle at 30% 28%, #8a5a8a, #5e3460 70%, #4a284c); }
+#sidebtns .seal { width: 26px; height: 26px; font-size: 16px; margin: 0 auto 2px; }
+.actrow .b-rally { display: flex; align-items: center; gap: 6px; }
+.actrow .b-rally span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.actrow .b-rally .seal { width: 20px; height: 20px; font-size: 13px; }
+#abilrow button { display: flex; align-items: center; justify-content: center; gap: 6px; }
+#abilrow .seal { width: 20px; height: 20px; font-size: 13px; }
+.res .seal { width: 20px; height: 20px; font-size: 13px; margin-right: 3px; }
 </style>
 </head>
 <body>
@@ -264,22 +286,22 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
         <span id="h-rank" class="rank">—位</span>
       </div>
       <div class="resbar">
-        <span class="res" title="食料"><i>🌾</i><b id="r-food">0</b><small id="ri-food"></small></span>
-        <span class="res" title="木材"><i>🪵</i><b id="r-wood">0</b><small id="ri-wood"></small></span>
-        <span class="res" title="金"><i>💰</i><b id="r-gold">0</b><small id="ri-gold"></small></span>
-        <span class="res" title="あなたの兵士"><i>⚔️</i><b id="r-units">0</b></span>
+        <span class="res" title="食料"><i class="seal r-food">糧</i><b id="r-food">0</b><small id="ri-food"></small></span>
+        <span class="res" title="木材"><i class="seal r-wood">木</i><b id="r-wood">0</b><small id="ri-wood"></small></span>
+        <span class="res" title="金"><i class="seal r-gold">金</i><b id="r-gold">0</b><small id="ri-gold"></small></span>
+        <span class="res" title="あなたの兵士"><i class="seal">兵</i><b id="r-units">0</b></span>
       </div>
       <div class="row3"><span id="h-left" class="left"></span>・<span>領土 <b id="h-cells">0</b>マス <small id="h-delta">(±0)</small></span>・<span id="h-today"></span></div>
     </div>
     <canvas id="minimap"></canvas>
     <div id="race"></div>
     <div id="sidebtns">
-      <button data-act="rank"><i>🏆</i>戦況</button>
-      <button data-act="top" id="btn-top"><i>🗺</i>真上</button>
-      <button data-act="home"><i>🏯</i>自県へ</button>
-      <button data-act="squad"><i>📍</i>部隊へ</button>
-      <button data-act="sound" id="btn-sound"><i>🔊</i>音</button>
-      <button data-act="title"><i>⏏</i>タイトル</button>
+      <button data-act="rank"><i class="seal">戦</i>戦況</button>
+      <button data-act="top" id="btn-top"><i class="seal">上</i>真上</button>
+      <button data-act="home"><i class="seal">城</i>自県へ</button>
+      <button data-act="squad"><i class="seal">隊</i>部隊へ</button>
+      <button data-act="sound" id="btn-sound"><i class="seal">音</i>音</button>
+      <button data-act="title"><i class="seal">戻</i>タイトル</button>
     </div>
     <div id="toplabel" class="hidden">真上ビュー（北が上・領土の確認用）</div>
     <div id="log"></div>
@@ -293,9 +315,9 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
     <div id="bottombar">
       <div id="hint" class="hidden"></div>
       <div class="actrow">
-        <button id="btn-rally" class="b-rally">⚔ 攻撃目標</button>
-        <button id="btn-flag" class="b-rally b-flag">🚩 旗を立てる</button>
-        <button id="btn-gen" class="b-rally b-gen">🐎 大将</button>
+        <button id="btn-rally" class="b-rally"><i class="seal">攻</i><span>攻撃目標</span></button>
+        <button id="btn-flag" class="b-rally b-flag"><i class="seal c-sup">旗</i><span>旗を立てる</span></button>
+        <button id="btn-gen" class="b-rally b-gen"><i class="seal c-eco">将</i><span>大将</span></button>
         <button id="btn-cancel" class="b-cancel hidden">✕ やめる</button>
       </div>
       <div class="actrow" id="abilrow"></div>
@@ -405,6 +427,15 @@ const CONFIG = {
 };
 const RES_KEYS = ['food', 'wood', 'gold'];
 const RES_ICON = { food: '🌾', wood: '🪵', gold: '💰' };
+// 判子（朱印）の漢字：絵文字の代わりに、建物・資源・ボタンを漢字一文字の印で表す
+const SEAL = {
+  farm: '農', lumber: '材', market: '市', mine: '鉱', fishery: '漁', ranch: '牧', brewery: '酒', storehouse: '蔵', mint: '両',
+  barracks: '兵', stable: '馬', ninja: '忍', foundry: '砲', gaslab: '毒', port: '港', airfield: '空', bomberbase: '爆',
+  tower: '櫓', bunker: '堡', battery: '台', rocket: '箭', aagun: '高', coastgun: '沿', wall: '垣', mines: '雷', gasshelter: '壕', radar: '探', trench: '塹',
+  hospital: '医', shrine: '社', beacon: '烽', depot: '站', temple: '寺', lighthouse: '灯', town: '町', fort: '砦', castle: '城',
+  food: '糧', wood: '木', gold: '金',
+};
+const seal = (k, cls = '') => `<i class="seal ${cls}">${SEAL[k] || k}</i>`;
 const RES_NAME = { food: '食料', wood: '木材', gold: '金' };
 /** 建物の種類 */
 /**
@@ -4220,7 +4251,8 @@ const App = {
       if (b) this.startPlace(b.dataset.b);
     }, { signal });
     $('btn-rally').addEventListener('click', () => this.toggleRallyMode(), { signal });
-    $('abilrow').innerHTML = Object.entries(CONFIG.ABILITIES).map(([k, d]) => `<button class="b-rally" data-ab="${k}" title="${escapeHtml(d.desc)}">${d.icon} ${d.name}</button>`).join('');
+    const AB_SEAL = { barrage: '砲', reinforce: '援', rally: '鼓' };
+    $('abilrow').innerHTML = Object.entries(CONFIG.ABILITIES).map(([k, d]) => `<button class="b-rally" data-ab="${k}" title="${escapeHtml(d.desc)}"><i class="seal">${AB_SEAL[k]}</i><span>${d.name}</span></button>`).join('');
     $('abilrow').addEventListener('click', (e) => {
       const b = e.target.closest('[data-ab]');
       if (!b) return;
@@ -4295,8 +4327,8 @@ const App = {
     for (const k of BUILD_ORDER) {
       const d = BUILDINGS[k];
       if (d.cat !== cat) continue;
-      const cost = RES_KEYS.filter((r) => d.cost[r]).map((r) => `<span data-r="${r}">${RES_ICON[r]}${d.cost[r]}</span>`).join('');
-      html += `<button class="bcard" data-b="${k}" title="${escapeHtml(d.desc)}"><i>${d.icon}</i><b>${d.name}</b><small>${cost}</small></button>`;
+      const cost = RES_KEYS.filter((r) => d.cost[r]).map((r) => `<span data-r="${r}">${seal(r, 'mini r-' + r)}${d.cost[r]}</span>`).join('');
+      html += `<button class="bcard" data-b="${k}" title="${escapeHtml(d.desc)}">${seal(k, 'big c-' + d.cat)}<b>${d.name}</b><small>${cost}</small></button>`;
     }
     $('buildmenu').innerHTML = html;
   },
@@ -4474,20 +4506,22 @@ const App = {
     // 建築カード：資源が足りないものは暗く
     for (const b of document.querySelectorAll('.bcard')) b.classList.toggle('poor', !g.canAfford(0, BUILDINGS[b.dataset.b].cost));
     const rn = g.rally >= 0 ? g.nodes[g.rally] : null;
-    $('btn-rally').innerHTML = rn ? `⚔ 目標：${escapeHtml(rn.name)}` : '⚔ 攻撃目標';
+    const btxt = (id, t) => { const sp = $(id).querySelector('span'); if (sp && sp.textContent !== t) sp.textContent = t; };
+    btxt('btn-rally', rn ? `目標：${rn.name}` : '攻撃目標');
     for (const b of document.querySelectorAll('#abilrow [data-ab]')) {
       const d = CONFIG.ABILITIES[b.dataset.ab], left = g.abilityReady ? g.abilityReady(0, b.dataset.ab) : 0;
-      const txt = left > 0 ? `${d.icon} ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}` : (this.mode && this.mode.ab === b.dataset.ab ? `${d.icon} 場所をタップ` : `${d.icon} ${d.name}`);
-      if (b.textContent !== txt) b.textContent = txt;
+      const txt = left > 0 ? `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}` : (this.mode && this.mode.ab === b.dataset.ab ? '場所をタップ' : d.name);
+      const sp = b.querySelector('span');
+      if (sp && sp.textContent !== txt) sp.textContent = txt;
       b.classList.toggle('cool', left > 0);
     }
     const fo = g.flagOrder;
-    if (this.mode && this.mode.kind === 'flag') $('btn-flag').textContent = '🚩 敵の領土をタップ';
-    else if (fo && fo.defend) $('btn-flag').textContent = `🛡 敵の旗を迎撃中（あなたの兵 ${g.myUnits()}人）`;
+    if (this.mode && this.mode.kind === 'flag') btxt('btn-flag', '敵の領土をタップ');
+    else if (fo && fo.defend) btxt('btn-flag', `迎撃中（あなたの兵 ${g.myUnits()}人）`);
     else if (fo) {
       const f = fo.flag && (g.flags || []).find((q) => q.id === fo.flag.id || q === fo.flag);
-      $('btn-flag').textContent = f ? `🚩 守っています ${Math.floor(f.prog / CONFIG.FLAG_HOLD * 100)}%（${f.own}人）` : '🚩 旗の場所へ向かっています';
-    } else $('btn-flag').textContent = '🚩 旗を立てる';
+      btxt('btn-flag', f ? `守っています ${Math.floor(f.prog / CONFIG.FLAG_HOLD * 100)}%（${f.own}人）` : '旗の場所へ向かっています');
+    } else btxt('btn-flag', '旗を立てる');
     if (this.sel) this.updatePanel();
   },
   hidePanel() { this.sel = null; $('cellpanel').classList.add('hidden'); },

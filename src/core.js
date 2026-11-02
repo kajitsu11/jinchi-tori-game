@@ -86,6 +86,15 @@ const CONFIG = {
 };
 const RES_KEYS = ['food', 'wood', 'gold'];
 const RES_ICON = { food: '🌾', wood: '🪵', gold: '💰' };
+// 判子（朱印）の漢字：絵文字の代わりに、建物・資源・ボタンを漢字一文字の印で表す
+const SEAL = {
+  farm: '農', lumber: '材', market: '市', mine: '鉱', fishery: '漁', ranch: '牧', brewery: '酒', storehouse: '蔵', mint: '両',
+  barracks: '兵', stable: '馬', ninja: '忍', foundry: '砲', gaslab: '毒', port: '港', airfield: '空', bomberbase: '爆',
+  tower: '櫓', bunker: '堡', battery: '台', rocket: '箭', aagun: '高', coastgun: '沿', wall: '垣', mines: '雷', gasshelter: '壕', radar: '探', trench: '塹',
+  hospital: '医', shrine: '社', beacon: '烽', depot: '站', temple: '寺', lighthouse: '灯', town: '町', fort: '砦', castle: '城',
+  food: '糧', wood: '木', gold: '金',
+};
+const seal = (k, cls = '') => `<i class="seal ${cls}">${SEAL[k] || k}</i>`;
 const RES_NAME = { food: '食料', wood: '木材', gold: '金' };
 /** 建物の種類 */
 /**

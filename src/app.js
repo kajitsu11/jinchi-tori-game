@@ -243,7 +243,8 @@ const App = {
       if (b) this.startPlace(b.dataset.b);
     }, { signal });
     $('btn-rally').addEventListener('click', () => this.toggleRallyMode(), { signal });
-    $('abilrow').innerHTML = Object.entries(CONFIG.ABILITIES).map(([k, d]) => `<button class="b-rally" data-ab="${k}" title="${escapeHtml(d.desc)}">${d.icon} ${d.name}</button>`).join('');
+    const AB_SEAL = { barrage: '砲', reinforce: '援', rally: '鼓' };
+    $('abilrow').innerHTML = Object.entries(CONFIG.ABILITIES).map(([k, d]) => `<button class="b-rally" data-ab="${k}" title="${escapeHtml(d.desc)}"><i class="seal">${AB_SEAL[k]}</i><span>${d.name}</span></button>`).join('');
     $('abilrow').addEventListener('click', (e) => {
       const b = e.target.closest('[data-ab]');
       if (!b) return;
@@ -318,8 +319,8 @@ const App = {
     for (const k of BUILD_ORDER) {
       const d = BUILDINGS[k];
       if (d.cat !== cat) continue;
-      const cost = RES_KEYS.filter((r) => d.cost[r]).map((r) => `<span data-r="${r}">${RES_ICON[r]}${d.cost[r]}</span>`).join('');
-      html += `<button class="bcard" data-b="${k}" title="${escapeHtml(d.desc)}"><i>${d.icon}</i><b>${d.name}</b><small>${cost}</small></button>`;
+      const cost = RES_KEYS.filter((r) => d.cost[r]).map((r) => `<span data-r="${r}">${seal(r, 'mini r-' + r)}${d.cost[r]}</span>`).join('');
+      html += `<button class="bcard" data-b="${k}" title="${escapeHtml(d.desc)}">${seal(k, 'big c-' + d.cat)}<b>${d.name}</b><small>${cost}</small></button>`;
     }
     $('buildmenu').innerHTML = html;
   },
@@ -497,20 +498,22 @@ const App = {
     // 建築カード：資源が足りないものは暗く
     for (const b of document.querySelectorAll('.bcard')) b.classList.toggle('poor', !g.canAfford(0, BUILDINGS[b.dataset.b].cost));
     const rn = g.rally >= 0 ? g.nodes[g.rally] : null;
-    $('btn-rally').innerHTML = rn ? `⚔ 目標：${escapeHtml(rn.name)}` : '⚔ 攻撃目標';
+    const btxt = (id, t) => { const sp = $(id).querySelector('span'); if (sp && sp.textContent !== t) sp.textContent = t; };
+    btxt('btn-rally', rn ? `目標：${rn.name}` : '攻撃目標');
     for (const b of document.querySelectorAll('#abilrow [data-ab]')) {
       const d = CONFIG.ABILITIES[b.dataset.ab], left = g.abilityReady ? g.abilityReady(0, b.dataset.ab) : 0;
-      const txt = left > 0 ? `${d.icon} ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}` : (this.mode && this.mode.ab === b.dataset.ab ? `${d.icon} 場所をタップ` : `${d.icon} ${d.name}`);
-      if (b.textContent !== txt) b.textContent = txt;
+      const txt = left > 0 ? `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}` : (this.mode && this.mode.ab === b.dataset.ab ? '場所をタップ' : d.name);
+      const sp = b.querySelector('span');
+      if (sp && sp.textContent !== txt) sp.textContent = txt;
       b.classList.toggle('cool', left > 0);
     }
     const fo = g.flagOrder;
-    if (this.mode && this.mode.kind === 'flag') $('btn-flag').textContent = '🚩 敵の領土をタップ';
-    else if (fo && fo.defend) $('btn-flag').textContent = `🛡 敵の旗を迎撃中（あなたの兵 ${g.myUnits()}人）`;
+    if (this.mode && this.mode.kind === 'flag') btxt('btn-flag', '敵の領土をタップ');
+    else if (fo && fo.defend) btxt('btn-flag', `迎撃中（あなたの兵 ${g.myUnits()}人）`);
     else if (fo) {
       const f = fo.flag && (g.flags || []).find((q) => q.id === fo.flag.id || q === fo.flag);
-      $('btn-flag').textContent = f ? `🚩 守っています ${Math.floor(f.prog / CONFIG.FLAG_HOLD * 100)}%（${f.own}人）` : '🚩 旗の場所へ向かっています';
-    } else $('btn-flag').textContent = '🚩 旗を立てる';
+      btxt('btn-flag', f ? `守っています ${Math.floor(f.prog / CONFIG.FLAG_HOLD * 100)}%（${f.own}人）` : '旗の場所へ向かっています');
+    } else btxt('btn-flag', '旗を立てる');
     if (this.sel) this.updatePanel();
   },
   hidePanel() { this.sel = null; $('cellpanel').classList.add('hidden'); },

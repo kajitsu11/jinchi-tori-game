@@ -59,22 +59,22 @@
         <span id="h-rank" class="rank">—位</span>
       </div>
       <div class="resbar">
-        <span class="res" title="食料"><i>🌾</i><b id="r-food">0</b><small id="ri-food"></small></span>
-        <span class="res" title="木材"><i>🪵</i><b id="r-wood">0</b><small id="ri-wood"></small></span>
-        <span class="res" title="金"><i>💰</i><b id="r-gold">0</b><small id="ri-gold"></small></span>
-        <span class="res" title="あなたの兵士"><i>⚔️</i><b id="r-units">0</b></span>
+        <span class="res" title="食料"><i class="seal r-food">糧</i><b id="r-food">0</b><small id="ri-food"></small></span>
+        <span class="res" title="木材"><i class="seal r-wood">木</i><b id="r-wood">0</b><small id="ri-wood"></small></span>
+        <span class="res" title="金"><i class="seal r-gold">金</i><b id="r-gold">0</b><small id="ri-gold"></small></span>
+        <span class="res" title="あなたの兵士"><i class="seal">兵</i><b id="r-units">0</b></span>
       </div>
       <div class="row3"><span id="h-left" class="left"></span>・<span>領土 <b id="h-cells">0</b>マス <small id="h-delta">(±0)</small></span>・<span id="h-today"></span></div>
     </div>
     <canvas id="minimap"></canvas>
     <div id="race"></div>
     <div id="sidebtns">
-      <button data-act="rank"><i>🏆</i>戦況</button>
-      <button data-act="top" id="btn-top"><i>🗺</i>真上</button>
-      <button data-act="home"><i>🏯</i>自県へ</button>
-      <button data-act="squad"><i>📍</i>部隊へ</button>
-      <button data-act="sound" id="btn-sound"><i>🔊</i>音</button>
-      <button data-act="title"><i>⏏</i>タイトル</button>
+      <button data-act="rank"><i class="seal">戦</i>戦況</button>
+      <button data-act="top" id="btn-top"><i class="seal">上</i>真上</button>
+      <button data-act="home"><i class="seal">城</i>自県へ</button>
+      <button data-act="squad"><i class="seal">隊</i>部隊へ</button>
+      <button data-act="sound" id="btn-sound"><i class="seal">音</i>音</button>
+      <button data-act="title"><i class="seal">戻</i>タイトル</button>
     </div>
     <div id="toplabel" class="hidden">真上ビュー（北が上・領土の確認用）</div>
     <div id="log"></div>
@@ -88,9 +88,9 @@
     <div id="bottombar">
       <div id="hint" class="hidden"></div>
       <div class="actrow">
-        <button id="btn-rally" class="b-rally">⚔ 攻撃目標</button>
-        <button id="btn-flag" class="b-rally b-flag">🚩 旗を立てる</button>
-        <button id="btn-gen" class="b-rally b-gen">🐎 大将</button>
+        <button id="btn-rally" class="b-rally"><i class="seal">攻</i><span>攻撃目標</span></button>
+        <button id="btn-flag" class="b-rally b-flag"><i class="seal c-sup">旗</i><span>旗を立てる</span></button>
+        <button id="btn-gen" class="b-rally b-gen"><i class="seal c-eco">将</i><span>大将</span></button>
         <button id="btn-cancel" class="b-cancel hidden">✕ やめる</button>
       </div>
       <div class="actrow" id="abilrow"></div>
