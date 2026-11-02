@@ -57,6 +57,20 @@ const Sfx = {
   boom(v = 1) { if (this.allow(2.5)) { this.burst(0.7, 380, 45, 0.55 * v, 0.7); this.burst(0.25, 1500, 200, 0.2 * v, 0.6); } },
   /** 旗を守りきった：上がっていく和音 */
   fanfare() { if (this.allow(0)) [523, 659, 784, 1047].forEach((f, k) => this.tone(f, 0.35, 0.12, 'triangle', k * 0.12)); },
+  /** ほら貝（出陣）：低い音が2回、ゆっくり上がって消える */
+  conch() {
+    if (!this.allow(0)) return;
+    const c = this.ctx;
+    for (const [f, d] of [[146, 0], [164, 0.9]]) {
+      const t = c.currentTime + d, o = c.createOscillator(), o2 = c.createOscillator(), g = c.createGain(), flt = c.createBiquadFilter();
+      o.type = 'sawtooth'; o2.type = 'triangle';
+      o.frequency.setValueAtTime(f * 0.9, t); o.frequency.linearRampToValueAtTime(f, t + 0.25); o2.frequency.setValueAtTime(f * 2, t);
+      flt.type = 'lowpass'; flt.frequency.value = 900; flt.Q.value = 3;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.14, t + 0.2); g.gain.setValueAtTime(0.14, t + 0.6); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.85);
+      o.connect(flt); o2.connect(flt); flt.connect(g); g.connect(this.master);
+      o.start(t); o2.start(t); o.stop(t + 0.9); o2.stop(t + 0.9);
+    }
+  },
   /** 警告（宣戦布告など） */
   alert() { if (this.allow(0)) [440, 330, 440, 330].forEach((f, k) => this.tone(f, 0.16, 0.08, 'square', k * 0.18)); },
 };

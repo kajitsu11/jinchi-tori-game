@@ -303,12 +303,17 @@ const App = {
     $('minimap').addEventListener('pointerdown', (e) => this.onMinimap(e), { signal });
     signal.addEventListener('abort', () => { this.hidePanel(); this.setMode(null); });
     this.updateHud(true);
+    // 出陣の演出（墨の文字とほら貝）
+    const sj = $('shutsujin');
+    sj.classList.remove('hidden'); sj.style.animation = 'none'; sj.firstChild.style.animation = 'none'; void sj.offsetWidth; sj.style.animation = ''; sj.firstChild.style.animation = '';
+    clearTimeout(this.sjTimer); this.sjTimer = setTimeout(() => sj.classList.add('hidden'), 2300);
+    Sfx.conch();
     if (!ONLINE) setTimeout(() => {
       if (this.state !== STATE.PLAYING) return;
       if (TRIAL) this.banner('🚩 旗を立てる → 敵の領土をタップ', 'def', 'あなたの部隊15人と仲間が旗を立てて守る。守りきれば領土に');
       else this.banner('🐎 大将 → 敵の領土をタップ', 'def', '大将が止まった所に旗を立て、仲間と守りきれば領土に');
     }, 2500);
-    this.log(ONLINE ? `出陣！ ${pr.name}の一員として参加しました。人のいない席はAIが担当します。下のメニューから建物を建てよう`
+    this.log(ONLINE ? `出陣！ ${pr.name}の一員として参加しました。人のいない席はコンピューターが担当します。下のメニューから建物を建てよう`
       : `出陣！ ${pr.name}の参加者${g.parts[this.me]}人（あなた＋AI）。下のメニューから建物を建てよう`, 'good', -1);
   },
   /** 下の建築メニュー（カード） */

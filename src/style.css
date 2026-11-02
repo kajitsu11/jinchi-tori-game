@@ -181,6 +181,16 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
   color: #2a1a0c; background: linear-gradient(180deg, #f6ecd2, #e9d8b0); border: 1px solid #a88850;
   box-shadow: 0 6px 18px rgba(0,0,0,.45), inset 0 0 0 3px rgba(255,250,236,.6), inset 0 0 24px rgba(160,120,60,.25); }
 /* 札の左端の色の帯（知らせの種類） */
+/* 試合の始まり：墨の大きな「出陣」 */
+#shutsujin { position: absolute; inset: 0; z-index: 35; display: flex; align-items: center; justify-content: center; pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(240,228,200,.0) 30%, rgba(20,12,4,.45) 100%); animation: sjBg 2.2s ease-out forwards; }
+#shutsujin span { font-family: "Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif; font-weight: 900; font-size: 96px; letter-spacing: .1em; color: #120a04;
+  text-shadow: 0 0 2px rgba(255,248,230,.9), 0 0 24px rgba(255,248,230,.75), 3px 3px 0 rgba(168,39,29,.55);
+  animation: sjText 2.2s cubic-bezier(.2,.9,.3,1) forwards; }
+@keyframes sjText { 0% { opacity: 0; transform: scale(1.8) rotate(-6deg); filter: blur(6px); } 18% { opacity: 1; transform: scale(1) rotate(-3deg); filter: blur(0); }
+  75% { opacity: 1; transform: scale(1.02) rotate(-3deg); } 100% { opacity: 0; transform: scale(1.08) rotate(-3deg); } }
+@keyframes sjBg { 0% { opacity: 0; } 15% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { #shutsujin { display: none; } }
 #banner::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 8px; border-radius: 3px 0 0 3px; background: #2c4570; }
 #banner.show { animation: banner 1.8s ease-out forwards; }
 #banner.ok::before { background: #3a6a36; }
