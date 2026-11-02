@@ -535,26 +535,26 @@ const App = {
       if (!f) { this.hidePanel(); return; }
       s.f = f;
       const mineF = f.pref === this.me;
-      $('cp-name').textContent = `🚩 ${map.prefs[f.pref].name}の旗${f.hw === 0 ? '（あなたの指示）' : ''}`;
+      $('cp-name').innerHTML = `<i class="seal c-sup">旗</i>${escapeHtml(map.prefs[f.pref].name)}の旗${f.hw === 0 ? '（あなたの指示）' : ''}`;
       $('cp-chip').style.background = map.prefs[f.pref].color;
       $('cp-owner').textContent = `守った時間 ${this.fmtDur(f.prog)} / ${this.fmtDur(CONFIG.FLAG_HOLD)}（${Math.floor(f.prog / CONFIG.FLAG_HOLD * 100)}%）・旗の体力 ${Math.max(0, Math.round(f.hp))}%`;
       $('cp-meta').textContent = f.enemy !== undefined ? `正方形の中：${map.prefs[f.pref].short}の兵 ${f.own}人・ほかの兵 ${f.enemy}人` : `正方形の中の兵 ${f.own ? 'あり' : 'なし'}`;
-      $('cp-note').textContent = mineF ? (f.own ? '守りきると正方形の領土（と中の拠点）が手に入ります' : '⚠ 兵がいないので旗の体力が減っています。🚩 で兵を送ろう')
-        : '自県の中なら 🚩 旗を立てる → この旗の近くをタップで迎撃。正方形の中の兵を倒せば消えます';
+      $('cp-note').textContent = mineF ? (f.own ? '守りきると正方形の領土（と中の拠点）が手に入ります' : '兵がいないので旗の体力が減っています。「旗を立てる」で兵を送ろう')
+        : '自県の中なら「旗を立てる」→ この旗の近くをタップで迎撃。正方形の中の兵を倒せば消えます';
     } else if (s.n) {
       const n = s.n;
-      $('cp-name').textContent = n.name;
+      $('cp-name').innerHTML = `<i class="seal c-node">${{ capital: '城', town: '町', fort: '砦', castle: '城' }[n.type] || '拠'}</i>${escapeHtml(n.name)}`;
       $('cp-chip').style.background = map.prefs[n.owner].color;
       $('cp-owner').textContent = `持ち主：${map.prefs[n.owner].name}${n.owner === this.me ? '（自県）' : ''}・${NODE_TYPE_NAME[n.type]}${n.byPlayer && n.owner === this.me ? '（あなたが建設）' : ''}`;
       $('cp-meta').textContent = `領土 ${fmt(g.cellsOf(n.id).length)}マス・守備 ${n.defenders}・攻撃 ${n.attackers}${n.pref !== n.owner ? `・元は${map.prefs[n.pref].name}` : ''}`;
       let note = '';
-      if (n.capBy) note = `🚩 ${map.prefs[n.capBy].name}が占領中 ${Math.floor(n.progress / g.needFor(n) * 100)}%`;
-      else if (n.attackers && n.defenders) note = '⚔ 交戦中';
-      else if (n.owner !== this.me) note = '「⚔ 攻撃目標」でここを指定すると、あなたの兵舎の兵士が攻めに行きます';
+      if (n.capBy) note = `${map.prefs[n.capBy].name}が占領中 ${Math.floor(n.progress / g.needFor(n) * 100)}%`;
+      else if (n.attackers && n.defenders) note = '交戦中';
+      else if (n.owner !== this.me) note = '「攻撃目標」でここを指定すると、あなたの兵舎の兵士が攻めに行きます';
       $('cp-note').textContent = note;
     } else if (s.b) {
       const b = s.b, d = BUILDINGS[b.type];
-      $('cp-name').textContent = `${d.icon} ${d.name}`;
+      $('cp-name').innerHTML = `${seal(b.type, 'c-' + d.cat)}${escapeHtml(d.name)}`;
       $('cp-chip').style.background = map.prefs[b.owner].color;
       $('cp-owner').textContent = `持ち主：${map.prefs[b.owner].name}${b.wallet === 0 ? '（あなた）' : ''}`;
       $('cp-meta').textContent = `耐久 ${Math.max(0, Math.ceil(b.hp))}/${b.maxHp}・${d.desc}`;
