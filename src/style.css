@@ -287,3 +287,20 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
 #cellpanel::before { top: -4px; } #cellpanel::after { bottom: -4px; }
 #cellpanel .cp-name { font-family: var(--serif); font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
 #cellpanel .cp-name .seal { width: 26px; height: 26px; font-size: 16px; }
+
+/* ---- 絵のアイコン（icons.js：建物は3Dの撮影画像、ほかは手描きの絵） ---- */
+.ico { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 22px; height: 22px; font-style: normal; vertical-align: middle; }
+.ico svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 1px 0 rgba(0,0,0,.45)); }
+img.ico.pic { object-fit: cover; border-radius: 5px; box-shadow: 0 0 0 1.5px #d9b45c, 0 2px 4px rgba(0,0,0,.5); }
+.bcard .ico.big { width: 46px; height: 46px; margin-bottom: 2px; }
+.bcard .ico.big svg { width: 34px; height: 34px; }
+.ico.mini { width: 14px; height: 14px; margin-right: 1px; }
+.res .ico { width: 22px; height: 22px; margin-right: 3px; }
+#sidebtns .ico { width: 28px; height: 28px; margin: 0 auto 1px; display: flex; }
+#sidebtns button.off .ico { opacity: .4; filter: grayscale(1); }
+#sidebtns button.off::after { content: ''; position: absolute; left: 18%; right: 18%; top: 30%; height: 3px; background: #c8392b; transform: rotate(-35deg); border-radius: 2px; }
+#sidebtns button { position: relative; }
+.actrow .b-rally .ico, #abilrow .ico { width: 22px; height: 22px; }
+#log .ico.lg { width: 17px; height: 17px; margin-right: 5px; vertical-align: -4px; }
+#race .ico.sm { width: 15px; height: 15px; margin-right: 4px; vertical-align: -3px; }
+#cellpanel .cp-name .ico { width: 30px; height: 30px; }

@@ -94,7 +94,7 @@ const SEAL = {
   hospital: '医', shrine: '社', beacon: '烽', depot: '站', temple: '寺', lighthouse: '灯', town: '町', fort: '砦', castle: '城',
   food: '糧', wood: '木', gold: '金',
 };
-const seal = (k, cls = '') => `<i class="seal ${cls}">${SEAL[k] || k}</i>`;
+const seal = (k, cls = '') => icon(k, cls);   // 絵のアイコン（icons.js）
 const RES_NAME = { food: '食料', wood: '木材', gold: '金' };
 /** 建物の種類 */
 /**

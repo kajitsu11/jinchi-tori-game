@@ -93,6 +93,7 @@ const App = {
       this.buildTitleList();
       await nextFrame();
       $('loading').classList.add('hidden');
+      this.iconQ = [...BUILD_ORDER];   // 建物のアイコンを撮影（タイトル画面の裏で1フレームに1つ）
       this.setState(STATE.TITLE);
     } catch (e) {
       console.error(e);
@@ -247,8 +248,7 @@ const App = {
       if (b) this.startPlace(b.dataset.b);
     }, { signal });
     $('btn-rally').addEventListener('click', () => this.toggleRallyMode(), { signal });
-    const AB_SEAL = { barrage: '砲', reinforce: '援', rally: '鼓' };
-    $('abilrow').innerHTML = Object.entries(CONFIG.ABILITIES).map(([k, d]) => `<button class="b-rally" data-ab="${k}" title="${escapeHtml(d.desc)}"><i class="seal">${AB_SEAL[k]}</i><span>${d.name}</span></button>`).join('');
+    $('abilrow').innerHTML = Object.entries(CONFIG.ABILITIES).map(([k, d]) => `<button class="b-rally" data-ab="${k}" title="${escapeHtml(d.desc)}">${icon(k)}<span>${d.name}</span></button>`).join('');
     $('abilrow').addEventListener('click', (e) => {
       const b = e.target.closest('[data-ab]');
       if (!b) return;
@@ -297,7 +297,7 @@ const App = {
       else if (act === 'top') this.toggleTop();
       else if (act === 'home') this.goHome();
       else if (act === 'squad') this.goSquad();
-      else if (act === 'sound') { const on = Sfx.toggle(); b.innerHTML = `<i>${on ? '🔊' : '🔇'}</i>音`; }
+      else if (act === 'sound') { const on = Sfx.toggle(); b.classList.toggle('off', !on); }
       else if (act === 'title') this.confirmTitle();
     }, { signal });
     $('log').addEventListener('click', (e) => {
@@ -487,7 +487,7 @@ const App = {
       const pl = g.plans && g.plans[me], foes = [];
       if (g.plans) for (let p = 1; p <= 47; p++) if (p !== me && g.plans[p] && g.plans[p].war === me && g.nodeCount[p]) foes.push(map.prefs[p].short);
       html += `<div class="r me"><span>あなた ${myRank}位 ${pc(me)}</span><span class="war">${pl && pl.war ? `攻→${map.prefs[pl.war].short}` : ''}${foes.length ? ` 狙←${foes.join('・')}` : ''}</span></div>`;
-      if (g.isFinal && g.isFinal()) html += '<div class="fin"><i class="seal sm">決</i>決戦中：旗が2倍の速さ</div>';
+      if (g.isFinal && g.isFinal()) html += `<div class="fin">${icon('final', 'sm')}決戦中：旗が2倍の速さ</div>`;
       // 目標
       const lap = Math.floor(this.mission / MISSIONS.length), ms = MISSIONS[this.mission % MISSIONS.length], need = ms.need * (lap + 1);
       const have = ms.get(g, this);
@@ -499,7 +499,7 @@ const App = {
         this.log(`🎯 目標達成：${ms.text.replace(/（.*）/, '')}`, 'good', -1);
       }
       const mtext = ms.text.replace(/（.*）/, '').replace('1本', `${need}本`).replace('20人', `${need}人`).replace('10個', `${need}個`).replace('3つ', `${need}つ`);
-      html += `<div class="mis"><i class="seal sm c-def">的</i>${Math.min(have, need)}/${need} ${mtext}</div>`;
+      html += `<div class="mis">${icon('target', 'sm')}${Math.min(have, need)}/${need} ${mtext}</div>`;
       html += `<div class="r"><span>あなたの部隊 ${g.myUnits()}人</span><span>撃破 ${(g.stats && g.stats.myKills) || 0}</span></div>`;
       if (html !== this.raceHtml) { $('race').innerHTML = html; this.raceHtml = html; }
     }
@@ -535,7 +535,7 @@ const App = {
       if (!f) { this.hidePanel(); return; }
       s.f = f;
       const mineF = f.pref === this.me;
-      $('cp-name').innerHTML = `<i class="seal c-sup">旗</i>${escapeHtml(map.prefs[f.pref].name)}の旗${f.hw === 0 ? '（あなたの指示）' : ''}`;
+      $('cp-name').innerHTML = `${icon('flag')}${escapeHtml(map.prefs[f.pref].name)}の旗${f.hw === 0 ? '（あなたの指示）' : ''}`;
       $('cp-chip').style.background = map.prefs[f.pref].color;
       $('cp-owner').textContent = `守った時間 ${this.fmtDur(f.prog)} / ${this.fmtDur(CONFIG.FLAG_HOLD)}（${Math.floor(f.prog / CONFIG.FLAG_HOLD * 100)}%）・旗の体力 ${Math.max(0, Math.round(f.hp))}%`;
       $('cp-meta').textContent = f.enemy !== undefined ? `正方形の中：${map.prefs[f.pref].short}の兵 ${f.own}人・ほかの兵 ${f.enemy}人` : `正方形の中の兵 ${f.own ? 'あり' : 'なし'}`;
@@ -543,7 +543,7 @@ const App = {
         : '自県の中なら「旗を立てる」→ この旗の近くをタップで迎撃。正方形の中の兵を倒せば消えます';
     } else if (s.n) {
       const n = s.n;
-      $('cp-name').innerHTML = `<i class="seal c-node">${{ capital: '城', town: '町', fort: '砦', castle: '城' }[n.type] || '拠'}</i>${escapeHtml(n.name)}`;
+      $('cp-name').innerHTML = `${icon(n.type === 'capital' ? 'home' : n.type)}${escapeHtml(n.name)}`;
       $('cp-chip').style.background = map.prefs[n.owner].color;
       $('cp-owner').textContent = `持ち主：${map.prefs[n.owner].name}${n.owner === this.me ? '（自県）' : ''}・${NODE_TYPE_NAME[n.type]}${n.byPlayer && n.owner === this.me ? '（あなたが建設）' : ''}`;
       $('cp-meta').textContent = `領土 ${fmt(g.cellsOf(n.id).length)}マス・守備 ${n.defenders}・攻撃 ${n.attackers}${n.pref !== n.owner ? `・元は${map.prefs[n.pref].name}` : ''}`;
@@ -582,7 +582,7 @@ const App = {
 
   // ------------------------------------------------ 3D：建物・兵士・木（日本風）
   buildScene() {
-    const g = this.game, map = this.map, cam = this.cam;
+    const g = this.iconStub || this.game, map = this.map, cam = this.cam;
     const KINDS = ['pad', 'shadow', 'box', 'boxW', 'roof', 'roofT', 'cone', 'coneT', 'cyl', 'cylW', 'sphere', 'sphereT'];
     if (!this.inst) { this.inst = {}; for (const k of KINDS) this.inst[k] = new InstanceList(); }
     const I = this.inst;
@@ -967,7 +967,7 @@ const App = {
       if (this.sprites) this.sprites.clear();
       if (cpx > 0.25) this.drawSoldiers(I, g, cpx, visible, col, C);
     }
-    if (cpx > 1.4 && cam.pitch < 70) this.addTrees(I, cpx);   // 真上から見ているときは木を描かない（領土と建物が見やすいように）
+    if (cpx > 1.4 && cam.pitch < 70 && !this.iconStub) this.addTrees(I, cpx);   // 真上から見ているときは木を描かない（領土と建物が見やすいように）
     return I;
   },
   /**
@@ -1721,6 +1721,7 @@ const App = {
         this.game.update(dt, this.speed);
         this.updateHud(false);
       }
+      if (this.iconQ && this.iconQ.length) this.renderIconStep();   // 建物のアイコンを1つずつ撮影
       const mixT = clamp((this.cam.pitch - CONFIG.CAMERA_PITCH) / (CONFIG.TOP_PITCH - CONFIG.CAMERA_PITCH), 0, 1);
       this.renderer.render(this.cam, {
         fill: CONFIG.FILL + (CONFIG.FILL_TOP - CONFIG.FILL) * mixT,
@@ -1736,13 +1737,64 @@ const App = {
     }
     requestAnimationFrame((t) => this.frame(t));
   },
+  /**
+   * 建物のアイコンの撮影：その建物だけを置いた場面を、斜め上から大きく描いて画面から切り取る（1フレームに1つ）。
+   * 草地の平らな場所を探して、その上に置く。撮れたら建築メニューを描き直す
+   */
+  renderIconStep() {
+    const map = this.map, cam = this.cam, S = map.scale || 1;
+    if (!this.iconSpot) {
+      // 平地が広く続く場所（まわり8マスも平地）
+      let spot = null;
+      for (let p = 1; p <= 47 && !spot; p++) {
+        const c = map.capitalCell[p];
+        if (c < 0 || !map.initCounts[p]) continue;
+        const cx = map.X(c), cy = map.Y(c);
+        for (let r = 30 * S; r < 400 * S && !spot; r += 6 * S) for (let k = 0; k < 16 && !spot; k++) {
+          const x = Math.floor(cx + Math.cos(k / 16 * 6.283) * r), y = Math.floor(cy + Math.sin(k / 16 * 6.283) * r);
+          let ok = true;
+          for (let dy = -8; dy <= 8 && ok; dy += 4) for (let dx = -8; dx <= 8 && ok; dx += 4) { const i = map.id(x + dx * S, y + dy * S); if (i < 0 || (map.terrain[i] & 7) !== 1 || map.initPref[i] !== p) ok = false; }
+          if (ok) spot = [x + 0.5, y + 0.5, p];
+        }
+      }
+      this.iconSpot = spot || [map.X(map.capitalCell[1]) + 20, map.Y(map.capitalCell[1]) + 20, 1];
+    }
+    const type = this.iconQ.shift(), def = BUILDINGS[type];
+    const [x, y, p] = this.iconSpot;
+    const stub = { buildings: [], nodes: [], units: [], flags: [], shots: [], acc: 0, time: 0 };
+    if (def.node) stub.nodes.push({ id: 0, x, y, owner: p, pref: p, type, name: '', progress: 0 });
+    else stub.buildings.push({ id: 7, type, x, y, owner: p, wallet: -1, hp: 1, maxHp: 1, rot: 0.55, t: 0, mul: 1, forest: 10 });
+    const save = { tx: cam.tx, tz: cam.tz, dist: cam.dist, pitch: cam.pitch, goal: cam.goal };
+    cam.goal = null; cam.tx = x; cam.tz = y; cam.pitch = 40; cam.dist = def.node ? 20 : 13;
+    this.iconStub = stub;
+    const R = this.renderer;
+    R.render(cam, { fill: 0, place: false, time: this.clock, meshes: this.buildScene(), sprites: null });
+    this.iconStub = null;
+    // 建物の足元と屋根の高さを画面に写して、その真ん中を切り取る
+    const v = [0, 0], v2 = [0, 0], hgt = def.node ? 2.6 : 1.4;
+    cam.project(x, 0, y, v); cam.project(x, hgt, y, v2);
+    const k = R.canvas.width / this.w, s = Math.max(50, (v[1] - v2[1]) * (def.node ? 1.9 : 1.75)) * k, my = (v[1] + v2[1]) / 2;
+    const c = this.iconCanvas || (this.iconCanvas = document.createElement('canvas'));
+    c.width = c.height = 112;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(R.canvas, v[0] * k - s / 2, my * k - s / 2, s, s, 0, 0, 112, 112);
+    // 周りを少し暗く（建物が浮き上がって見えるように）
+    const gr = ctx.createRadialGradient(56, 56, 30, 56, 56, 80);
+    gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(20,10,0,.45)');
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, 112, 112);
+    try { ICON[type] = c.toDataURL('image/jpeg', 0.85); } catch (e) { /* 読み出せない環境では絵のまま */ }
+    Object.assign(cam, save);
+    if (!this.iconQ.length && this.state === STATE.PLAYING) this.buildMenu();
+    else if (this.state === STATE.PLAYING && this.iconQ.length % 6 === 0) this.buildMenu();
+  },
+  iconList() { return BUILD_ORDER.map((k) => ICON[k]).filter(Boolean); },   // 確認用
   /** 文の先頭の絵文字を、漢字一文字の印に置き換える（[印の字, 残りの文]） */
   sealOf(text, cls) {
     const m = text.match(/^([\u2600-\u27BF\uD83C-\uDBFF\uDC00-\uDFFF\uFE0F]+)\s*/);
-    const map = { '🚩': '旗', '⚠': '急', '💣': '砲', '🦠': '疫', '🌧': '雨', '🔥': '焼', '⚔': '戦', '🎯': '的', '🛡': '援', '🐎': '将', '📯': '鼓' };
+    const map = { '🚩': 'flag', '⚠': 'warn', '💣': 'barrage', '🦠': 'plague', '🌧': 'rain', '🔥': 'fire', '⚔': 'war', '🎯': 'target', '🛡': 'reinforce', '🐎': 'general', '📯': 'rally' };
     let k = null, rest = text;
-    if (m) { rest = text.slice(m[0].length); const e = m[1].replace(/\uFE0F/g, ''); k = map[e] || (cls === 'bad' ? '急' : '建'); }
-    return [k || (cls === 'bad' ? '急' : cls === 'good' ? '報' : '知'), rest];
+    if (m) { rest = text.slice(m[0].length); const e = m[1].replace(/\uFE0F/g, ''); k = map[e] || (cls === 'bad' ? 'warn' : 'build'); }
+    return [k || (cls === 'bad' ? 'warn' : 'news'), rest];
   },
   log(text, cls, cell) {
     const box = $('log');
@@ -1753,7 +1805,7 @@ const App = {
       first.dataset.n = n;
       first.dataset.cell = cell;
       const [k1, r1] = this.sealOf(text, cls);
-      first.innerHTML = `<i class="seal lg ${cls || ''}">${k1}</i><time>${this.game ? this.fmtTime(this.game.time) : ''}</time>${escapeHtml(r1)} ×${n}`;
+      first.innerHTML = `${icon(k1, 'lg')}<time>${this.game ? this.fmtTime(this.game.time) : ''}</time>${escapeHtml(r1)} ×${n}`;
       return;
     }
     const el = document.createElement('div');
@@ -1761,7 +1813,7 @@ const App = {
     el.className = cls || '';
     el.dataset.cell = cell;
     const [k, rest] = this.sealOf(text, cls);
-    el.innerHTML = `<i class="seal lg ${cls || ''}">${k}</i><time>${this.game ? this.fmtTime(this.game.time) : ''}</time>${escapeHtml(rest)}`;
+    el.innerHTML = `${icon(k, 'lg')}<time>${this.game ? this.fmtTime(this.game.time) : ''}</time>${escapeHtml(rest)}`;
     box.prepend(el);
     // 古いログは片付ける
     while (box.children.length > CONFIG.LOG_MAX) box.lastElementChild.remove();
@@ -2035,7 +2087,8 @@ const App = {
   start() {
     this.lockPageZoom();
     Sfx.init();
-    if (!Sfx.on) $('btn-sound').innerHTML = '<i>🔇</i>音';
+    for (const el of document.querySelectorAll('[data-ico]')) el.outerHTML = icon(el.dataset.ico);   // 絵のアイコンを入れる
+    if (!Sfx.on) $('btn-sound').classList.add('off');
     this.resize();
     this.setState(STATE.LOADING);
     requestAnimationFrame((t) => { this.lastT = t; this.frame(t); });

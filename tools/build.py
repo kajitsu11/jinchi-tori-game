@@ -18,7 +18,7 @@ def main():
     html = read("src", "template.html")
     css = read("src", "style.css")
     # core（土台・描画）→ rts_sim（ルール・AI）→ app（画面・入力）の順に1つのスコープへまとめる
-    parts = [read("src", f) for f in ("core.js", "sprites.js", "rts_sim.js", "net.js", "sfx.js", "app.js")]
+    parts = [read("src", f) for f in ("core.js", "icons.js", "sprites.js", "rts_sim.js", "net.js", "sfx.js", "app.js")]
     js = "'use strict';\n(() => {\n" + "\n".join(parts) + "\n})();\n"
     data = json.loads(read("data", "mapdata.json"))
     # </script> がデータ中に現れないことを保証

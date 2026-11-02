@@ -294,6 +294,23 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
 #cellpanel::before { top: -4px; } #cellpanel::after { bottom: -4px; }
 #cellpanel .cp-name { font-family: var(--serif); font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
 #cellpanel .cp-name .seal { width: 26px; height: 26px; font-size: 16px; }
+
+/* ---- 絵のアイコン（icons.js：建物は3Dの撮影画像、ほかは手描きの絵） ---- */
+.ico { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 22px; height: 22px; font-style: normal; vertical-align: middle; }
+.ico svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 1px 0 rgba(0,0,0,.45)); }
+img.ico.pic { object-fit: cover; border-radius: 5px; box-shadow: 0 0 0 1.5px #d9b45c, 0 2px 4px rgba(0,0,0,.5); }
+.bcard .ico.big { width: 46px; height: 46px; margin-bottom: 2px; }
+.bcard .ico.big svg { width: 34px; height: 34px; }
+.ico.mini { width: 14px; height: 14px; margin-right: 1px; }
+.res .ico { width: 22px; height: 22px; margin-right: 3px; }
+#sidebtns .ico { width: 28px; height: 28px; margin: 0 auto 1px; display: flex; }
+#sidebtns button.off .ico { opacity: .4; filter: grayscale(1); }
+#sidebtns button.off::after { content: ''; position: absolute; left: 18%; right: 18%; top: 30%; height: 3px; background: #c8392b; transform: rotate(-35deg); border-radius: 2px; }
+#sidebtns button { position: relative; }
+.actrow .b-rally .ico, #abilrow .ico { width: 22px; height: 22px; }
+#log .ico.lg { width: 17px; height: 17px; margin-right: 5px; vertical-align: -4px; }
+#race .ico.sm { width: 15px; height: 15px; margin-right: 4px; vertical-align: -3px; }
+#cellpanel .cp-name .ico { width: 30px; height: 30px; }
 </style>
 </head>
 <body>
@@ -350,22 +367,22 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
         <span id="h-rank" class="rank">—位</span>
       </div>
       <div class="resbar">
-        <span class="res" title="食料"><i class="seal r-food">糧</i><b id="r-food">0</b><small id="ri-food"></small></span>
-        <span class="res" title="木材"><i class="seal r-wood">木</i><b id="r-wood">0</b><small id="ri-wood"></small></span>
-        <span class="res" title="金"><i class="seal r-gold">金</i><b id="r-gold">0</b><small id="ri-gold"></small></span>
-        <span class="res" title="あなたの兵士"><i class="seal">兵</i><b id="r-units">0</b></span>
+        <span class="res" title="食料"><i data-ico="food"></i><b id="r-food">0</b><small id="ri-food"></small></span>
+        <span class="res" title="木材"><i data-ico="wood"></i><b id="r-wood">0</b><small id="ri-wood"></small></span>
+        <span class="res" title="金"><i data-ico="gold"></i><b id="r-gold">0</b><small id="ri-gold"></small></span>
+        <span class="res" title="あなたの兵士"><i data-ico="units"></i><b id="r-units">0</b></span>
       </div>
       <div class="row3"><span id="h-left" class="left"></span>・<span>領土 <b id="h-cells">0</b>マス <small id="h-delta">(±0)</small></span>・<span id="h-today"></span></div>
     </div>
     <canvas id="minimap"></canvas>
     <div id="race"></div>
     <div id="sidebtns">
-      <button data-act="rank"><i class="seal">戦</i>戦況</button>
-      <button data-act="top" id="btn-top"><i class="seal">上</i>真上</button>
-      <button data-act="home"><i class="seal">城</i>自県へ</button>
-      <button data-act="squad"><i class="seal">隊</i>部隊へ</button>
-      <button data-act="sound" id="btn-sound"><i class="seal">音</i>音</button>
-      <button data-act="title"><i class="seal">戻</i>タイトル</button>
+      <button data-act="rank"><i data-ico="rank"></i>戦況</button>
+      <button data-act="top" id="btn-top"><i data-ico="top"></i>真上</button>
+      <button data-act="home"><i data-ico="home"></i>自県へ</button>
+      <button data-act="squad"><i data-ico="squad"></i>部隊へ</button>
+      <button data-act="sound" id="btn-sound"><i data-ico="sound"></i>音</button>
+      <button data-act="title"><i data-ico="title"></i>タイトル</button>
     </div>
     <div id="toplabel" class="hidden">真上ビュー（北が上・領土の確認用）</div>
     <div id="log"></div>
@@ -379,9 +396,9 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
     <div id="bottombar">
       <div id="hint" class="hidden"></div>
       <div class="actrow">
-        <button id="btn-rally" class="b-rally"><i class="seal">攻</i><span>攻撃目標</span></button>
-        <button id="btn-flag" class="b-rally b-flag"><i class="seal c-sup">旗</i><span>旗を立てる</span></button>
-        <button id="btn-gen" class="b-rally b-gen"><i class="seal c-eco">将</i><span>大将</span></button>
+        <button id="btn-rally" class="b-rally"><i data-ico="attack"></i><span>攻撃目標</span></button>
+        <button id="btn-flag" class="b-rally b-flag"><i data-ico="flag"></i><span>旗を立てる</span></button>
+        <button id="btn-gen" class="b-rally b-gen"><i data-ico="general"></i><span>大将</span></button>
         <button id="btn-cancel" class="b-cancel hidden">✕ やめる</button>
       </div>
       <div class="actrow" id="abilrow"></div>
@@ -501,7 +518,7 @@ const SEAL = {
   hospital: '医', shrine: '社', beacon: '烽', depot: '站', temple: '寺', lighthouse: '灯', town: '町', fort: '砦', castle: '城',
   food: '糧', wood: '木', gold: '金',
 };
-const seal = (k, cls = '') => `<i class="seal ${cls}">${SEAL[k] || k}</i>`;
+const seal = (k, cls = '') => icon(k, cls);   // 絵のアイコン（icons.js）
 const RES_NAME = { food: '食料', wood: '木材', gold: '金' };
 /** 建物の種類 */
 /**
@@ -1849,6 +1866,82 @@ class InstanceList {
     d[o + 6] = c[0] * k; d[o + 7] = c[1] * k; d[o + 8] = c[2] * k; d[o + 9] = rot || 0; d[o + 10] = tilt || 0;
     this.count++;
   }
+}
+
+// =====================================================================
+// アイコン：絵で分かるように。
+//   ・建物：ゲームの中の3Dモデルを起動後に1つずつ撮影して画像にする（App.renderIconStep）
+//   ・資源・ボタン・知らせ：手描きの絵（SVG。輪郭線・明るい面・影の面の3段で塗る）
+// =====================================================================
+const ICON = {};   // 建物の3D撮影の画像（dataURL）。撮影が済むまでは下の絵を使う
+
+const O = 'stroke="#2a1a0c" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"';
+const SVG_ICON = {
+  // ---- 資源
+  food: `<ellipse cx="16" cy="22" rx="11" ry="5" fill="#000" opacity=".2"/>
+    <path d="M5 15c0-5 5-8 11-8s11 3 11 8v4c0 5-5 7-11 7S5 24 5 19z" fill="#e7c77a" ${O}/>
+    <path d="M18 7c5 1 9 4 9 8v4c0 5-5 7-11 7 4-2 6-5 6-9v-4c0-3-1-5-4-6z" fill="#c79a45"/>
+    <path d="M5 13h22M5 20h22" stroke="#7a5420" stroke-width="2"/><path d="M11 8v18M21 8v18" stroke="#7a5420" stroke-width="1.4" opacity=".7"/>
+    <path d="M9 10c2-1 4-1.5 6-1.5" stroke="#fff5d0" stroke-width="1.6" stroke-linecap="round"/>`,
+  wood: `<ellipse cx="16" cy="25" rx="12" ry="4" fill="#000" opacity=".2"/>
+    <rect x="4" y="16" width="22" height="7" rx="3.5" fill="#a8743e" ${O}/><circle cx="25" cy="19.5" r="3.6" fill="#e3bd82" ${O}/><circle cx="25" cy="19.5" r="1.4" fill="none" stroke="#a8743e" stroke-width="1"/>
+    <rect x="7" y="9" width="20" height="7" rx="3.5" fill="#bb8549" ${O}/><circle cx="26" cy="12.5" r="3.6" fill="#ecc890" ${O}/><circle cx="26" cy="12.5" r="1.4" fill="none" stroke="#a8743e" stroke-width="1"/>
+    <path d="M9 11h12M7 18h13" stroke="#7a4e22" stroke-width="1.2" opacity=".7"/>`,
+  gold: `<ellipse cx="16" cy="26" rx="10" ry="3" fill="#000" opacity=".2"/>
+    <ellipse cx="16" cy="15" rx="9" ry="12" fill="#f0c94a" ${O}/><ellipse cx="16" cy="15" rx="6.6" ry="9.4" fill="none" stroke="#b58a1c" stroke-width="1.2"/>
+    <path d="M11 9h10M10.5 13h11M10.5 17h11M11 21h10" stroke="#c99a26" stroke-width="1.2"/>
+    <path d="M10 8c1.5-2.5 3.5-3.5 6-3.5" stroke="#fff6c0" stroke-width="1.8" stroke-linecap="round"/>`,
+  units: `<ellipse cx="16" cy="27" rx="10" ry="3" fill="#000" opacity=".2"/>
+    <path d="M4 18c0-7 5-12 12-12s12 5 12 12z" fill="#3a3a44" ${O}/><path d="M16 6c7 0 12 5 12 12h-6c0-6-2-10-6-12z" fill="#24242c"/>
+    <path d="M2 18h28l-3 5H5z" fill="#4b4b56" ${O}/><path d="M9 11c1-2 3-3 5-3.5" stroke="#9a9aae" stroke-width="1.6" stroke-linecap="round"/>
+    <path d="M16 6l-5-4m5 4l5-4" stroke="#e0b445" stroke-width="2.4" stroke-linecap="round"/><circle cx="16" cy="13" r="2.4" fill="#e0b445" ${O}/>`,
+  // ---- 右の操作
+  rank: `<path d="M8 6h16v5c0 6-4 9-8 9s-8-3-8-9z" fill="#f0c94a" ${O}/><path d="M16 20c4 0 8-3 8-9V6h-4v5c0 5-2 8-4 9z" fill="#c99a26"/>
+    <path d="M8 8H4c0 4 2 6 5 6M24 8h4c0 4-2 6-5 6" fill="none" ${O}/><rect x="13" y="20" width="6" height="4" fill="#c99a26" ${O}/><rect x="9" y="24" width="14" height="4" rx="1" fill="#7a4e22" ${O}/>
+    <path d="M11 8v3" stroke="#fff6c0" stroke-width="1.8" stroke-linecap="round"/>`,
+  top: `<path d="M5 8l7-3 8 3 7-3v19l-7 3-8-3-7 3z" fill="#e9dcb4" ${O}/><path d="M12 5v19M20 8v19" stroke="#2a1a0c" stroke-width="1.2"/>
+    <path d="M7 14c3-2 5 1 8-1s5 2 9 0" fill="none" stroke="#4f8a3a" stroke-width="2"/><circle cx="21" cy="18" r="2" fill="#c8392b"/>`,
+  home: `<path d="M3 27h26" ${O}/><path d="M6 27l2-7h16l2 7z" fill="#8f8a80" ${O}/><rect x="10" y="14" width="12" height="6" fill="#f2ecdc" ${O}/>
+    <path d="M7 15l9-6 9 6z" fill="#3b4048" ${O}/><rect x="12.5" y="7" width="7" height="4" fill="#f2ecdc" ${O}/><path d="M10 8l6-4 6 4z" fill="#3b4048" ${O}/>
+    <rect x="14.5" y="16" width="3" height="4" fill="#2a1a0c"/>`,
+  squad: `<path d="M16 29s-9-9-9-16a9 9 0 0118 0c0 7-9 16-9 16z" fill="#c8392b" ${O}/><path d="M16 4a9 9 0 019 9c0 7-9 16-9 16 3-6 5-11 5-16 0-4-2-7-5-9z" fill="#962419"/>
+    <circle cx="16" cy="13" r="3.5" fill="#fff3e0" ${O}/>`,
+  sound: `<ellipse cx="16" cy="9" rx="10" ry="4" fill="#e9dcb4" ${O}/><path d="M6 9v12c0 2 4.5 4 10 4s10-2 10-4V9c0 2-4.5 4-10 4S6 11 6 9z" fill="#a8432e" ${O}/>
+    <path d="M18 13c5-.5 8-2 8-4v12c0 2-3 3.5-8 4z" fill="#7d2c1c"/><path d="M8 13v8M24 13v8" stroke="#e0b445" stroke-width="1.4"/><circle cx="16" cy="19" r="1.4" fill="#e0b445"/>`,
+  title: `<path d="M3 8c5 1 21 1 26 0" fill="none" stroke="#c8392b" stroke-width="3.2" stroke-linecap="round"/><path d="M3 8c5 1 21 1 26 0" fill="none" stroke="#2a1a0c" stroke-width=".9"/>
+    <path d="M6 13h20" stroke="#c8392b" stroke-width="2.6"/><path d="M9 9v19M23 9v19" stroke="#c8392b" stroke-width="3"/><path d="M9 9v19M23 9v19" stroke="#2a1a0c" stroke-width=".8" opacity=".6"/>`,
+  // ---- 指示・作戦
+  attack: `<path d="M5 26L22 6l3-1-1 3L7 28z" fill="#dfe4ea" ${O}/><path d="M7 28l-3 1 1-3 2-1z" fill="#2a1a0c"/><path d="M8 22l3 3" stroke="#7a4e22" stroke-width="3"/>
+    <path d="M27 26L10 6 7 5l1 3 17 20z" fill="#cfd5db" ${O}/><path d="M24 22l-3 3" stroke="#7a4e22" stroke-width="3"/>`,
+  flag: `<path d="M9 3v26" stroke="#5a3a1c" stroke-width="2.4" stroke-linecap="round"/><path d="M10 5h15v14H10z" fill="#e2e2e2" ${O}/>
+    <path d="M18 5h7v14h-7z" fill="#bdbdbd"/><circle cx="17.5" cy="12" r="3.4" fill="#c8392b" ${O}/>`,
+  general: `<path d="M5 20c0-8 5-13 11-13s11 5 11 13z" fill="#2f2f38" ${O}/><path d="M2 20h28l-4 5H6z" fill="#3e3e48" ${O}/>
+    <path d="M16 8C12 4 8 2 5 2c3 2 6 5 8 9M16 8c4-4 8-6 11-6-3 2-6 5-8 9" fill="#f0c94a" ${O}/><circle cx="16" cy="13" r="2.6" fill="#c8392b" ${O}/>`,
+  barrage: `<ellipse cx="16" cy="27" rx="9" ry="2.5" fill="#000" opacity=".2"/><circle cx="15" cy="18" r="9" fill="#34343c" ${O}/><path d="M15 9a9 9 0 019 9 9 9 0 01-9 9c4-3 5-6 5-9s-1-6-5-9z" fill="#1f1f25"/>
+    <path d="M10 13c1-2 3-3 5-3" stroke="#8a8a98" stroke-width="2" stroke-linecap="round"/><path d="M20 10c2-3 4-4 6-4" fill="none" stroke="#7a4e22" stroke-width="2"/>
+    <path d="M26 2l1 3 3 1-3 1-1 3-1-3-3-1 3-1z" fill="#ffcf3f" ${O}/>`,
+  reinforce: `<path d="M16 3l11 4v8c0 7-5 12-11 14C10 27 5 22 5 15V7z" fill="#3e6aa8" ${O}/><path d="M16 3l11 4v8c0 7-5 12-11 14z" fill="#2c4f80"/>
+    <path d="M16 9v12M10 15h12" stroke="#fff3e0" stroke-width="3" stroke-linecap="round"/>`,
+  rally: `<path d="M4 20c3-8 10-13 19-13l4 2-2 4c-9 1-14 4-18 10z" fill="#f2e2c4" ${O}/><path d="M23 7l4 2-2 4c-2-.5-3-2-2-6z" fill="#d6b98a"/>
+    <path d="M9 17c2-3 6-6 11-7M11 20c2-2 5-4 9-5" stroke="#b08a5a" stroke-width="1.2" fill="none"/><path d="M4 20l-1 6 6-2" fill="#c8a06a" ${O}/>
+    <path d="M27 3v3M29 9h-2M28 5l-1.5 1.5" stroke="#ffcf3f" stroke-width="1.8" stroke-linecap="round"/>`,
+  // ---- 知らせ（記録の先頭）
+  warn: `<path d="M16 3l14 25H2z" fill="#f0c94a" ${O}/><path d="M16 3l14 25h-7z" fill="#c99a26"/><path d="M16 11v8" stroke="#2a1a0c" stroke-width="3" stroke-linecap="round"/><circle cx="16" cy="23.5" r="1.8" fill="#2a1a0c"/>`,
+  war: `<path d="M6 26L22 6m-2 0h3v3M26 26L10 6m2 0H9v3" fill="none" stroke="#2a1a0c" stroke-width="4" stroke-linecap="round"/><path d="M6 26L22 6M26 26L10 6" stroke="#dfe4ea" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="16" r="3" fill="#c8392b" ${O}/>`,
+  build: `<path d="M5 27h22" ${O}/><path d="M8 27V15l8-6 8 6v12z" fill="#c9a676" ${O}/><path d="M16 9l8 6v12h-8z" fill="#a8854f"/><path d="M5 16l11-9 11 9" fill="none" stroke="#3b4048" stroke-width="3" stroke-linecap="round"/><rect x="13.5" y="19" width="5" height="8" fill="#5a3a1c"/>`,
+  news: `<rect x="6" y="4" width="20" height="24" rx="2" fill="#f2e6c4" ${O}/><path d="M10 10h12M10 15h12M10 20h8" stroke="#7a5a30" stroke-width="1.6" stroke-linecap="round"/><circle cx="22" cy="23" r="3" fill="#c8392b"/>`,
+  rain: `<path d="M9 16a5 5 0 010-10 7 7 0 0113 1 4.5 4.5 0 011 9z" fill="#d9e2ea" ${O}/><path d="M10 20l-2 5M16 20l-2 5M22 20l-2 5" stroke="#4a7ab0" stroke-width="2" stroke-linecap="round"/>`,
+  fire: `<path d="M16 3c2 5 9 8 9 16a9 9 0 01-18 0c0-5 3-7 4-10 1 3 2 4 3 4 0-4 0-7 2-10z" fill="#e8601c" ${O}/><path d="M16 15c1 3 4 4 4 8a4 4 0 01-8 0c0-2 1-3 2-5 .5 1 1 1.5 2 1.5z" fill="#ffd060"/>`,
+  plague: `<circle cx="16" cy="16" r="7" fill="#8fbf4a" ${O}/><path d="M16 4v5M16 23v5M4 16h5M23 16h5M7.5 7.5l3.5 3.5M21 21l3.5 3.5M24.5 7.5L21 11M11 21l-3.5 3.5" stroke="#2a1a0c" stroke-width="2" stroke-linecap="round"/><circle cx="14" cy="14" r="1.6" fill="#5a8a2a"/><circle cx="18.5" cy="18" r="1.3" fill="#5a8a2a"/>`,
+  target: `<circle cx="16" cy="16" r="12" fill="#f2e6c4" ${O}/><circle cx="16" cy="16" r="8" fill="#c8392b" ${O}/><circle cx="16" cy="16" r="4" fill="#f2e6c4" ${O}/><circle cx="16" cy="16" r="1.5" fill="#c8392b"/>`,
+  final: `<path d="M16 3c2 5 9 8 9 16a9 9 0 01-18 0c0-5 3-7 4-10 1 3 2 4 3 4 0-4 0-7 2-10z" fill="#c8392b" ${O}/><path d="M16 15c1 3 4 4 4 8a4 4 0 01-8 0c0-2 1-3 2-5 .5 1 1 1.5 2 1.5z" fill="#ffcf3f"/>`,
+};
+/** アイコンのHTML。k：建物の種類・資源・ボタンの名前。建物は撮影済みなら3Dの画像、まだなら絵 */
+function icon(k, cls = '') {
+  if (ICON[k]) return `<img class="ico pic ${cls}" src="${ICON[k]}" alt="" draggable="false">`;
+  const svg = SVG_ICON[k];
+  if (svg) return `<i class="ico ${cls}"><svg viewBox="0 0 32 32" aria-hidden="true">${svg}</svg></i>`;
+  return `<i class="ico ${cls}"><svg viewBox="0 0 32 32" aria-hidden="true">${SVG_ICON.build}</svg></i>`;
 }
 
 // =====================================================================
@@ -4219,6 +4312,7 @@ const App = {
       this.buildTitleList();
       await nextFrame();
       $('loading').classList.add('hidden');
+      this.iconQ = [...BUILD_ORDER];   // 建物のアイコンを撮影（タイトル画面の裏で1フレームに1つ）
       this.setState(STATE.TITLE);
     } catch (e) {
       console.error(e);
@@ -4373,8 +4467,7 @@ const App = {
       if (b) this.startPlace(b.dataset.b);
     }, { signal });
     $('btn-rally').addEventListener('click', () => this.toggleRallyMode(), { signal });
-    const AB_SEAL = { barrage: '砲', reinforce: '援', rally: '鼓' };
-    $('abilrow').innerHTML = Object.entries(CONFIG.ABILITIES).map(([k, d]) => `<button class="b-rally" data-ab="${k}" title="${escapeHtml(d.desc)}"><i class="seal">${AB_SEAL[k]}</i><span>${d.name}</span></button>`).join('');
+    $('abilrow').innerHTML = Object.entries(CONFIG.ABILITIES).map(([k, d]) => `<button class="b-rally" data-ab="${k}" title="${escapeHtml(d.desc)}">${icon(k)}<span>${d.name}</span></button>`).join('');
     $('abilrow').addEventListener('click', (e) => {
       const b = e.target.closest('[data-ab]');
       if (!b) return;
@@ -4423,7 +4516,7 @@ const App = {
       else if (act === 'top') this.toggleTop();
       else if (act === 'home') this.goHome();
       else if (act === 'squad') this.goSquad();
-      else if (act === 'sound') { const on = Sfx.toggle(); b.innerHTML = `<i>${on ? '🔊' : '🔇'}</i>音`; }
+      else if (act === 'sound') { const on = Sfx.toggle(); b.classList.toggle('off', !on); }
       else if (act === 'title') this.confirmTitle();
     }, { signal });
     $('log').addEventListener('click', (e) => {
@@ -4613,7 +4706,7 @@ const App = {
       const pl = g.plans && g.plans[me], foes = [];
       if (g.plans) for (let p = 1; p <= 47; p++) if (p !== me && g.plans[p] && g.plans[p].war === me && g.nodeCount[p]) foes.push(map.prefs[p].short);
       html += `<div class="r me"><span>あなた ${myRank}位 ${pc(me)}</span><span class="war">${pl && pl.war ? `攻→${map.prefs[pl.war].short}` : ''}${foes.length ? ` 狙←${foes.join('・')}` : ''}</span></div>`;
-      if (g.isFinal && g.isFinal()) html += '<div class="fin"><i class="seal sm">決</i>決戦中：旗が2倍の速さ</div>';
+      if (g.isFinal && g.isFinal()) html += `<div class="fin">${icon('final', 'sm')}決戦中：旗が2倍の速さ</div>`;
       // 目標
       const lap = Math.floor(this.mission / MISSIONS.length), ms = MISSIONS[this.mission % MISSIONS.length], need = ms.need * (lap + 1);
       const have = ms.get(g, this);
@@ -4625,7 +4718,7 @@ const App = {
         this.log(`🎯 目標達成：${ms.text.replace(/（.*）/, '')}`, 'good', -1);
       }
       const mtext = ms.text.replace(/（.*）/, '').replace('1本', `${need}本`).replace('20人', `${need}人`).replace('10個', `${need}個`).replace('3つ', `${need}つ`);
-      html += `<div class="mis"><i class="seal sm c-def">的</i>${Math.min(have, need)}/${need} ${mtext}</div>`;
+      html += `<div class="mis">${icon('target', 'sm')}${Math.min(have, need)}/${need} ${mtext}</div>`;
       html += `<div class="r"><span>あなたの部隊 ${g.myUnits()}人</span><span>撃破 ${(g.stats && g.stats.myKills) || 0}</span></div>`;
       if (html !== this.raceHtml) { $('race').innerHTML = html; this.raceHtml = html; }
     }
@@ -4661,7 +4754,7 @@ const App = {
       if (!f) { this.hidePanel(); return; }
       s.f = f;
       const mineF = f.pref === this.me;
-      $('cp-name').innerHTML = `<i class="seal c-sup">旗</i>${escapeHtml(map.prefs[f.pref].name)}の旗${f.hw === 0 ? '（あなたの指示）' : ''}`;
+      $('cp-name').innerHTML = `${icon('flag')}${escapeHtml(map.prefs[f.pref].name)}の旗${f.hw === 0 ? '（あなたの指示）' : ''}`;
       $('cp-chip').style.background = map.prefs[f.pref].color;
       $('cp-owner').textContent = `守った時間 ${this.fmtDur(f.prog)} / ${this.fmtDur(CONFIG.FLAG_HOLD)}（${Math.floor(f.prog / CONFIG.FLAG_HOLD * 100)}%）・旗の体力 ${Math.max(0, Math.round(f.hp))}%`;
       $('cp-meta').textContent = f.enemy !== undefined ? `正方形の中：${map.prefs[f.pref].short}の兵 ${f.own}人・ほかの兵 ${f.enemy}人` : `正方形の中の兵 ${f.own ? 'あり' : 'なし'}`;
@@ -4669,7 +4762,7 @@ const App = {
         : '自県の中なら「旗を立てる」→ この旗の近くをタップで迎撃。正方形の中の兵を倒せば消えます';
     } else if (s.n) {
       const n = s.n;
-      $('cp-name').innerHTML = `<i class="seal c-node">${{ capital: '城', town: '町', fort: '砦', castle: '城' }[n.type] || '拠'}</i>${escapeHtml(n.name)}`;
+      $('cp-name').innerHTML = `${icon(n.type === 'capital' ? 'home' : n.type)}${escapeHtml(n.name)}`;
       $('cp-chip').style.background = map.prefs[n.owner].color;
       $('cp-owner').textContent = `持ち主：${map.prefs[n.owner].name}${n.owner === this.me ? '（自県）' : ''}・${NODE_TYPE_NAME[n.type]}${n.byPlayer && n.owner === this.me ? '（あなたが建設）' : ''}`;
       $('cp-meta').textContent = `領土 ${fmt(g.cellsOf(n.id).length)}マス・守備 ${n.defenders}・攻撃 ${n.attackers}${n.pref !== n.owner ? `・元は${map.prefs[n.pref].name}` : ''}`;
@@ -4708,7 +4801,7 @@ const App = {
 
   // ------------------------------------------------ 3D：建物・兵士・木（日本風）
   buildScene() {
-    const g = this.game, map = this.map, cam = this.cam;
+    const g = this.iconStub || this.game, map = this.map, cam = this.cam;
     const KINDS = ['pad', 'shadow', 'box', 'boxW', 'roof', 'roofT', 'cone', 'coneT', 'cyl', 'cylW', 'sphere', 'sphereT'];
     if (!this.inst) { this.inst = {}; for (const k of KINDS) this.inst[k] = new InstanceList(); }
     const I = this.inst;
@@ -5093,7 +5186,7 @@ const App = {
       if (this.sprites) this.sprites.clear();
       if (cpx > 0.25) this.drawSoldiers(I, g, cpx, visible, col, C);
     }
-    if (cpx > 1.4 && cam.pitch < 70) this.addTrees(I, cpx);   // 真上から見ているときは木を描かない（領土と建物が見やすいように）
+    if (cpx > 1.4 && cam.pitch < 70 && !this.iconStub) this.addTrees(I, cpx);   // 真上から見ているときは木を描かない（領土と建物が見やすいように）
     return I;
   },
   /**
@@ -5847,6 +5940,7 @@ const App = {
         this.game.update(dt, this.speed);
         this.updateHud(false);
       }
+      if (this.iconQ && this.iconQ.length) this.renderIconStep();   // 建物のアイコンを1つずつ撮影
       const mixT = clamp((this.cam.pitch - CONFIG.CAMERA_PITCH) / (CONFIG.TOP_PITCH - CONFIG.CAMERA_PITCH), 0, 1);
       this.renderer.render(this.cam, {
         fill: CONFIG.FILL + (CONFIG.FILL_TOP - CONFIG.FILL) * mixT,
@@ -5862,13 +5956,64 @@ const App = {
     }
     requestAnimationFrame((t) => this.frame(t));
   },
+  /**
+   * 建物のアイコンの撮影：その建物だけを置いた場面を、斜め上から大きく描いて画面から切り取る（1フレームに1つ）。
+   * 草地の平らな場所を探して、その上に置く。撮れたら建築メニューを描き直す
+   */
+  renderIconStep() {
+    const map = this.map, cam = this.cam, S = map.scale || 1;
+    if (!this.iconSpot) {
+      // 平地が広く続く場所（まわり8マスも平地）
+      let spot = null;
+      for (let p = 1; p <= 47 && !spot; p++) {
+        const c = map.capitalCell[p];
+        if (c < 0 || !map.initCounts[p]) continue;
+        const cx = map.X(c), cy = map.Y(c);
+        for (let r = 30 * S; r < 400 * S && !spot; r += 6 * S) for (let k = 0; k < 16 && !spot; k++) {
+          const x = Math.floor(cx + Math.cos(k / 16 * 6.283) * r), y = Math.floor(cy + Math.sin(k / 16 * 6.283) * r);
+          let ok = true;
+          for (let dy = -8; dy <= 8 && ok; dy += 4) for (let dx = -8; dx <= 8 && ok; dx += 4) { const i = map.id(x + dx * S, y + dy * S); if (i < 0 || (map.terrain[i] & 7) !== 1 || map.initPref[i] !== p) ok = false; }
+          if (ok) spot = [x + 0.5, y + 0.5, p];
+        }
+      }
+      this.iconSpot = spot || [map.X(map.capitalCell[1]) + 20, map.Y(map.capitalCell[1]) + 20, 1];
+    }
+    const type = this.iconQ.shift(), def = BUILDINGS[type];
+    const [x, y, p] = this.iconSpot;
+    const stub = { buildings: [], nodes: [], units: [], flags: [], shots: [], acc: 0, time: 0 };
+    if (def.node) stub.nodes.push({ id: 0, x, y, owner: p, pref: p, type, name: '', progress: 0 });
+    else stub.buildings.push({ id: 7, type, x, y, owner: p, wallet: -1, hp: 1, maxHp: 1, rot: 0.55, t: 0, mul: 1, forest: 10 });
+    const save = { tx: cam.tx, tz: cam.tz, dist: cam.dist, pitch: cam.pitch, goal: cam.goal };
+    cam.goal = null; cam.tx = x; cam.tz = y; cam.pitch = 40; cam.dist = def.node ? 20 : 13;
+    this.iconStub = stub;
+    const R = this.renderer;
+    R.render(cam, { fill: 0, place: false, time: this.clock, meshes: this.buildScene(), sprites: null });
+    this.iconStub = null;
+    // 建物の足元と屋根の高さを画面に写して、その真ん中を切り取る
+    const v = [0, 0], v2 = [0, 0], hgt = def.node ? 2.6 : 1.4;
+    cam.project(x, 0, y, v); cam.project(x, hgt, y, v2);
+    const k = R.canvas.width / this.w, s = Math.max(50, (v[1] - v2[1]) * (def.node ? 1.9 : 1.75)) * k, my = (v[1] + v2[1]) / 2;
+    const c = this.iconCanvas || (this.iconCanvas = document.createElement('canvas'));
+    c.width = c.height = 112;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(R.canvas, v[0] * k - s / 2, my * k - s / 2, s, s, 0, 0, 112, 112);
+    // 周りを少し暗く（建物が浮き上がって見えるように）
+    const gr = ctx.createRadialGradient(56, 56, 30, 56, 56, 80);
+    gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(20,10,0,.45)');
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, 112, 112);
+    try { ICON[type] = c.toDataURL('image/jpeg', 0.85); } catch (e) { /* 読み出せない環境では絵のまま */ }
+    Object.assign(cam, save);
+    if (!this.iconQ.length && this.state === STATE.PLAYING) this.buildMenu();
+    else if (this.state === STATE.PLAYING && this.iconQ.length % 6 === 0) this.buildMenu();
+  },
+  iconList() { return BUILD_ORDER.map((k) => ICON[k]).filter(Boolean); },   // 確認用
   /** 文の先頭の絵文字を、漢字一文字の印に置き換える（[印の字, 残りの文]） */
   sealOf(text, cls) {
     const m = text.match(/^([\u2600-\u27BF\uD83C-\uDBFF\uDC00-\uDFFF\uFE0F]+)\s*/);
-    const map = { '🚩': '旗', '⚠': '急', '💣': '砲', '🦠': '疫', '🌧': '雨', '🔥': '焼', '⚔': '戦', '🎯': '的', '🛡': '援', '🐎': '将', '📯': '鼓' };
+    const map = { '🚩': 'flag', '⚠': 'warn', '💣': 'barrage', '🦠': 'plague', '🌧': 'rain', '🔥': 'fire', '⚔': 'war', '🎯': 'target', '🛡': 'reinforce', '🐎': 'general', '📯': 'rally' };
     let k = null, rest = text;
-    if (m) { rest = text.slice(m[0].length); const e = m[1].replace(/\uFE0F/g, ''); k = map[e] || (cls === 'bad' ? '急' : '建'); }
-    return [k || (cls === 'bad' ? '急' : cls === 'good' ? '報' : '知'), rest];
+    if (m) { rest = text.slice(m[0].length); const e = m[1].replace(/\uFE0F/g, ''); k = map[e] || (cls === 'bad' ? 'warn' : 'build'); }
+    return [k || (cls === 'bad' ? 'warn' : 'news'), rest];
   },
   log(text, cls, cell) {
     const box = $('log');
@@ -5879,7 +6024,7 @@ const App = {
       first.dataset.n = n;
       first.dataset.cell = cell;
       const [k1, r1] = this.sealOf(text, cls);
-      first.innerHTML = `<i class="seal lg ${cls || ''}">${k1}</i><time>${this.game ? this.fmtTime(this.game.time) : ''}</time>${escapeHtml(r1)} ×${n}`;
+      first.innerHTML = `${icon(k1, 'lg')}<time>${this.game ? this.fmtTime(this.game.time) : ''}</time>${escapeHtml(r1)} ×${n}`;
       return;
     }
     const el = document.createElement('div');
@@ -5887,7 +6032,7 @@ const App = {
     el.className = cls || '';
     el.dataset.cell = cell;
     const [k, rest] = this.sealOf(text, cls);
-    el.innerHTML = `<i class="seal lg ${cls || ''}">${k}</i><time>${this.game ? this.fmtTime(this.game.time) : ''}</time>${escapeHtml(rest)}`;
+    el.innerHTML = `${icon(k, 'lg')}<time>${this.game ? this.fmtTime(this.game.time) : ''}</time>${escapeHtml(rest)}`;
     box.prepend(el);
     // 古いログは片付ける
     while (box.children.length > CONFIG.LOG_MAX) box.lastElementChild.remove();
@@ -6161,7 +6306,8 @@ const App = {
   start() {
     this.lockPageZoom();
     Sfx.init();
-    if (!Sfx.on) $('btn-sound').innerHTML = '<i>🔇</i>音';
+    for (const el of document.querySelectorAll('[data-ico]')) el.outerHTML = icon(el.dataset.ico);   // 絵のアイコンを入れる
+    if (!Sfx.on) $('btn-sound').classList.add('off');
     this.resize();
     this.setState(STATE.LOADING);
     requestAnimationFrame((t) => { this.lastT = t; this.frame(t); });
