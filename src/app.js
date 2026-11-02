@@ -143,7 +143,7 @@ const App = {
     $('pd-chip').style.background = pr.color;
     $('pd-name').textContent = pr.name;
     const n = CONFIG.FIXED_PARTICIPANTS || Math.max(CONFIG.MIN_PARTICIPANTS, Math.round(pr.pop / 100 * CONFIG.PARTICIPANTS_PER_MILLION));
-    $('pd-sub').textContent = `人口${fmt(Math.round(pr.pop))}万人・参加者${n}人（あなた＋AI${n - 1}人）・${fmt(this.map.initCounts[p])}マス`;
+    $('pd-sub').textContent = `人口${fmt(Math.round(pr.pop))}万人・参加者${n}人（あなた＋仲間${n - 1}人）・${fmt(this.map.initCounts[p])}マス`;
     $('btn-start').disabled = false;
     const b = document.querySelector(`.pbtn[data-p="${p}"]`);
     if (b && fly) b.scrollIntoView({ block: 'nearest' });
@@ -318,7 +318,7 @@ const App = {
       else this.banner('🐎 大将 → 敵の領土をタップ', 'def', '大将が止まった所に旗を立て、仲間と守りきれば領土に');
     }, 2500);
     this.log(ONLINE ? `出陣！ ${pr.name}の一員として参加しました。人のいない席はコンピューターが担当します。下のメニューから建物を建てよう`
-      : `出陣！ ${pr.name}の参加者${g.parts[this.me]}人（あなた＋AI）。下のメニューから建物を建てよう`, 'good', -1);
+      : `出陣！ ${pr.name}の参加者${g.parts[this.me]}人（あなた＋仲間）。下のメニューから建物を建てよう`, 'good', -1);
   },
   /** 下の建築メニュー（カード） */
   buildMenu() {
@@ -1352,7 +1352,7 @@ const App = {
         ctx.fillStyle = f.hp > 60 ? '#5fd35a' : f.hp > 30 ? '#ffcf3f' : '#ff4a3d'; ctx.fillRect(v[0] - 14, v[1] + 2, 28 * Math.max(0, f.hp) / 100, 3);
         if (cpx > 0.6) {
           const left = Math.max(0, CONFIG.FLAG_HOLD - f.prog), hh = Math.floor(left / 3600), mm = Math.floor((left % 3600) / 60), ss = Math.floor(left % 60);
-          const txt = (f.own ? '' : '⚠ 兵がいない ') + (hh ? `あと${hh}時間${mm}分` : mm ? `あと${mm}分${ss}秒` : `あと${ss}秒`);
+          const txt = (f.own ? '' : '兵がいない！ ') + (hh ? `あと${hh}時間${mm}分` : mm ? `あと${mm}分${ss}秒` : `あと${ss}秒`);
           ctx.font = '600 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
           ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(30,18,6,.85)'; ctx.strokeText(txt, v[0], v[1] - 27);
           ctx.fillStyle = f.own ? '#fff5dc' : '#ffb3a8'; ctx.fillText(txt, v[0], v[1] - 27);
@@ -1400,7 +1400,7 @@ const App = {
         const pulse = 8 + 4 * Math.sin(this.clock * 5);
         ctx.strokeStyle = '#b8f0a0'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.ellipse(v[0], v[1], pulse * 1.6, pulse * 0.8, 0, 0, 7); ctx.stroke();
         ctx.font = '700 12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(20,40,10,.9)'; ctx.strokeText('🚩 ここに旗', v[0], v[1] - 12); ctx.fillStyle = '#e8ffd8'; ctx.fillText('🚩 ここに旗', v[0], v[1] - 12);
+        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(20,40,10,.9)'; ctx.strokeText('ここに旗', v[0], v[1] - 12); ctx.fillStyle = '#e8ffd8'; ctx.fillText('ここに旗', v[0], v[1] - 12);
       }
     }
     // 大将：金色の輪と名前・向かう場所
@@ -1422,10 +1422,10 @@ const App = {
     // 画面の外にいる大将・あなたの旗・指示の場所は、画面の端に矢印で方向を示す
     if (g && this.state === STATE.PLAYING) {
       const marks = [];
-      if (g.general && g.general.alive) marks.push([g.general.x, g.general.y, '🐎', '#ffd34d']);
+      if (g.general && g.general.alive) marks.push([g.general.x, g.general.y, '将', '#ffd34d']);
       const myF = (g.flags || []).find((q) => q.pref === this.me && q.hw === 0);
-      if (myF) marks.push([myF.x, myF.y, '🚩', '#b8f0a0']);
-      else if (g.flagOrder) marks.push([g.flagOrder.x, g.flagOrder.y, g.flagOrder.defend ? '🛡' : '🚩', '#b8f0a0']);
+      if (myF) marks.push([myF.x, myF.y, '旗', '#b8f0a0']);
+      else if (g.flagOrder) marks.push([g.flagOrder.x, g.flagOrder.y, g.flagOrder.defend ? '迎' : '旗', '#b8f0a0']);
       const cx = this.w / 2, cy = this.h / 2, top = 96, bot = this.h - (this.bbh || 260) - 20;
       this.edgeMarks = [];
       for (const [x, z, icon, col] of marks) {
@@ -1442,7 +1442,7 @@ const App = {
         ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
         ctx.rotate(ang); ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(22, 0); ctx.lineTo(14, -6); ctx.lineTo(14, 6); ctx.closePath(); ctx.fill();
         ctx.restore();
-        ctx.font = '14px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(icon, px, py + 1);
+        ctx.font = '700 15px "Hiragino Mincho ProN","Yu Mincho",serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = col; ctx.fillText(icon, px, py + 1);
       }
     }
     // あなたの兵（と加勢中の仲間）の足元に白い輪
