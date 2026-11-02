@@ -184,7 +184,7 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
 .cp-note:empty { display: none; }
 
 #banner { position: absolute; left: 50%; top: 30%; transform: translate(-50%, -50%) scale(.8); z-index: 30; pointer-events: none; opacity: 0;
-  max-width: calc(100% - 40px); white-space: nowrap; padding: 10px 20px 10px 26px; border-radius: 3px; font-family: var(--serif); font-size: 20px; font-weight: 700; letter-spacing: .08em; text-align: center;
+  width: max-content; max-width: calc(100% - 40px); white-space: normal; word-break: keep-all; line-height: 1.35; text-wrap: balance; padding: 10px 20px 10px 26px; border-radius: 3px; font-family: var(--serif); font-size: 20px; font-weight: 700; letter-spacing: .08em; text-align: center;
   color: #2a1a0c; background: linear-gradient(180deg, #f6ecd2, #e9d8b0); border: 1px solid #a88850;
   box-shadow: 0 6px 18px rgba(0,0,0,.45), inset 0 0 0 3px rgba(255,250,236,.6), inset 0 0 24px rgba(160,120,60,.25); }
 /* 札の左端の色の帯（知らせの種類） */
