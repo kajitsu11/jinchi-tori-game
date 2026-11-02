@@ -225,8 +225,13 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
 .rank-row .nm small.sub { display: block; font-size: 10px; color: #6b5330; }
 .rank-row .ct { font-variant-numeric: tabular-nums; text-align: right; }
 .rank-row .pc { width: 52px; text-align: right; color: #6b5330; font-size: 11px; }
-.result-big { font-size: 40px; font-weight: 900; text-align: center; margin: 6px 0; font-family: var(--serif); }
-.result-big.win { color: #9a6a12; } .result-big.lose { color: #a8321c; }
+.result-big { position: relative; font-size: clamp(30px, 10vw, 44px); font-weight: 900; text-align: center; margin: 8px 0 10px; font-family: var(--serif); letter-spacing: .08em;
+  color: #1a1008; text-shadow: 1px 1px 0 rgba(255,250,236,.6); }
+/* 結果の朱印（勝ち：勝、負け：敗） */
+.result-big::after { position: absolute; right: -4px; top: -14px; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; font-size: 20px; letter-spacing: 0;
+  color: #fff3e0; border-radius: 4px; transform: rotate(10deg); background: radial-gradient(circle at 30% 30%, #d4483a, #a8271d 70%, #8e1e16);
+  box-shadow: inset 0 0 0 2px rgba(255,236,210,.6); text-shadow: none; opacity: .92; }
+.result-big.win::after { content: '勝'; } .result-big.lose::after { content: '敗'; background: radial-gradient(circle at 30% 30%, #6a6a6a, #3c3c3c 70%, #2a2a2a); }
 
 @media (min-width: 700px) {
   #cellpanel { left: auto; right: 72px; width: 380px; }
