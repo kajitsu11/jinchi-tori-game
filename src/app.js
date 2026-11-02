@@ -109,7 +109,7 @@ const App = {
     $('title').classList.remove('hidden');
     $('hud').classList.add('hidden');
     $('t-cells').textContent = Math.round(this.map.landCells / 10000) + '万';
-    if (TRIAL) $('t-cells').parentNode.textContent = `お試し版：中国・四国の${TRIAL.prefs.length}県を1マス≒90m（${Math.round(this.map.landCells / 10000)}万マス）で。${TRIAL.perPref ? `1県に${TRIAL.perPref}人が同時に遊んでいる想定（全員AIが担当）` : "1県に大勢いる状態をAIで再現"}`;
+    if (TRIAL) $('t-cells').parentNode.textContent = `お試し版：中国・四国の${TRIAL.prefs.length}県を1マス≒90m（${Math.round(this.map.landCells / 10000)}万マス）で。${TRIAL.perPref ? `1県に${TRIAL.perPref}人が同時に遊んでいる想定（あなた以外はコンピューター）` : "1県に大勢いる状態をAIで再現"}`;
     this.resetCamera(false);
     $('pref-list').addEventListener('click', (e) => {
       const b = e.target.closest('.pbtn');

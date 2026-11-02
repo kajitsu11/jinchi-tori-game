@@ -64,6 +64,14 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
 .title-head { padding: calc(14px + var(--sat)) 16px 8px; text-align: center; background: linear-gradient(rgba(20,12,4,.9), rgba(20,12,4,0)); pointer-events: none !important; }
 .title-head h1 { margin: 0; font-family: var(--serif); font-size: 17px; line-height: 1.25; letter-spacing: .12em; color: var(--parch); text-shadow: 0 2px 6px #000; }
 .title-head h1 b { font-size: 36px; color: var(--gold-hi); letter-spacing: .16em; text-shadow: 0 2px 0 var(--ink), 0 0 18px rgba(217,180,92,.5); }
+.title-head h1 b { position: relative; display: inline-block; }
+/* 落款（題字の右下の朱印） */
+.rakkan { position: absolute; right: -36px; bottom: 4px; width: 28px; height: 30px; display: flex; align-items: center; justify-content: center;
+  font-style: normal; font-size: 11px; line-height: 1.1; letter-spacing: 0; color: #fff3e0; text-align: center;
+  background: radial-gradient(circle at 30% 30%, #d4483a, #a8271d 70%, #8e1e16); border-radius: 3px; transform: rotate(5deg); text-shadow: none;
+  box-shadow: inset 0 0 0 1.5px rgba(255,236,210,.55), 0 1px 2px rgba(0,0,0,.5); font-family: var(--serif); font-weight: 700; }
+/* 題字の下の墨の筆の線 */
+.title-head .brush { display: block; width: 220px; height: 10px; margin: 2px auto 0; fill: rgba(20,12,6,.85); filter: drop-shadow(0 1px 0 rgba(217,180,92,.4)); }
 .title-head .sub { margin: 6px 0 0; font-size: 12px; color: var(--parch); text-shadow: 0 1px 4px #000; }
 .title-sheet { margin-top: auto; max-height: 52%; display: flex; flex-direction: column; background: var(--panel-bg);
   border-radius: 14px 14px 0 0; padding: 10px 12px calc(8px + var(--sab)); }
@@ -256,7 +264,8 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
   <!-- TITLE -->
   <div id="title" class="screen hidden">
     <header class="title-head">
-      <h1>47都道府県対抗<br><b>陣取り合戦</b></h1>
+      <h1>47都道府県対抗<br><b>陣取り合戦<i class="rakkan">天下<br>布武</i></b></h1>
+      <svg class="brush" viewBox="0 0 300 14" preserveAspectRatio="none" aria-hidden="true"><path d="M4 9 C 40 3, 90 2, 150 6 S 250 12, 296 4 L 294 8 C 250 14, 190 11, 150 9 S 50 8, 6 12 Z"/></svg>
       <p class="sub">建てて、広げて、攻め落とせ。日本全国 <span id="t-cells">60万</span>マスのリアルタイム陣取り</p>
     </header>
     <div class="title-sheet">
@@ -4123,7 +4132,7 @@ const App = {
     $('title').classList.remove('hidden');
     $('hud').classList.add('hidden');
     $('t-cells').textContent = Math.round(this.map.landCells / 10000) + '万';
-    if (TRIAL) $('t-cells').parentNode.textContent = `お試し版：中国・四国の${TRIAL.prefs.length}県を1マス≒90m（${Math.round(this.map.landCells / 10000)}万マス）で。${TRIAL.perPref ? `1県に${TRIAL.perPref}人が同時に遊んでいる想定（全員AIが担当）` : "1県に大勢いる状態をAIで再現"}`;
+    if (TRIAL) $('t-cells').parentNode.textContent = `お試し版：中国・四国の${TRIAL.prefs.length}県を1マス≒90m（${Math.round(this.map.landCells / 10000)}万マス）で。${TRIAL.perPref ? `1県に${TRIAL.perPref}人が同時に遊んでいる想定（あなた以外はコンピューター）` : "1県に大勢いる状態をAIで再現"}`;
     this.resetCamera(false);
     $('pref-list').addEventListener('click', (e) => {
       const b = e.target.closest('.pbtn');
