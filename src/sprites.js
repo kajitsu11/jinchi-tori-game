@@ -115,28 +115,30 @@ class SoldierPainter {
     // ---- 色（マスク描画のときは県の色の部分だけ白）
     const M = mode === 'mask';
     const C = {
-      skin: ['#f0c79c', '#c98d5f'], cloth: ['#4a5272', '#262b40'], legging: ['#ece4d2', '#b7ab92'],
-      armor: ['#e6e6e6', '#8a8a8a'], lacq: ['#5a3a28', '#2a170e'], sandal: ['#8a6a3c', '#4e3818'],
-      wood: ['#8a5a32', '#4a2e16'], steel: ['#e8ecf0', '#7c848c'], hat: ['#4a3a30', '#1c140e'], flag: ['#f2f2f2', '#9a9a9a'],
+      skin: ['#e9b98a', '#b98058'], cloth: ['#dcdcdc', '#9c9c9c'], legging: ['#e4dccb', '#b5a98f'],
+      armor: ['#e2e2e2', '#a8a8a8'], lacq: ['#3a2a22', '#1e1410'], sandal: ['#b89a5c', '#7c6236'],
+      wood: ['#7c4f2c', '#4a2e16'], steel: ['#d9dee3', '#8a9298'], hat: ['#2e2622', '#16100c'], flag: ['#f2f2f2', '#b8b8b8'],
+      shin: ['#2c2420', '#18120e'],
     };
-    const team = { armor: 1, flag: 1, mon: 1 };
+    const team = { armor: 1, flag: 1, mon: 1, cloth: 1 };   // 袴と袖は県の色（遠くからでもどの県か分かるように）
     const parts = [];
     // 太さを持つ線（手足・武器）：tapered capsule
     const limb = (a, b, w1, w2, col) => {
       const A = pr(...a), B = pr(...b);
       parts.push({ d: (A.d + B.d) / 2, draw: () => this.capsule(ctx, A, B, w1, w2, C[col], M ? (team[col] ? '#fff' : '#000') : null) });
     };
-    const poly = (pts, col, dz = 0, extra) => {
+    const poly = (pts, col, dz = 0, extra, both) => {
       const Q = pts.map((p) => pr(...p));
       const d = Q.reduce((s, q) => s + q.d, 0) / Q.length + dz;
-      parts.push({ d, draw: () => { this.shape(ctx, Q, C[col], M ? (team[col] ? '#fff' : '#000') : null); if (extra && !M) extra(Q); } });
+      parts.push({ d, draw: () => { this.shape(ctx, Q, C[col], M ? (team[col] ? '#fff' : '#000') : null); if (extra && !M) extra(Q); if (both) both(Q); } });
     };
     // ---- 脚（股引・脚絆・草鞋）
     for (const [hip, knee, ank, side] of [[hipL, kneeL, ankL, -1], [hipR, kneeR, ankR, 1]]) {
-      limb(hip, knee, 10.5, 8.5, 'cloth');
-      limb(knee, ank, 8, 6.4, 'legging');
+      limb(hip, knee, 12.5, 11, 'cloth');                                   // 袴（太め）
+      limb(add(knee, [0, 2, 0]), ank, 7.6, 6, 'legging');                 // 脚絆
+      limb(add(knee, [0, -1.5, 1.6]), add(ank, [0, 4, 1.4]), 5.6, 4.6, 'shin');   // すね当て
       const toe = add(ank, [0, -1, 7]);
-      limb([ank[0], ank[1] - 1.5, ank[2] - 2], toe, 5.6, 4.8, 'sandal');
+      limb([ank[0], ank[1] - 1.5, ank[2] - 2], toe, 5.8, 5, 'sandal');     // 草鞋
     }
     // ---- 胴（胴丸：県の色の縅と黒漆の小札）・草摺
     const torsoW = (w, dd) => Math.abs(w * ct) + Math.abs(dd * st);
@@ -144,24 +146,32 @@ class SoldierPainter {
       const a = pr(...waist), b = pr(...chest), n = pr(...neck);
       const wW = torsoW(12, 8), wC = torsoW(15, 8.5);
       const Q = [{ x: a.x - wW, y: a.y + 2 }, { x: a.x + wW, y: a.y + 2 }, { x: b.x + wC, y: b.y }, { x: n.x + wC * 0.75, y: n.y + 1 }, { x: n.x - wC * 0.75, y: n.y + 1 }, { x: b.x - wC, y: b.y }];
-      this.shape(ctx, Q, C.armor, M ? '#fff' : null);
+      // 桶側胴：黒漆の板に、県の色の縅（横の紐）が段ごとに通る
+      this.shape(ctx, Q, C.lacq, M ? '#000' : null);
+      ctx.save();
+      ctx.beginPath(); Q.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y))); ctx.closePath(); ctx.clip();
+      ctx.lineWidth = 1.3; ctx.strokeStyle = M ? '#fff' : '#e4e4e4';
+      for (let y = n.y + 5; y < a.y + 1; y += 4.6) { ctx.beginPath(); ctx.moveTo(-30, y); ctx.lineTo(30, y); ctx.stroke(); }
       if (!M) {
-        // 小札の段（横の線）と縦の縫い目
-        ctx.save();
-        ctx.beginPath(); Q.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y))); ctx.closePath(); ctx.clip();
-        ctx.strokeStyle = 'rgba(40,24,14,.75)'; ctx.lineWidth = 1.3;
-        for (let y = n.y + 4; y < a.y + 2; y += 4.2) { ctx.beginPath(); ctx.moveTo(-30, y); ctx.lineTo(30, y); ctx.stroke(); }
-        ctx.strokeStyle = 'rgba(255,230,160,.55)'; ctx.lineWidth = 0.7;
-        for (let x = -12; x <= 12; x += 3) { ctx.beginPath(); ctx.moveTo(a.x + x * (wW / 12), a.y); ctx.lineTo(b.x + x * (wC / 12), n.y + 3); ctx.stroke(); }
-        // 胸の金具と陰影
-        ctx.fillStyle = 'rgba(20,10,4,.35)'; ctx.fillRect(Math.min(a.x, b.x) + wW * 0.25, n.y, wC, a.y - n.y + 3);
-        ctx.restore();
+        ctx.strokeStyle = 'rgba(10,6,4,.55)'; ctx.lineWidth = 0.8;   // 板の継ぎ目
+        for (let y = n.y + 7.3; y < a.y + 1; y += 4.6) { ctx.beginPath(); ctx.moveTo(-30, y); ctx.lineTo(30, y); ctx.stroke(); }
+        ctx.fillStyle = 'rgba(255,236,190,.16)';                       // 光の当たる側
+        ctx.fillRect(Math.min(a.x, b.x) - wC, n.y, wC * 0.8, a.y - n.y + 3);
+        ctx.fillStyle = 'rgba(0,0,0,.28)';                             // 影の側
+        ctx.fillRect(Math.max(a.x, b.x) + wC * 0.35, n.y, wC, a.y - n.y + 3);
+      }
+      ctx.restore();
+      if (!M) {   // 胸板（いちばん上の金具の板）
+        ctx.fillStyle = '#2a1e18'; ctx.strokeStyle = 'rgba(200,160,80,.7)'; ctx.lineWidth = 0.9;
+        ctx.beginPath(); ctx.moveTo(n.x - wC * 0.7, n.y + 1); ctx.lineTo(n.x + wC * 0.7, n.y + 1); ctx.lineTo(n.x + wC * 0.55, n.y + 5); ctx.lineTo(n.x - wC * 0.55, n.y + 5); ctx.closePath(); ctx.fill(); ctx.stroke();
       }
       // 草摺（腰の下の板）
       const Kq = [{ x: a.x - wW - 4, y: a.y + 17 }, { x: a.x + wW + 4, y: a.y + 17 }, { x: a.x + wW + 0.5, y: a.y }, { x: a.x - wW - 0.5, y: a.y }];
       this.shape(ctx, Kq, C.lacq, M ? '#000' : null);
-      if (!M) { ctx.strokeStyle = 'rgba(230,190,110,.6)'; ctx.lineWidth = 0.8; for (let k = -1; k <= 1; k++) { ctx.beginPath(); ctx.moveTo(a.x + k * wW * 0.6, a.y + 1); ctx.lineTo(a.x + k * (wW + 3) * 0.7, a.y + 16); ctx.stroke(); }
-        ctx.strokeStyle = 'rgba(230,190,110,.35)'; ctx.beginPath(); ctx.moveTo(a.x - wW - 1, a.y + 3); ctx.lineTo(a.x + wW + 1, a.y + 3); ctx.stroke(); }
+      // 草摺：縦に分かれた板と、県の色の縅2段
+      ctx.lineWidth = 1.5; ctx.strokeStyle = M ? '#fff' : '#e0e0e0';
+      for (const yy of [6, 12]) { ctx.beginPath(); ctx.moveTo(a.x - wW - 2 - yy * 0.2, a.y + yy); ctx.lineTo(a.x + wW + 2 + yy * 0.2, a.y + yy); ctx.stroke(); }
+      if (!M) { ctx.strokeStyle = 'rgba(8,5,3,.8)'; ctx.lineWidth = 0.9; for (let k = -1; k <= 1; k += 2) { ctx.beginPath(); ctx.moveTo(a.x + k * wW * 0.35, a.y + 1); ctx.lineTo(a.x + k * (wW + 3) * 0.4, a.y + 17); ctx.stroke(); } }
     };
     parts.push({ d: pr(...chest).d, draw: torso });
     // ---- 腕（袖・籠手・手）
@@ -171,7 +181,10 @@ class SoldierPainter {
       limb(hd, add(hd, [0, -2, 1]), 5.6, 4.8, 'skin');
     }
     // 肩の袖（大袖の代わりの小さな肩当て）
-    for (const sh of [shL, shR]) poly([add(sh, [-5.5, 3, 0]), add(sh, [5.5, 3, 0]), add(sh, [6.5, -9, 0]), add(sh, [-6.5, -9, 0])], 'armor', 0.5);
+    for (const sh of [shL, shR]) poly([add(sh, [-6, 3.5, 0]), add(sh, [6, 3.5, 0]), add(sh, [7, -10, 0]), add(sh, [-7, -10, 0])], 'lacq', 0.5, null, (Q) => {
+      ctx.lineWidth = 1.4; ctx.strokeStyle = M ? '#fff' : '#e2e2e2';   // 袖の縅
+      for (const t of [0.35, 0.7]) { ctx.beginPath(); ctx.moveTo(Q[0].x + (Q[3].x - Q[0].x) * t, Q[0].y + (Q[3].y - Q[0].y) * t); ctx.lineTo(Q[1].x + (Q[2].x - Q[1].x) * t, Q[1].y + (Q[2].y - Q[1].y) * t); ctx.stroke(); }
+    });
     // ---- 頭（顔・陣笠と紋）
     parts.push({ d: pr(...head).d + 0.2, draw: () => {
       const h = pr(...head);
@@ -195,17 +208,26 @@ class SoldierPainter {
         ctx.beginPath(); ctx.moveTo(h.x - 5, h.y - 3); ctx.quadraticCurveTo(h.x, h.y + 9, h.x + 5, h.y - 3); ctx.stroke();
       } else { ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(h.x, h.y, 7.2, 8, 0, 0, Math.PI * 2); ctx.fill(); }
       // 陣笠：つばの楕円と低い円錐
-      const hy = h.y - 5, rw = 17, rh = 5.2;
+      // 陣笠：浅く広い円錐（黒漆・金の縁）
+      const hy = h.y - 4.5, rw = 18.5, rh = 5.6, peak = 8.5;
+      const hat = () => { ctx.beginPath(); ctx.moveTo(h.x - rw, hy); ctx.lineTo(h.x - 2, hy - peak); ctx.lineTo(h.x + 2, hy - peak); ctx.lineTo(h.x + rw, hy); ctx.ellipse(h.x, hy, rw, rh, 0, 0, Math.PI); ctx.closePath(); };
       if (!M) {
-        const g = ctx.createLinearGradient(h.x - rw, hy - 8, h.x + rw, hy + 3);
-        g.addColorStop(0, C.hat[0]); g.addColorStop(1, C.hat[1]);
-        ctx.fillStyle = g; ctx.strokeStyle = 'rgba(10,6,3,.95)'; ctx.lineWidth = 1.1;
-        ctx.beginPath(); ctx.moveTo(h.x - rw, hy); ctx.quadraticCurveTo(h.x, hy - 13, h.x + rw, hy); ctx.ellipse(h.x, hy, rw, rh, 0, 0, Math.PI); ctx.closePath(); ctx.fill(); ctx.stroke();
-        ctx.strokeStyle = 'rgba(255,240,210,.35)'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(h.x - rw * 0.6, hy - 3); ctx.quadraticCurveTo(h.x - 2, hy - 9, h.x + 2, hy - 8.5); ctx.stroke();
-      } else { ctx.fillStyle = '#000'; ctx.beginPath(); ctx.moveTo(h.x - rw, hy); ctx.quadraticCurveTo(h.x, hy - 13, h.x + rw, hy); ctx.ellipse(h.x, hy, rw, rh, 0, 0, Math.PI); ctx.fill(); }
-      // 紋（県の色）
-      if (ct > -0.3) { ctx.fillStyle = M ? '#fff' : '#d8d8d8'; ctx.beginPath(); ctx.ellipse(h.x + st * 3, hy - 4, 2.6 * Math.max(0.4, Math.abs(ct)), 2.2, 0, 0, Math.PI * 2); ctx.fill(); }
+        hat(); ctx.fillStyle = C.hat[0]; ctx.fill();
+        ctx.save(); hat(); ctx.clip();   // 右半分に影（セル塗り）
+        ctx.fillStyle = C.hat[1]; ctx.beginPath(); ctx.moveTo(h.x + 1, hy - peak - 2); ctx.lineTo(h.x + rw + 2, hy - 1); ctx.lineTo(h.x + rw + 2, hy + rh + 2); ctx.lineTo(h.x + 3, hy + rh + 2); ctx.closePath(); ctx.fill();
+        ctx.restore();
+        hat(); ctx.strokeStyle = '#120c08'; ctx.lineWidth = 1.2; ctx.stroke();
+        ctx.strokeStyle = 'rgba(214,170,80,.9)'; ctx.lineWidth = 0.9;   // 金の縁
+        ctx.beginPath(); ctx.ellipse(h.x, hy, rw - 0.8, rh - 0.8, 0, 0.05, Math.PI - 0.05); ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,240,210,.28)'; ctx.lineWidth = 1;   // 光の筋
+        ctx.beginPath(); ctx.moveTo(h.x - rw * 0.75, hy - 1); ctx.lineTo(h.x - 2.5, hy - peak + 1); ctx.stroke();
+      } else { hat(); ctx.fillStyle = '#000'; ctx.fill(); }
+      // 紋（県の色・白い縁）
+      if (ct > -0.3) {
+        const mx = h.x + st * 3.5, my = hy - 3.4, mw = 3.2 * Math.max(0.35, Math.abs(ct));
+        if (!M) { ctx.fillStyle = '#f4efe2'; ctx.beginPath(); ctx.ellipse(mx, my, mw + 0.9, 2.9, 0, 0, Math.PI * 2); ctx.fill(); }
+        ctx.fillStyle = M ? '#fff' : '#d8d8d8'; ctx.beginPath(); ctx.ellipse(mx, my, mw, 2.1, 0, 0, Math.PI * 2); ctx.fill();
+      }
     } });
     // ---- 武器
     const R = hdR, Lh = hdL;
@@ -243,20 +265,32 @@ class SoldierPainter {
     const dx = B.x - A.x, dy = B.y - A.y, L = Math.hypot(dx, dy) || 0.01;
     const nx = -dy / L, ny = dx / L, r1 = w1 / 2, r2 = w2 / 2;
     const ang = Math.atan2(dy, dx);
-    ctx.beginPath();
-    ctx.moveTo(A.x + nx * r1, A.y + ny * r1);
-    ctx.lineTo(B.x + nx * r2, B.y + ny * r2);
-    ctx.arc(B.x, B.y, r2, ang + Math.PI / 2, ang - Math.PI / 2, true);
-    ctx.lineTo(A.x - nx * r1, A.y - ny * r1);
-    ctx.arc(A.x, A.y, r1, ang - Math.PI / 2, ang + Math.PI / 2, true);
-    ctx.closePath();
+    const path = () => {
+      ctx.beginPath();
+      ctx.moveTo(A.x + nx * r1, A.y + ny * r1);
+      ctx.lineTo(B.x + nx * r2, B.y + ny * r2);
+      ctx.arc(B.x, B.y, r2, ang + Math.PI / 2, ang - Math.PI / 2, true);
+      ctx.lineTo(A.x - nx * r1, A.y - ny * r1);
+      ctx.arc(A.x, A.y, r1, ang - Math.PI / 2, ang + Math.PI / 2, true);
+      ctx.closePath();
+    };
+    path();
     if (maskColor) { ctx.fillStyle = maskColor; ctx.fill(); return; }
-    // 左上からの光：棒の左側を明るく
-    const g = ctx.createLinearGradient(A.x - nx * r1 * Math.sign(nx || 1), A.y, A.x + nx * r1 * Math.sign(nx || 1), A.y + 0.01);
-    g.addColorStop(0, col[0]); g.addColorStop(1, col[1]);
-    ctx.fillStyle = g;
-    ctx.strokeStyle = 'rgba(28,18,10,.9)'; ctx.lineWidth = 1.1;
-    ctx.fill(); ctx.stroke();
+    // セル塗り：明るい色で塗り、右側（光の反対）に影の色を1段だけ重ねる
+    ctx.fillStyle = col[0]; ctx.fill();
+    ctx.save(); ctx.clip();
+    const off = Math.max(r1, r2) * 0.35;
+    ctx.fillStyle = col[1];
+    ctx.beginPath();
+    ctx.moveTo(Math.max(A.x, B.x) - Math.abs(dx) / 2 + off, Math.min(A.y, B.y) - 20);
+    ctx.lineTo(Math.max(A.x, B.x) + 30, Math.min(A.y, B.y) - 20);
+    ctx.lineTo(Math.max(A.x, B.x) + 30, Math.max(A.y, B.y) + 20);
+    ctx.lineTo(Math.max(A.x, B.x) - Math.abs(dx) / 2 + off, Math.max(A.y, B.y) + 20);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+    path();
+    ctx.strokeStyle = '#2a1b10'; ctx.lineWidth = 1.2;
+    ctx.stroke();
   }
   /** 多角形（輪郭線と上から下への陰影） */
   shape(ctx, Q, col, maskColor) {
@@ -266,11 +300,16 @@ class SoldierPainter {
     if (maskColor) { ctx.fillStyle = maskColor; ctx.fill(); return; }
     let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
     for (const q of Q) { x0 = Math.min(x0, q.x); x1 = Math.max(x1, q.x); y0 = Math.min(y0, q.y); y1 = Math.max(y1, q.y); }
-    const g = ctx.createLinearGradient(x0, y0, x1, y1);
-    g.addColorStop(0, col[0]); g.addColorStop(1, col[1]);
-    ctx.fillStyle = g;
-    ctx.strokeStyle = 'rgba(28,18,10,.9)'; ctx.lineWidth = 1.1;
-    ctx.fill(); ctx.stroke();
+    // セル塗り：明るい色で塗り、右側の1/3に影の色
+    ctx.fillStyle = col[0]; ctx.fill();
+    ctx.save(); ctx.clip();
+    ctx.fillStyle = col[1]; ctx.fillRect(x0 + (x1 - x0) * 0.62, y0 - 2, (x1 - x0) * 0.5 + 2, y1 - y0 + 4);
+    ctx.restore();
+    ctx.beginPath();
+    Q.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+    ctx.closePath();
+    ctx.strokeStyle = '#2a1b10'; ctx.lineWidth = 1.2;
+    ctx.stroke();
   }
 }
 
