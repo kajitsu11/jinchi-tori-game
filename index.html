@@ -6847,7 +6847,7 @@ Object.assign(App, {
       try {
         const el = document.documentElement, fs = el.requestFullscreen || el.webkitRequestFullscreen;
         const lock = () => { try { const p = screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape'); if (p && p.catch) p.catch(() => {}); } catch (e) { /* 対応していない */ } };
-        if (fs && matchMedia('(pointer: coarse)').matches && !document.fullscreenElement) { const p = fs.call(el); if (p && p.then) p.then(lock, () => {}); else lock(); } else lock();
+        if (fs && !navigator.webdriver && matchMedia('(pointer: coarse)').matches && !document.fullscreenElement) { const p = fs.call(el); if (p && p.then) p.then(lock, () => {}); else lock(); } else lock();
       } catch (e) { /* 全画面にできない環境（埋め込みなど） */ }
     });
     // 下の帯の高さ（スティックと記録をその上に置く）
