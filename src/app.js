@@ -477,8 +477,8 @@ const App = {
       const myRank = rk.indexOf(me) + 1;
       const pl = g.plans && g.plans[me], foes = [];
       if (g.plans) for (let p = 1; p <= 47; p++) if (p !== me && g.plans[p] && g.plans[p].war === me && g.nodeCount[p]) foes.push(map.prefs[p].short);
-      html += `<div class="r me"><span>あなた ${myRank}位 ${pc(me)}</span><span class="war">${pl && pl.war ? `⚔ ${map.prefs[pl.war].short}` : ''}${foes.length ? ` ⚠ ${foes.join('・')}` : ''}</span></div>`;
-      if (g.isFinal && g.isFinal()) html += '<div class="fin">🔥 決戦中：旗が2倍の速さ</div>';
+      html += `<div class="r me"><span>あなた ${myRank}位 ${pc(me)}</span><span class="war">${pl && pl.war ? `攻→${map.prefs[pl.war].short}` : ''}${foes.length ? ` 狙←${foes.join('・')}` : ''}</span></div>`;
+      if (g.isFinal && g.isFinal()) html += '<div class="fin"><i class="seal sm">決</i>決戦中：旗が2倍の速さ</div>';
       // 目標
       const lap = Math.floor(this.mission / MISSIONS.length), ms = MISSIONS[this.mission % MISSIONS.length], need = ms.need * (lap + 1);
       const have = ms.get(g, this);
@@ -490,7 +490,7 @@ const App = {
         this.log(`🎯 目標達成：${ms.text.replace(/（.*）/, '')}`, 'good', -1);
       }
       const mtext = ms.text.replace(/（.*）/, '').replace('1本', `${need}本`).replace('20人', `${need}人`).replace('10個', `${need}個`).replace('3つ', `${need}つ`);
-      html += `<div class="mis">🎯 ${Math.min(have, need)}/${need} ${mtext}</div>`;
+      html += `<div class="mis"><i class="seal sm c-def">的</i>${Math.min(have, need)}/${need} ${mtext}</div>`;
       html += `<div class="r"><span>あなたの部隊 ${g.myUnits()}人</span><span>撃破 ${(g.stats && g.stats.myKills) || 0}</span></div>`;
       if (html !== this.raceHtml) { $('race').innerHTML = html; this.raceHtml = html; }
     }
@@ -1630,6 +1630,14 @@ const App = {
     }
     requestAnimationFrame((t) => this.frame(t));
   },
+  /** 文の先頭の絵文字を、漢字一文字の印に置き換える（[印の字, 残りの文]） */
+  sealOf(text, cls) {
+    const m = text.match(/^([\u2600-\u27BF\uD83C-\uDBFF\uDC00-\uDFFF\uFE0F]+)\s*/);
+    const map = { '🚩': '旗', '⚠': '急', '💣': '砲', '🦠': '疫', '🌧': '雨', '🔥': '焼', '⚔': '戦', '🎯': '的', '🛡': '援', '🐎': '将', '📯': '鼓' };
+    let k = null, rest = text;
+    if (m) { rest = text.slice(m[0].length); const e = m[1].replace(/\uFE0F/g, ''); k = map[e] || (cls === 'bad' ? '急' : '建'); }
+    return [k || (cls === 'bad' ? '急' : cls === 'good' ? '報' : '知'), rest];
+  },
   log(text, cls, cell) {
     const box = $('log');
     // 同じ内容が続いたら「×n」でまとめる
@@ -1638,14 +1646,16 @@ const App = {
       const n = (+first.dataset.n || 1) + 1;
       first.dataset.n = n;
       first.dataset.cell = cell;
-      first.textContent = `${this.game ? this.fmtTime(this.game.time) : ""} ${text} ×${n}`;
+      const [k1, r1] = this.sealOf(text, cls);
+      first.innerHTML = `<i class="seal lg ${cls || ''}">${k1}</i><time>${this.game ? this.fmtTime(this.game.time) : ''}</time>${escapeHtml(r1)} ×${n}`;
       return;
     }
     const el = document.createElement('div');
     el.dataset.text = text;
     el.className = cls || '';
     el.dataset.cell = cell;
-    el.textContent = `${this.game ? this.fmtTime(this.game.time) : ""} ${text}`;
+    const [k, rest] = this.sealOf(text, cls);
+    el.innerHTML = `<i class="seal lg ${cls || ''}">${k}</i><time>${this.game ? this.fmtTime(this.game.time) : ''}</time>${escapeHtml(rest)}`;
     box.prepend(el);
     // 古いログは片付ける
     while (box.children.length > CONFIG.LOG_MAX) box.lastElementChild.remove();
@@ -1655,7 +1665,7 @@ const App = {
     const b = $('banner');
     b.className = '';
     void b.offsetWidth;   // アニメーションを再始動
-    b.innerHTML = escapeHtml(text) + (sub ? `<small>${escapeHtml(sub)}</small>` : '');
+    b.innerHTML = escapeHtml(this.sealOf(text, cls)[1].replace(/[\u2600-\u27BF\uFE0F]|[\uD83C-\uDBFF][\uDC00-\uDFFF]/g, '').trim()) + (sub ? `<small>${escapeHtml(sub)}</small>` : '');
     b.className = 'show ' + cls;
     clearTimeout(this.bannerTimer);
     this.bannerTimer = setTimeout(() => { b.className = ''; b.innerHTML = ''; }, CONFIG.BANNER_MS + 100);
