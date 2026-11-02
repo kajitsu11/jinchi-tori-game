@@ -1814,7 +1814,9 @@ const App = {
     };
     cv.addEventListener('pointerup', up);
     cv.addEventListener('pointercancel', up);
-    cv.addEventListener('wheel', (e) => {
+    // ホイール：地図の上（記録や順位の帯の上も）なら拡大・縮小。メニューや一覧の上ではそのままスクロール
+    window.addEventListener('wheel', (e) => {
+      if (e.target.closest && e.target.closest('#bottombar, #modal, #title, #cellpanel, #topbar, #sidebtns, #minimap')) return;
       e.preventDefault();
       const k = e.deltaMode === 1 ? 0.05 : 0.0015;
       this.cam.zoomAt(e.clientX, e.clientY, Math.exp(e.deltaY * k));
