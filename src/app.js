@@ -427,11 +427,15 @@ const App = {
     else if (o.reason === 'season') {
       head = o.win ? 'シーズン優勝！' : 'シーズン終了';
       cls = o.win ? 'win' : 'lose';
-      detail = o.win ? `${CONFIG.SEASON_DAYS}日間を戦い抜き、${map.prefs[this.me].name}が全国1位になりました。` : `${CONFIG.SEASON_DAYS}日間が終わりました。優勝は${map.prefs[o.rival].name}です。`;
+      detail = o.win ? `${CONFIG.SEASON_DAYS >= 1 ? CONFIG.SEASON_DAYS + '日間' : this.fmtDur(CONFIG.SEASON_DAYS * 86400)}を戦い抜き、${map.prefs[this.me].name}が全国1位になりました。` : `${CONFIG.SEASON_DAYS >= 1 ? CONFIG.SEASON_DAYS + '日間' : this.fmtDur(CONFIG.SEASON_DAYS * 86400)}が終わりました。優勝は${map.prefs[o.rival].name}です。`;
     } else { head = '敗北…'; cls = 'lose'; detail = `${map.prefs[this.me].name}は全ての拠点を失いました。`; }
     const body = `<div class="result-big ${cls}">${head}</div><p style="text-align:center">${detail}<br>経過 ${this.fmtTime(o.time)}・最終領土 ${fmt(g.counts[this.me])}マス・${g.rankOf(this.me)}位<br>あなたが建てた建物 ${g.myBuildings()}・あなたの指示で守りきった旗 ${(g.stats && g.stats.myFlags) || 0}本・あなたの部隊の撃破 ${(g.stats && g.stats.myKills) || 0}</p>`;
+    // 最終順位（上位10県。あなたの県は強調）
+    const fin = g.ranking().slice(0, 10).map((p, k) => `<div class="rank-row${p === this.me ? ' me' : ''}"><span class="no">${k + 1}</span><span class="chip" style="background:${map.prefs[p].color}"></span>`
+      + `<span class="nm">${map.prefs[p].name}</span><span class="pc">${(g.pop[p] / g.popTotal * 100).toFixed(1)}%</span></div>`).join('');
+    const body2 = body + `<div style="margin-top:8px">${fin}</div>`;
     const again = ONLINE ? [] : [{ label: `もう一回（${map.prefs[this.me].short}）`, cls: 'primary', fn: () => { const p = this.me; this.closeModal(); this.startGame(p); } }];
-    this.openModal('ゲーム終了', body, [...again, { label: 'タイトルへ', cls: again.length ? '' : 'primary', fn: () => this.setState(STATE.TITLE) }]);
+    this.openModal('ゲーム終了', body2, [...again, { label: 'タイトルへ', cls: again.length ? '' : 'primary', fn: () => this.setState(STATE.TITLE) }]);
     signal.addEventListener('abort', () => { this.closeModal(); $('hud').classList.add('hidden'); });
   },
 
