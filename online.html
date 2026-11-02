@@ -253,6 +253,12 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
 
 /* ミニマップ：木の枠と金の縁 */
 #minimap { border: 3px solid #5a3d1e !important; border-radius: 3px; box-shadow: 0 0 0 1px #d9b45c, 0 3px 10px rgba(0,0,0,.55), inset 0 0 12px rgba(0,0,0,.6); background: #12304a; }
+
+/* 戦況：上位3県は金・銀・銅の印、支配人口の割合の棒 */
+.rank-row .seal.medal { width: 22px; height: 22px; font-size: 13px; margin: 0 4px 0 2px; }
+.rank-row .seal.m0 { background: radial-gradient(circle at 30% 28%, #f0d270, #c49a28 70%, #9c7814); color: #3a2806; }
+.rank-row .seal.m1 { background: radial-gradient(circle at 30% 28%, #eef0f2, #b4b9bf 70%, #8c9298); color: #2a2e34; }
+.rank-row .seal.m2 { background: radial-gradient(circle at 30% 28%, #e0a066, #b06a30 70%, #8a4e1e); color: #3a1c06; }
 </style>
 </head>
 <body>
@@ -4614,7 +4620,8 @@ const App = {
     const rows = g.ranking().map((p, k) => {
       const c = g.counts[p], d = c - map.initCounts[p];
       const cls = (p === this.me ? ' me' : '') + (g.nodeCount[p] === 0 ? ' dead' : '');
-      return `<div class="rank-row${cls}"><span class="no">${k + 1}</span><span class="chip" style="background:${map.prefs[p].color}"></span>` +
+      const medal = k < 3 ? `<i class="seal medal m${k}">${'金銀銅'[k]}</i>` : `<span class="no">${k + 1}</span>`;
+      return `<div class="rank-row${cls}">${medal}<span class="chip" style="background:${map.prefs[p].color}"></span>` +
         `<span class="nm">${map.prefs[p].name}${g.nodeCount[p] === 0 ? '（脱落）' : ''}<small class="sub">拠点${g.nodeCount[p]}・兵士${g.unitCount(p)}・建物${g.buildings.filter((b) => b.owner === p).length}</small></span>` +
         `<span class="ct">${fmt(c)}<small class="${d >= 0 ? 'plus' : 'minus'}"> ${d >= 0 ? '+' : '−'}${fmt(Math.abs(d))}</small></span>` +
         `<span class="pc">${fmt(Math.round(g.pop[p]))}万<br>${(g.pop[p] / g.popTotal * 100).toFixed(1)}%</span></div>`;

@@ -562,7 +562,8 @@ const App = {
     const rows = g.ranking().map((p, k) => {
       const c = g.counts[p], d = c - map.initCounts[p];
       const cls = (p === this.me ? ' me' : '') + (g.nodeCount[p] === 0 ? ' dead' : '');
-      return `<div class="rank-row${cls}"><span class="no">${k + 1}</span><span class="chip" style="background:${map.prefs[p].color}"></span>` +
+      const medal = k < 3 ? `<i class="seal medal m${k}">${'金銀銅'[k]}</i>` : `<span class="no">${k + 1}</span>`;
+      return `<div class="rank-row${cls}">${medal}<span class="chip" style="background:${map.prefs[p].color}"></span>` +
         `<span class="nm">${map.prefs[p].name}${g.nodeCount[p] === 0 ? '（脱落）' : ''}<small class="sub">拠点${g.nodeCount[p]}・兵士${g.unitCount(p)}・建物${g.buildings.filter((b) => b.owner === p).length}</small></span>` +
         `<span class="ct">${fmt(c)}<small class="${d >= 0 ? 'plus' : 'minus'}"> ${d >= 0 ? '+' : '−'}${fmt(Math.abs(d))}</small></span>` +
         `<span class="pc">${fmt(Math.round(g.pop[p]))}万<br>${(g.pop[p] / g.popTotal * 100).toFixed(1)}%</span></div>`;
