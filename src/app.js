@@ -593,10 +593,11 @@ const App = {
       red: [0.72, 0.2, 0.15], green: [0.3, 0.55, 0.2],
     };
     let cx = 0, cz = 0, rot = 0, cs = 1, sn = 0, S = 1, OC = C.red;
-    const at = (x, z, r, s, oc) => { cx = x; cz = z; rot = r; cs = Math.cos(r); sn = Math.sin(r); S = s; OC = oc || C.red; };
+    let TK = 1;   // 建物ごとの色のむら（場所から決まる。古い・新しい・日焼けの違いのように見せる）
+    const at = (x, z, r, s, oc) => { cx = x; cz = z; rot = r; cs = Math.cos(r); sn = Math.sin(r); S = s; OC = oc || C.red; TK = 0.84 + (((x * 12.9898 + z * 78.233) * 43758.5453) % 1 + 1) % 1 * 0.3; };
     const P = (mesh, lx, ly, lz, sx, sy, sz, c, r2, tilt) => {
       const wx = cx + (lx * cs - lz * sn) * S, wz = cz + (lx * sn + lz * cs) * S;
-      I[mesh].push(wx, ly * S, wz, sx * S, sy * S, sz * S, c, rot + (r2 || 0), tilt || 0);
+      I[mesh].push(wx, ly * S, wz, sx * S, sy * S, sz * S, c, rot + (r2 || 0), tilt || 0, c === OC ? 1 : TK);
     };
     const pad = (lx, lz, w, d, c) => P('pad', lx, 0.015, lz, w, 0.01, d, c || C.dirt);
     const shadow = (w, d) => I.shadow.push(cx + 0.35 * S, 0.02, cz - 0.4 * S, w * 1.25 * S, 0.01, d * 1.25 * S, [0, 0, 0], rot);   // 影は奥・右へ

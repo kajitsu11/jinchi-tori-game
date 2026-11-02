@@ -1419,13 +1419,14 @@ class SpriteList {
 class InstanceList {
   constructor() { this.data = new Float32Array(INST_FLOATS * 1024); this.count = 0; }
   clear() { this.count = 0; }
-  push(x, y, z, sx, sy, sz, c, rot, tilt) {
+  /** k：色の明るさの倍率（建物ごとのむら） */
+  push(x, y, z, sx, sy, sz, c, rot, tilt, k = 1) {
     if ((this.count + 1) * INST_FLOATS > this.data.length) {
       const d = new Float32Array(this.data.length * 2); d.set(this.data); this.data = d;
     }
     const o = this.count * INST_FLOATS, d = this.data;
     d[o] = x; d[o + 1] = y; d[o + 2] = z; d[o + 3] = sx; d[o + 4] = sy; d[o + 5] = sz;
-    d[o + 6] = c[0]; d[o + 7] = c[1]; d[o + 8] = c[2]; d[o + 9] = rot || 0; d[o + 10] = tilt || 0;
+    d[o + 6] = c[0] * k; d[o + 7] = c[1] * k; d[o + 8] = c[2] * k; d[o + 9] = rot || 0; d[o + 10] = tilt || 0;
     this.count++;
   }
 }
