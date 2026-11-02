@@ -196,10 +196,14 @@ class SoldierPainter {
         // 顔（こちらを向いているときだけ）
         if (ct > 0.2) {
           const fx = h.x + st * 2.5;
-          ctx.fillStyle = '#2a1a10';
-          ctx.fillRect(fx - 2.6 * ct, h.y + 0.5, 1.4, 1.2); ctx.fillRect(fx + 1.4 * ct, h.y + 0.5, 1.4, 1.2);
-          ctx.strokeStyle = 'rgba(80,40,20,.6)'; ctx.lineWidth = 0.8;
-          ctx.beginPath(); ctx.moveTo(fx - 1.5, h.y + 4.2); ctx.lineTo(fx + 1.5, h.y + 4.2); ctx.stroke();
+          // 目（細い切れ長）・きりっとした眉・口元・頬の影
+          ctx.fillStyle = '#1e120a';
+          ctx.fillRect(fx - 3 * ct, h.y + 0.7, 1.9, 1); ctx.fillRect(fx + 1.2 * ct, h.y + 0.7, 1.9, 1);
+          ctx.strokeStyle = '#1e120a'; ctx.lineWidth = 0.9;
+          ctx.beginPath(); ctx.moveTo(fx - 3.4 * ct, h.y - 1.4); ctx.lineTo(fx - 0.9 * ct, h.y - 0.7); ctx.moveTo(fx + 3.4 * ct, h.y - 1.4); ctx.lineTo(fx + 0.9 * ct, h.y - 0.7); ctx.stroke();
+          ctx.strokeStyle = 'rgba(90,40,20,.75)'; ctx.lineWidth = 0.8;
+          ctx.beginPath(); ctx.moveTo(fx - 1.6, h.y + 4.3); ctx.quadraticCurveTo(fx, h.y + 3.8, fx + 1.6, h.y + 4.3); ctx.stroke();
+          ctx.fillStyle = 'rgba(120,60,30,.18)'; ctx.beginPath(); ctx.ellipse(h.x + 4 * Math.sign(st || 1), h.y + 2.5, 2.2, 3, 0, 0, Math.PI * 2); ctx.fill();
         } else if (Math.abs(st) > 0.5 && ct > -0.5) {
           ctx.fillStyle = '#2a1a10'; ctx.fillRect(h.x + 3 * Math.sign(st), h.y + 0.5, 1.3, 1.2);
         }
