@@ -268,7 +268,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     const s = await ev((id) => {
       const g = window.__jinchi.game;
       for (let k = 0; k < 40; k++) g.step(0.5);
-      const mine = g.units.filter((u) => u.fromPlayer);
+      const mine = g.units.filter((u) => u.fromPlayer && !u.isGeneral);   // 大将は攻撃目標ではなく、あなたのタップで動く
       return { rally: g.rally, n: mine.length, going: mine.filter((u) => u.goalNode === id || u.chase >= 0 || u.engaged >= 0).length };
     }, tgt[0]);
     assert(s.rally === tgt[0], 'rally set ' + JSON.stringify(s));

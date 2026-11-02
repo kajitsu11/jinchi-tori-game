@@ -102,6 +102,8 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
   background: rgba(20,12,4,.62); border: 1px solid rgba(217,180,92,.5); border-radius: 5px; padding: 3px 6px; color: var(--parch); }
 #race:empty { display: none; }
 #race .r { display: flex; justify-content: space-between; gap: 4px; white-space: nowrap; }
+#race .top3 { justify-content: flex-start; gap: 5px; font-size: 10.5px; letter-spacing: -.02em; overflow: hidden; }
+#race .top3 span { white-space: nowrap; }
 #race .me { color: var(--gold-hi); font-weight: 700; }
 #race .war { color: #ffb3a8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #race .mis { color: #cfe9ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

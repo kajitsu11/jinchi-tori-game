@@ -240,6 +240,8 @@ class Sim {
     // あなたの最初の部隊（試作版など。CONFIG.PLAYER_START_UNITS 人。5人に1人は騎馬隊）
     const myCap = me ? this.nodes[this.capNode[me]] : null;
     if (myCap) for (let k = 0; k < (CONFIG.PLAYER_START_UNITS || 0); k++) this.spawnUnit(me, myCap.x, myCap.y, 8 * S, 0, k % 5 === 4 ? 'cavalry' : 'ashigaru');
+    this.nodeCount = this.nodeCount || new Int32Array(49);
+    if (myCap) this.updateGeneral();   // 大将は試合の始めからいる
     this.plans = [];
     for (let p = 0; p <= 47; p++) this.plans.push({ target: -1, since: 0, defend: -1, next: this.rng() * CONFIG.AI_PLAN_INTERVAL });
     this.hs = 24;

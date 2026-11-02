@@ -454,13 +454,12 @@ const App = {
     {
       const map = this.map, rk = g.ranking(), pc = (p) => (g.pop[p] / g.popTotal * 100).toFixed(1) + '%';
       const chip = (p) => `<i style="background:${map.prefs[p].color}"></i>`;
-      let html = rk.slice(0, 3).map((p, k) => `<div class="r${p === me ? ' me' : ''}"><span>${k + 1}位 ${chip(p)}${map.prefs[p].short}</span><span>${pc(p)}</span></div>`).join('');
+      const pcs = (p) => (g.pop[p] / g.popTotal * 100).toFixed(0) + '%';
+      let html = `<div class="r top3">${rk.slice(0, 3).map((p, k) => `<span class="${p === me ? 'me' : ''}">${k + 1}${chip(p)}${map.prefs[p].short}${pcs(p)}</span>`).join('')}</div>`;
       const myRank = rk.indexOf(me) + 1;
-      if (myRank > 3) html += `<div class="r me"><span>${myRank}位 ${chip(me)}${map.prefs[me].short}（あなた）</span><span>${pc(me)}</span></div>`;
       const pl = g.plans && g.plans[me], foes = [];
       if (g.plans) for (let p = 1; p <= 47; p++) if (p !== me && g.plans[p] && g.plans[p].war === me && g.nodeCount[p]) foes.push(map.prefs[p].short);
-      if (pl && pl.war) html += `<div class="war">⚔ 攻撃中：${map.prefs[pl.war].short}${foes.length ? `／狙われ：${foes.join('・')}` : ''}</div>`;
-      else if (foes.length) html += `<div class="war">⚠ 狙われ：${foes.join('・')}</div>`;
+      html += `<div class="r me"><span>あなた ${myRank}位 ${pc(me)}</span><span class="war">${pl && pl.war ? `⚔ ${map.prefs[pl.war].short}` : ''}${foes.length ? ` ⚠ ${foes.join('・')}` : ''}</span></div>`;
       if (g.isFinal && g.isFinal()) html += '<div class="fin">🔥 決戦中：旗が2倍の速さ</div>';
       // 目標
       const lap = Math.floor(this.mission / MISSIONS.length), ms = MISSIONS[this.mission % MISSIONS.length], need = ms.need * (lap + 1);
