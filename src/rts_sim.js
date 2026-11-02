@@ -1003,8 +1003,9 @@ class Sim {
   }
   /** by：撃った兵（あなたの部隊の撃破を数えるため） */
   hitUnit(v, a, by) {
+    if (v.isGeneral) a /= 1 + 0.1 * ((this.genLv || 1) - 1);   // 大将はレベルが上がるほど被害が少ない
     this.dmg[v.k] += a * (v.buff ? v.buff.armor : 1);
-    if (by) v.lastBy = by.hw >= 0 ? by.hw : by.follow !== undefined ? by.follow : -1;
+    if (by) { v.lastBy = by.hw >= 0 ? by.hw : by.follow !== undefined ? by.follow : -1; v.lastGen = !!by.isGeneral; }
   }
   combat(dt) {
     this.unitIndex = new Map();
@@ -1041,7 +1042,7 @@ class Sim {
       if (!e && this.time >= (u.scanAt || 0)) { e = this.nearestEnemy(u.x, u.y, u.pref, def.range, def.mask, true); u.scanAt = this.time + 0.4 + this.rng() * 0.3; }
       u.tgt = e ? e.id : -1;
       const onHome = u.bit === 1 && this.owner[this.cellAt(u.x, u.y)] === u.pref;
-      const mult = (onHome ? CONFIG.HOME_BONUS : 1) * (buff.dps || 1) * (buff.navy || 1) * (u.boostUntil > this.time ? 1.5 : 1) * (this.morale && this.morale[u.pref] > this.time ? 1.3 : 1);
+      const mult = (u.isGeneral ? 1 + 0.15 * ((this.genLv || 1) - 1) : 1) * (onHome ? CONFIG.HOME_BONUS : 1) * (buff.dps || 1) * (buff.navy || 1) * (u.boostUntil > this.time ? 1.5 : 1) * (this.morale && this.morale[u.pref] > this.time ? 1.3 : 1);
       if (e) {
         u.engaged = e.id;
         if (def.gas) {   // 毒ガス兵：敵の位置に毒ガスを撒く
@@ -1121,6 +1122,11 @@ class Sim {
       if (u.hp <= 0) {
         u.alive = false; this.stats.kills++; this.emit('death', u);
         if (u.lastBy === 0) this.stats.myKills = (this.stats.myKills || 0) + 1;   // あなたの部隊が倒した
+        if (u.lastGen) {   // 大将が倒した：5人ごとにレベルアップ（最大10）
+          this.genKills = (this.genKills || 0) + 1;
+          const lv = Math.min(10, 1 + Math.floor(this.genKills / 5));
+          if (lv > (this.genLv || 1)) { this.genLv = lv; if (this.general && this.general.alive) this.general.hp = UNITS.general.hp; this.emit('genlevel', lv); }
+        }
         else if (u.lastBy >= 48) { const h = this.humans.get(u.lastBy); if (h) h.kills = (h.kills || 0) + 1; }
       }
     }

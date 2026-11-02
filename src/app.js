@@ -273,6 +273,7 @@ const App = {
       this.log(`${t[0]}（${t[1]}）`, mine ? (e.kind === 'plague' ? 'bad' : 'good') : '', map.capitalCell[e.pref]);
       if (mine) { this.banner(t[0], e.kind === 'plague' ? 'ng' : 'ok', t[1]); if (e.kind === 'plague') Sfx.alert(); }
     });
+    g.on('genlevel', (lv) => { Sfx.fanfare(); this.banner(`大将 レベル${lv}！`, 'ok', `攻撃 +${15 * (lv - 1)}%・受ける被害 −${Math.round((1 - 1 / (1 + 0.1 * (lv - 1))) * 100)}%・体力全回復`); });
     g.on('general', (s) => {
       if (s === 'down') { this.banner('大将がやられた！', 'ng', `${this.fmtDur(CONFIG.PLAYER_GENERAL)}後に県庁で復活`); this.log('⚠ あなたの大将がやられました', 'bad', -1); }
       else this.log('🐎 大将が県庁で復活しました', 'good', -1);
@@ -1370,7 +1371,8 @@ const App = {
         const r = clamp(cpx * 0.8, 7, 20);
         ctx.lineWidth = 2.5; ctx.strokeStyle = '#ffd34d'; ctx.beginPath(); ctx.ellipse(v[0], v[1], r, r * 0.5, 0, 0, 7); ctx.stroke();
         ctx.font = '700 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(30,18,6,.9)'; ctx.strokeText('大将', v[0], v[1] + r * 0.5 + 2); ctx.fillStyle = '#ffe9a8'; ctx.fillText('大将', v[0], v[1] + r * 0.5 + 2);
+        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(30,18,6,.9)'; const gl = `大将 Lv${g.genLv || 1}`;
+        ctx.strokeText(gl, v[0], v[1] + r * 0.5 + 2); ctx.fillStyle = '#ffe9a8'; ctx.fillText(gl, v[0], v[1] + r * 0.5 + 2);
       }
       const o = g.genOrder;
       if (o && Math.hypot(o.x - u.x, o.y - u.y) > 3 && cam.project(o.x, 0, o.y, v) && onScreen()) {
