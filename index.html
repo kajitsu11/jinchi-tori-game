@@ -25,7 +25,11 @@
   --sans: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", "Yu Gothic", Meiryo, sans-serif;
   --sat: env(safe-area-inset-top, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
-  --panel-bg: linear-gradient(180deg, var(--wood-1), var(--wood-2));
+  /* 木目の板：細い筋（年輪）を何本か重ね、上から下へ暗くする */
+  --panel-bg:
+    repeating-linear-gradient(176deg, rgba(0,0,0,0) 0 7px, rgba(20,10,2,.10) 7px 8px, rgba(0,0,0,0) 8px 19px, rgba(255,220,160,.04) 19px 20px),
+    repeating-linear-gradient(183deg, rgba(0,0,0,0) 0 23px, rgba(20,10,2,.08) 23px 25px),
+    linear-gradient(180deg, var(--wood-1), var(--wood-2));
   --frame: 1px solid var(--gold-dk);
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
