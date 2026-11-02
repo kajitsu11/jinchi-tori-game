@@ -2059,8 +2059,14 @@ class SoldierPainter {
       const base = up([0, 66, -6]), top = up([0, 124, -7]);
       limb(base, top, 1.8, 1.5, 'wood');
       poly([up([-0.5, 120, -7]), up([-0.5, 92, -7]), up([-12, 92, -7]), up([-12, 120, -7])], 'flag', -0.5, (Q) => {
-        ctx.strokeStyle = 'rgba(0,0,0,.18)'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo((Q[0].x + Q[3].x) / 2, Q[0].y + 3); ctx.lineTo((Q[1].x + Q[2].x) / 2, Q[1].y - 3); ctx.stroke();
+        ctx.strokeStyle = 'rgba(0,0,0,.18)'; ctx.lineWidth = 1;   // 布のしわ
+        ctx.beginPath(); ctx.moveTo((Q[0].x + Q[3].x) / 2 + 1.5, Q[0].y + 3); ctx.lineTo((Q[1].x + Q[2].x) / 2 + 1, Q[1].y - 3); ctx.stroke();
+      }, (Q) => {
+        // 白い丸の紋（県の色の旗に白く抜く。マスクでは黒＝色を乗せない）
+        const cx = (Q[0].x + Q[1].x + Q[2].x + Q[3].x) / 4, cy = (Q[0].y + Q[1].y + Q[2].y + Q[3].y) / 4 - 2;
+        const rw = Math.max(1.2, Math.abs(Q[0].x - Q[3].x) * 0.3);
+        ctx.fillStyle = M ? '#000' : '#f6f1e4'; ctx.beginPath(); ctx.ellipse(cx, cy, rw, 3.6, 0, 0, Math.PI * 2); ctx.fill();
+        if (!M) { ctx.strokeStyle = 'rgba(40,24,12,.5)'; ctx.lineWidth = 0.7; ctx.stroke(); }
       });
     }
     // 奥から順に描く
