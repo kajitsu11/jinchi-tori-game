@@ -306,7 +306,7 @@ class SoldierPainter {
     ctx.closePath(); ctx.fill();
     ctx.restore();
     path();
-    ctx.strokeStyle = '#2a1b10'; ctx.lineWidth = 1.2;
+    ctx.strokeStyle = '#22150c'; ctx.lineWidth = 1.5;
     ctx.stroke();
   }
   /** 多角形（輪郭線と上から下への陰影） */
@@ -325,7 +325,7 @@ class SoldierPainter {
     ctx.beginPath();
     Q.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
     ctx.closePath();
-    ctx.strokeStyle = '#2a1b10'; ctx.lineWidth = 1.2;
+    ctx.strokeStyle = '#22150c'; ctx.lineWidth = 1.5;
     ctx.stroke();
   }
 }

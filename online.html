@@ -2140,7 +2140,7 @@ class SoldierPainter {
     ctx.closePath(); ctx.fill();
     ctx.restore();
     path();
-    ctx.strokeStyle = '#2a1b10'; ctx.lineWidth = 1.2;
+    ctx.strokeStyle = '#22150c'; ctx.lineWidth = 1.5;
     ctx.stroke();
   }
   /** 多角形（輪郭線と上から下への陰影） */
@@ -2159,7 +2159,7 @@ class SoldierPainter {
     ctx.beginPath();
     Q.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
     ctx.closePath();
-    ctx.strokeStyle = '#2a1b10'; ctx.lineWidth = 1.2;
+    ctx.strokeStyle = '#22150c'; ctx.lineWidth = 1.5;
     ctx.stroke();
   }
 }
@@ -5192,6 +5192,7 @@ const App = {
         if (((tt * 0.6) % 9) < 0.03) s.yaw += ((u.id * 13) % 7 - 3) * 0.12;
       }
       I.shadow.push(x + 0.12 * H, 0.02, z - 0.14 * H, 0.55 * H, 0.01, 0.36 * H, [0, 0, 0], 0);
+      I.shadow.push(x, 0.025, z, 0.26 * H, 0.01, 0.16 * H, [0, 0, 0], 0);   // 足元の濃い影（地面に立って見えるように）
       // 鉄砲を撃つ（1〜2秒に1発。弾が飛んで当たる）・毒ガス兵は缶を投げる
       if (e && (gun || type === 'gas') && type !== 'ninja' && t >= (s.fireAt || 0)) {
         s.fireAt = t + (type === 'gas' ? 6 : 1.1 + ((u.id * 0.37) % 1) * 0.9);
