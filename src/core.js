@@ -703,13 +703,15 @@ void main(){
   float cloud = noise(vWorld * 0.0045 / uScale + vec2(uTime * 0.012, uTime * 0.004)) * 0.7 + noise(vWorld * 0.011 / uScale - vec2(uTime * 0.02, 0.0)) * 0.3;
   land *= 1.0 - 0.16 * smoothstep(0.56, 0.74, cloud);
   // 海：岸に近いほど浅い色、さざ波
-  float near = min(1.0, e.a * 2.2);
+  // 浅瀬：8bitの値の段差が縞に見えないよう、細かいゆらぎ（ディザ）を足してからなめらかに
+  float near = min(1.0, (e.a + (hash(floor(gl_FragCoord.xy)) - 0.5) / 255.0 * 1.5) * 2.2);
+  near = smoothstep(0.0, 1.0, near);
   vec3 shallow = vec3(0.30, 0.50, 0.50);   // 岸の近くは青緑（浅葱）
   vec3 water = mix(deep, shallow, near * near);
   water += (noise(vWorld * 0.8 + vec2(uTime * 0.15, uTime * 0.07)) - 0.5) * 0.04;
   // 岸と平行な白い波の筋（浅いところだけ、ゆっくり寄せては返す）
   float wv = sin(near * 26.0 - uTime * 1.3 + noise(vWorld * 0.15) * 4.0);
-  water += smoothstep(0.86, 1.0, wv) * smoothstep(0.25, 0.7, near) * (1.0 - smoothstep(0.85, 1.0, near)) * 0.09 * clamp(1.6 - cpp * 1.2, 0.0, 1.0);   // 引いたときは出さない
+  water += smoothstep(0.86, 1.0, wv) * smoothstep(0.25, 0.7, near) * (1.0 - smoothstep(0.85, 1.0, near)) * 0.09 * clamp(1.6 - uCpp * 1.2, 0.0, 1.0);   // 引いたときは出さない（画面1pxあたりのマス数で判断）
   float isLand = smoothstep(0.42, 0.58, t.a);
   float foam = smoothstep(0.25, 0.45, t.a) * (1.0 - isLand);
   vec3 col = mix(water + foam * 0.25, land, isLand);
