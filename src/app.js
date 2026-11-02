@@ -1371,6 +1371,32 @@ const App = {
         ctx.strokeStyle = 'rgba(255,211,77,.9)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(v[0], v[1], pulse * 1.6, pulse * 0.8, 0, 0, 7); ctx.stroke();
       }
     }
+    // 画面の外にいる大将・あなたの旗・指示の場所は、画面の端に矢印で方向を示す
+    if (g && this.state === STATE.PLAYING) {
+      const marks = [];
+      if (g.general && g.general.alive) marks.push([g.general.x, g.general.y, '🐎', '#ffd34d']);
+      const myF = (g.flags || []).find((q) => q.pref === this.me && q.hw === 0);
+      if (myF) marks.push([myF.x, myF.y, '🚩', '#b8f0a0']);
+      else if (g.flagOrder) marks.push([g.flagOrder.x, g.flagOrder.y, g.flagOrder.defend ? '🛡' : '🚩', '#b8f0a0']);
+      const cx = this.w / 2, cy = this.h / 2, top = 96, bot = this.h - 260;
+      this.edgeMarks = [];
+      for (const [x, z, icon, col] of marks) {
+        const ok = cam.project(x, 0, z, v);
+        if (ok && v[0] > 10 && v[0] < this.w - 10 && v[1] > top && v[1] < bot) continue;   // 画面の中にある
+        let dx, dy;
+        if (ok) { dx = v[0] - cx; dy = v[1] - cy; } else { dx = x - cam.tx; dy = z - cam.tz; }
+        const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
+        const k = Math.min((dx > 0 ? this.w - 30 - cx : cx - 30) / Math.max(1e-3, Math.abs(dx)), (dy > 0 ? bot - 20 - cy : cy - top - 20) / Math.max(1e-3, Math.abs(dy)));
+        const px = cx + dx * k, py = cy + dy * k, ang = Math.atan2(dy, dx);
+        this.edgeMarks.push({ px, py, x, z });
+        ctx.save(); ctx.translate(px, py);
+        ctx.fillStyle = 'rgba(20,12,4,.75)'; ctx.beginPath(); ctx.arc(0, 0, 15, 0, 7); ctx.fill();
+        ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
+        ctx.rotate(ang); ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(22, 0); ctx.lineTo(14, -6); ctx.lineTo(14, 6); ctx.closePath(); ctx.fill();
+        ctx.restore();
+        ctx.font = '14px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(icon, px, py + 1);
+      }
+    }
     // あなたの兵（と加勢中の仲間）の足元に白い輪
     if (g && cpx > 1.0) {
       const a = clamp(g.acc / CONFIG.TICK, 0, 1);
@@ -1493,6 +1519,8 @@ const App = {
     }
   },
   onTap(sx, sy) {
+    // 画面の端の矢印（大将・旗）をタップしたら、その場所へ
+    if (this.state === STATE.PLAYING && this.edgeMarks) for (const m of this.edgeMarks) if (Math.hypot(m.px - sx, m.py - sy) < 26) { this.cam.flyTo(m.x, m.z, Math.min(this.cam.dist, 160), 0.5); return; }
     const i = this.pickCell(sx, sy);
     if (this.state === STATE.TITLE) {
       if (i >= 0 && this.map.isLand(i)) this.selectTitlePref(this.map.initPref[i], true);
