@@ -3690,6 +3690,9 @@ class NetGame {
       const b = { owner: this.me, type: e.type, cell: this.map.id(e.x, e.y) };
       this.emit('destroyed', b);
     } else if (e.k === 'over') this.setOver(e.o);
+    else if (e.k === 'war') { if (!this.plans) this.plans = []; this.plans[e.by] = { war: e.to }; this.emit('war', e); }
+    else if (e.k === 'event') this.emit('event', e);
+    else if (e.k === 'final') { this.finalOn = true; this.emit('final'); }
     else if (e.k === 'flag') this.emit('flag', { kind: e.kind, flag: { ...e.f, hw: e.f.hw === this.w ? 0 : -1 }, cells: e.cells });
   }
   onSnap(m) {
@@ -3820,6 +3823,7 @@ class NetGame {
   }
 
   // ------------------------------------------------ Sim と同じ問い合わせ
+  isFinal() { return !!this.finalOn; }
   isRecent(i) { return this.recentC[i] === 1; }
   needFor(n) { return CONFIG.CAPTURE_NEED[n.type]; }
   cellsOf(id) { const n = this.nodes[id]; return { length: n ? n.cells : 0 }; }

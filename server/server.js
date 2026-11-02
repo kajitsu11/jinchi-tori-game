@@ -88,6 +88,9 @@ class Season {
     g.on('built', (e) => { if (e.byPlayer) { const o = e.building || e.node; this.events.push({ k: 'built', w: e.wallet, type: e.type, x: o.x, y: o.y }); } });
     g.on('destroyed', (b) => { if (b.byPlayer) this.events.push({ k: 'destroyed', w: b.wallet, type: b.type, x: b.x, y: b.y }); });
     g.on('over', (o) => this.events.push({ k: 'over', o }));
+    g.on('war', (e) => this.events.push({ k: 'war', by: e.by, to: e.to }));
+    g.on('event', (e) => this.events.push({ k: 'event', kind: e.kind, pref: e.pref }));
+    g.on('final', () => this.events.push({ k: 'final' }));
     g.on('flag', (e) => this.events.push({ k: 'flag', kind: e.kind, f: { id: e.flag.id, x: e.flag.x, y: e.flag.y, pref: e.flag.pref, hw: e.flag.hw }, cells: e.cells || 0 }));
   }
   /** 拠点ごとの領土のマス数（全部のマスを数えるので、30秒に1回だけ） */
