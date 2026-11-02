@@ -2958,7 +2958,12 @@ class Sim {
       // 敵の領土で止まったら、その場に旗を立てる（ついて来たあなたの兵が守る）
       else if (o && Math.hypot(o.x - u.x, o.y - u.y) <= 2 && CONFIG.FLAG_MODE && !o.planted) {
         const f = this.plantFlagAt(u.pref, u.x, u.y, 0);
-        if (f) { o.planted = true; this.emit('flag', { flag: f, kind: 'general' }); }
+        if (f) {
+          o.planted = true;
+          // 大将の旗を「旗を立てる」の指示にもして、近くの仲間を加勢に呼ぶ
+          if (this.setFlagOrder({ x: f.x, y: f.y }, 0) && this.flagOrder) this.flagOrder.flag = f;
+          this.emit('flag', { flag: f, kind: 'general' });
+        }
       }
       return;
     }
