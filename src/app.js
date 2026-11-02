@@ -1016,15 +1016,25 @@ const App = {
       if (s.yaw > Math.PI) s.yaw -= Math.PI * 2; else if (s.yaw < -Math.PI) s.yaw += Math.PI * 2;
       s.phase += moved * 6.5 / Math.max(1, H / 0.96);
       const type = u.type || 'ashigaru', c0 = col[u.pref];
-      if (type === 'ship') {   // 軍艦：船体・甲板・帆柱・帆（帆は県の色）
+      if (type === 'ship') {   // 軍艦（安宅船）：箱形の船体・総矢倉・櫓・帆柱と筵の帆（帆は県の色）・大筒
+        if (e && t >= (s.fireAt || 0)) { s.fireAt = t + 0.6; this.fire(0, x, 0.7 * H, z, e.x, 0.4 * H, e.y, () => this.blast(9, e.x, 0, e.y, 0.4)); }
         veh(x, 0, z, s.yaw);
-        I.shadow.push(x, 0.01, z, 0.9 * H, 0.01, 2.2 * H, [0, 0, 0], vr);
-        V('boxW', 0, 0, 0, 0.75, 0.35, 2.0, [0.3, 0.24, 0.2]); V('box', 0, 0.35, 0, 0.6, 0.05, 1.8, [0.62, 0.5, 0.36]);
-        V('cylW', 0, 0.35, 0.15, 0.06, 1.6, 0.06, C.woodDk); V('box', 0, 0.9, 0.15, 0.9, 0.8, 0.03, c0);
-        V('cylW', 0, 0.45, 0.85, 0.08, 0.6, 0.08, C.gun, 0, 1.4);
+        const hull = [0.32, 0.22, 0.15], deck = [0.5, 0.38, 0.26];
+        I.shadow.push(x, 0.01, z, 1.0 * H, 0.01, 2.4 * H, [0, 0, 0], vr);
+        V('boxW', 0, 0, 0, 0.8, 0.3, 2.0, hull); V('boxW', 0, 0.05, 1.05, 0.5, 0.28, 0.3, hull, 0, -0.35);     // 船体と舳先
+        V('boxW', 0, 0.3, -0.15, 0.78, 0.38, 1.4, C.wood);                                                    // 総矢倉（板で囲った船室）
+        for (let k = 0; k < 4; k++) V('box', 0.4, 0.42, -0.6 + k * 0.32, 0.02, 0.08, 0.12, C.dark);         // 狭間（鉄砲の窓）
+        for (let k = 0; k < 4; k++) V('box', -0.4, 0.42, -0.6 + k * 0.32, 0.02, 0.08, 0.12, C.dark);
+        V('roof', 0, 0.68, -0.6, 0.6, 0.18, 0.5, C.kawara);                                                    // 櫓の屋根
+        V('box', 0, 0.68, 0.2, 0.7, 0.03, 0.8, deck);
+        const row = Math.sin(t * 3 + u.id) * 0.4;                                                             // 櫂（左右に並べて漕ぐ）
+        for (let k = 0; k < 4; k++) for (const sd of [-1, 1]) V('cylW', sd * 0.55, 0.1, -0.6 + k * 0.38, 0.02, 0.5, 0.02, C.woodLt, 0, sd * (1.3 + row * 0.2));
+        V('cylW', 0, 0.68, 0.3, 0.05, 1.5, 0.05, C.woodDk);                                                   // 帆柱
+        V('box', 0, 1.35, 0.3, 1.0, 0.8, 0.03, c0);                                                            // 帆
+        for (let k = 0; k < 4; k++) V('box', 0, 1.0 + k * 0.22, 0.32, 1.02, 0.02, 0.02, C.woodDk);         // 帆の横木
+        V('cylW', 0, 0.78, 0.95, 0.08, 0.6, 0.08, C.gun, 0, 1.4);                                             // 大筒
         continue;
       }
-      if (type === 'ship' && e && t >= (s.fireAt || 0)) { s.fireAt = t + 0.6; this.fire(0, x, 0.7 * H, z, e.x, 0.4 * H, e.y, () => this.blast(9, e.x, 0, e.y, 0.4)); }
       if (type === 'fighter' || type === 'bomber') {   // 飛行機：空の上（影は地面に）
         const big2 = type === 'bomber' ? 1.5 : 1, alt = 4 + (u.id % 5) * 0.4;
         if (e && t >= (s.fireAt || 0)) {   // 機銃：短い連射
