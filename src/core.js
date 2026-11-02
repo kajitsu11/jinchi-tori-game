@@ -82,7 +82,7 @@ const CONFIG = {
   ZOOM_MIN: 6, ZOOM_MAX: 13500,
   FILL: 0.035, FILL_TOP: 0.7,     // 領土の塗りの濃さ（斜め／真上）。斜めは国境線が主役
   TREE_MAX: 3500,
-  LOG_MAX: 4, BANNER_MS: 1800, MINIMAP_REFRESH: 1.0, MAX_DPR: 2, HUD_REFRESH: 0.25,
+  LOG_MAX: 3, BANNER_MS: 1800, MINIMAP_REFRESH: 1.0, MAX_DPR: 2, HUD_REFRESH: 0.25,
 };
 const RES_KEYS = ['food', 'wood', 'gold'];
 const RES_ICON = { food: '🌾', wood: '🪵', gold: '💰' };

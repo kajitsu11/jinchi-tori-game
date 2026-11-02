@@ -231,7 +231,12 @@ const App = {
     // UI イベント
     $('bcats').addEventListener('click', (e) => {
       const b = e.target.closest('[data-cat]');
-      if (b) { this.bcat = b.dataset.cat; this.buildMenu(); this.updateHud(true); }
+      if (!b) return;
+      // 選んでいる分類をもう一度押すと、建物のカードをたたむ（地図を広く見られる）
+      if (b.dataset.cat === (this.bcat || 'eco') && !this.menuHidden) this.menuHidden = true;
+      else { this.menuHidden = false; this.bcat = b.dataset.cat; }
+      $('buildmenu').classList.toggle('hidden', !!this.menuHidden);
+      this.buildMenu(); this.updateHud(true);
     }, { signal });
     $('buildmenu').addEventListener('click', (e) => {
       const b = e.target.closest('[data-b]');
@@ -303,7 +308,7 @@ const App = {
   /** 下の建築メニュー（カード） */
   buildMenu() {
     const cat = this.bcat || 'eco';
-    $('bcats').innerHTML = BUILD_CATS.map(([k, name]) => `<button data-cat="${k}" class="${k === cat ? 'on' : ''}">${name}</button>`).join('');
+    $('bcats').innerHTML = BUILD_CATS.map(([k, name]) => `<button data-cat="${k}" class="${k === cat && !this.menuHidden ? 'on' : ''}">${name}${k === cat ? (this.menuHidden ? ' ▲' : ' ▼') : ''}</button>`).join('');
     let html = '';
     for (const k of BUILD_ORDER) {
       const d = BUILDINGS[k];
@@ -450,6 +455,9 @@ const App = {
     const dEl = $('h-delta');
     dEl.textContent = `(${d > 0 ? '+' : d < 0 ? '−' : '±'}${fmt(Math.abs(d))})`;
     dEl.className = d > 0 ? 'up' : d < 0 ? 'down' : '';
+    // 記録は下のバーのすぐ上に（バーの高さはたたむと変わる）
+    const bbh = $('bottombar').offsetHeight;
+    if (bbh && bbh !== this.bbh) { this.bbh = bbh; $('log').style.bottom = `${bbh + 6}px`; }
     // 順位の帯：上位3県とあなた・宣戦布告・決戦
     {
       const map = this.map, rk = g.ranking(), pc = (p) => (g.pop[p] / g.popTotal * 100).toFixed(1) + '%';
@@ -1377,7 +1385,7 @@ const App = {
       const myF = (g.flags || []).find((q) => q.pref === this.me && q.hw === 0);
       if (myF) marks.push([myF.x, myF.y, '🚩', '#b8f0a0']);
       else if (g.flagOrder) marks.push([g.flagOrder.x, g.flagOrder.y, g.flagOrder.defend ? '🛡' : '🚩', '#b8f0a0']);
-      const cx = this.w / 2, cy = this.h / 2, top = 96, bot = this.h - 260;
+      const cx = this.w / 2, cy = this.h / 2, top = 96, bot = this.h - (this.bbh || 260) - 20;
       this.edgeMarks = [];
       for (const [x, z, icon, col] of marks) {
         const ok = cam.project(x, 0, z, v);
