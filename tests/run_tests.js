@@ -262,7 +262,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
   });
 
   await test('三人称視点: スティック・WASDで大将が歩き、なぞると見回す。地図ビューでは建てられない', async () => {
-    const p0 = await ev(() => { const { App } = window.__jinchi, g = App.game.general; const c = App.game.nodes.find((n) => n.owner === App.me && n.type === 'capital'); g.x = c.x; g.y = c.y + 4; App.tps.yaw = 0; return [g.x, g.y, App.view]; });
+    const p0 = await ev(() => { const { App } = window.__jinchi, g = App.game.general; const c = App.game.nodes.find((n) => n.owner === App.me && n.type === 'capital') || App.game.nodes.find((n) => n.owner === App.me); g.x = c.x; g.y = c.y + 4; App.tps.yaw = 0; return [g.x, g.y, App.view]; });
     assert(p0[2] === 'tps', 'starts in tps');
     await page.keyboard.down('w'); await page.waitForTimeout(700); await page.keyboard.up('w');
     const p1 = await ev(() => { const g = window.__jinchi.App.game.general; return [g.x, g.y]; });

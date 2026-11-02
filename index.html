@@ -1148,7 +1148,7 @@ void main(){
   if (uHasGrass > 0.5) {
     // 草の筋の絵を2つの大きさで重ねて貼る（くり返しが目立たないように）
     // 引いたときも筋がつぶれて平らな色にならないよう、拡大率に合わせて絵の大きさを2倍ずつ切り替える（となりの段となめらかに混ぜる）
-    float lod = max(0.0, log2(cpp * 40.0));
+    float lod = max(-2.5, log2(cpp * 40.0));   // ごく近く（三人称視点）では絵を細かくくり返して、ぼやけないように
     float s0 = exp2(floor(lod)), lf = fract(lod);
     vec2 r2 = vec2(vWorld.y, -vWorld.x);
     vec2 w1 = vWorld / (5.0 * s0), w2 = r2 / (17.0 * s0) + 0.37;
