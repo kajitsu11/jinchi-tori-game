@@ -273,6 +273,13 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
 .rank-row .seal.m0 { background: radial-gradient(circle at 30% 28%, #f0d270, #c49a28 70%, #9c7814); color: #3a2806; }
 .rank-row .seal.m1 { background: radial-gradient(circle at 30% 28%, #eef0f2, #b4b9bf 70%, #8c9298); color: #2a2e34; }
 .rank-row .seal.m2 { background: radial-gradient(circle at 30% 28%, #e0a066, #b06a30 70%, #8a4e1e); color: #3a1c06; }
+
+/* 読み込み画面：題字と朱印、筆の線のような進み具合、合戦の心得 */
+.load-box .logo { font-family: var(--serif); font-size: 34px; letter-spacing: .14em; color: var(--gold-hi); display: flex; align-items: center; gap: 10px; justify-content: center; }
+.load-box .logo .seal { width: 30px; height: 32px; font-size: 11px; line-height: 1.15; text-align: center; letter-spacing: 0; transform: rotate(4deg); }
+.load-box .pbar { height: 6px; background: rgba(0,0,0,.45); border-radius: 3px; overflow: hidden; box-shadow: inset 0 0 0 1px rgba(217,180,92,.35); }
+.load-box .pbar i { background: linear-gradient(90deg, #7a1c12, #c8392b 60%, #e8b860); }
+.load-box .tip { margin-top: 14px; font-size: 12px; color: var(--parch-dk); max-width: 280px; line-height: 1.6; min-height: 3.2em; }
 </style>
 </head>
 <body>
@@ -283,9 +290,10 @@ button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
   <!-- LOADING -->
   <div id="loading" class="screen">
     <div class="load-box">
-      <div class="logo">陣取り<span>47</span></div>
+      <div class="logo">陣取り合戦<i class="seal">四十<br>七県</i></div>
       <div class="pbar"><i id="loadbar"></i></div>
       <p id="loadmsg">地図データを読み込み中…</p>
+      <p class="tip" id="loadtip"></p>
     </div>
   </div>
 
@@ -4140,6 +4148,10 @@ const App = {
   async enterLOADING() {
     const bar = $('loadbar'), msg = $('loadmsg');
     const progress = (p, m) => { bar.style.width = (p * 100).toFixed(0) + '%'; if (m) msg.textContent = m; };
+    const TIPS = ['旗の正方形に味方の兵がいれば、旗は弱らない。', '自県の中に立てられた敵の旗は、旗のボタンで近くをタップすると迎撃できる。',
+      '大将が敵の領土で止まると、その場に旗を立てる。', '先頭の県は、まわりの県から狙われやすい。', 'シーズンの最後の1/4は決戦。旗が2倍の速さで取れる。',
+      '蔵のそばの畑や市場は、生産が3割増える。', '防毒壕のそばでは、毒ガスの被害が1/5になる。', '寺のそばの拠点は、占領されにくい。'];
+    $('loadtip').textContent = '心得：' + TIPS[(Date.now() / 1000 | 0) % TIPS.length];
     try {
       progress(0.02, 'マップデータを読み込み中…');
       await nextFrame();

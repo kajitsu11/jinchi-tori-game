@@ -51,6 +51,10 @@ const App = {
   async enterLOADING() {
     const bar = $('loadbar'), msg = $('loadmsg');
     const progress = (p, m) => { bar.style.width = (p * 100).toFixed(0) + '%'; if (m) msg.textContent = m; };
+    const TIPS = ['旗の正方形に味方の兵がいれば、旗は弱らない。', '自県の中に立てられた敵の旗は、旗のボタンで近くをタップすると迎撃できる。',
+      '大将が敵の領土で止まると、その場に旗を立てる。', '先頭の県は、まわりの県から狙われやすい。', 'シーズンの最後の1/4は決戦。旗が2倍の速さで取れる。',
+      '蔵のそばの畑や市場は、生産が3割増える。', '防毒壕のそばでは、毒ガスの被害が1/5になる。', '寺のそばの拠点は、占領されにくい。'];
+    $('loadtip').textContent = '心得：' + TIPS[(Date.now() / 1000 | 0) % TIPS.length];
     try {
       progress(0.02, 'マップデータを読み込み中…');
       await nextFrame();
