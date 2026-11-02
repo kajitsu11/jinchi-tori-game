@@ -99,7 +99,10 @@ Object.assign(App, {
     const tx = gen ? gen.x : (this.tpsLast ? this.tpsLast[0] : cam.tx), tz = gen ? gen.y : (this.tpsLast ? this.tpsLast[1] : cam.tz);
     this.tpsLast = [tx, tz];
     const sh = H * 0.55 * Math.min(1, T.dist / 3);
-    const gx = tx + rx * sh, gz = tz + rz * sh;
+    let gx = tx + rx * sh, gz = tz + rz * sh;
+    // 建築中は、大将と設計図の間を見る（下のカードに隠れないように、少し先を画面の真ん中に）
+    const bk0 = this.buildK || 0;
+    if (bk0 > 0 && gen) { gx += -sy * TPS.REACH * 1.5 * bk0; gz += -cy * TPS.REACH * 1.5 * bk0; }
     const k = this.tpsSnap ? 1 : Math.min(1, dt * 12);
     this.tpsSnap = false;
     cam.goal = null;
@@ -233,6 +236,15 @@ Object.assign(App, {
     joy.addEventListener('pointerup', up); joy.addEventListener('pointercancel', up);
     $('bc-rot').addEventListener('click', () => this.rotateBuild());
     $('bc-close').addEventListener('click', () => this.endBuild());
+    $('rotate-skip').addEventListener('click', () => document.body.classList.add('allow-portrait'));
+    // 出陣を押したら、できる端末では全画面＋横向きに固定する（できなければ案内だけ）
+    $('btn-start').addEventListener('click', () => {
+      try {
+        const el = document.documentElement, fs = el.requestFullscreen || el.webkitRequestFullscreen;
+        const lock = () => { try { const p = screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape'); if (p && p.catch) p.catch(() => {}); } catch (e) { /* 対応していない */ } };
+        if (fs && matchMedia('(pointer: coarse)').matches && !document.fullscreenElement) { const p = fs.call(el); if (p && p.then) p.then(lock, () => {}); else lock(); } else lock();
+      } catch (e) { /* 全画面にできない環境（埋め込みなど） */ }
+    });
     // 下の帯の高さ（スティックと記録をその上に置く）
     const bb = $('bottombar'), setH = () => document.body.style.setProperty('--bbh', bb.offsetHeight + 'px');
     if (window.ResizeObserver) new ResizeObserver(setH).observe(bb); else window.addEventListener('resize', setH);
@@ -310,18 +322,7 @@ Object.assign(App, {
     const G = this.ghost, cam = this.cam;
     if (!G || !this.isTps()) return;
     const v = [0, 0], ok = !G.why;
-    const x0 = Math.floor(G.x), z0 = Math.floor(G.z), n = 3;
     ctx.save();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(255,255,255,.22)';
-    ctx.beginPath();
-    for (let k = -n; k <= n + 1; k++) {
-      let a = cam.project(x0 + k, 0.01, z0 - n, [0, 0]), b = cam.project(x0 + k, 0.01, z0 + n + 1, [0, 0]);
-      if (a && b) { ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
-      a = cam.project(x0 - n, 0.01, z0 + k, [0, 0]); b = cam.project(x0 + n + 1, 0.01, z0 + k, [0, 0]);
-      if (a && b) { ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
-    }
-    ctx.stroke();
     // 建物の大きさの四角（向きつき）
     const def = BUILDINGS[G.type], hw = (def.node ? 1.6 : 1.15) * 0.72, cs = Math.cos(G.rot), sn = Math.sin(G.rot);
     const pts = [[-hw, -hw], [hw, -hw], [hw, hw], [-hw, hw]].map(([lx, lz]) => cam.project(G.x + lx * cs - lz * sn, 0.02, G.z + lx * sn + lz * cs, [0, 0]));

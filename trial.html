@@ -347,6 +347,67 @@ body.v-tps.building #log { display: none; }
 #bc-place { flex: 1; background: linear-gradient(#2f6a2a, #1b3f17) !important; border-color: #b8f0a0 !important; color: #e8ffd8 !important; font-size: 15px !important; }
 #bc-place.ng { background: linear-gradient(#6a2a1e, #3f1710) !important; border-color: #ffb08a !important; color: #ffd8cc !important; }
 body.v-tps.building #abilrow, body.v-tps.building #tpsbar { display: none; }
+
+/* =====================================================================
+   横画面（ゲームの基本の向き）：上に細い帯、左下にスティック、右下に操作ボタン
+   ===================================================================== */
+@media (orientation: landscape) {
+  /* タイトル：左に題字、右に県選び */
+  #title { flex-direction: row; }
+  .title-head { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; padding-left: calc(16px + env(safe-area-inset-left, 0px)); }
+  .title-sheet { margin: 8px calc(8px + env(safe-area-inset-right, 0px)) 8px 0; width: min(46vw, 460px); max-height: none; border-radius: 12px; }
+  /* 上の帯：1行にまとめる */
+  #topbar { display: flex; align-items: center; gap: 10px; padding: calc(4px + var(--sat)) calc(10px + env(safe-area-inset-right, 0px)) 4px calc(10px + env(safe-area-inset-left, 0px)); height: calc(40px + var(--sat)); }
+  #topbar .row1 { flex: 0 0 auto; font-size: 15px; }
+  #topbar .row1 .day { margin-left: 8px; font-size: 13px; }
+  #topbar .resbar { flex: 1 1 auto; margin: 0 !important; gap: 6px !important; }
+  #topbar .resbar .res { padding: 2px 8px !important; min-height: 0 !important; }
+  #topbar .row3 { flex: 0 1 auto; max-width: 30%; }
+  #minimap { top: calc(46px + var(--sat)); left: calc(8px + env(safe-area-inset-left, 0px)); width: 112px; height: 96px; }
+  #race { top: calc(46px + var(--sat)); left: calc(128px + env(safe-area-inset-left, 0px)); right: auto; width: min(300px, 38vw); font-size: 10.5px; }
+  #sidebtns { top: calc(46px + var(--sat)); right: calc(6px + env(safe-area-inset-right, 0px)); gap: 4px; }
+  #sidebtns button { width: 50px; height: 40px; font-size: 9.5px; }
+  #toplabel { top: calc(46px + var(--sat)); }
+  #log { left: calc(150px + env(safe-area-inset-left, 0px)); right: auto; width: min(320px, 36vw); bottom: 12px !important; }
+  #log div { font-size: 10.5px; }
+  #cellpanel { left: auto; right: 70px; width: 340px; bottom: 12px; }
+
+  /* 大将の視点：下の帯はやめて、右下にまとまった操作ボタン */
+  body.v-tps #bottombar { left: auto; right: calc(8px + env(safe-area-inset-right, 0px)); bottom: 8px; width: min(360px, 44vw); border-radius: 12px; border-width: 1px;
+    background: rgba(29,19,10,.55); padding: 6px; gap: 5px; backdrop-filter: blur(2px); }
+  body.v-tps #tpsbar button { padding: 9px 4px; font-size: 13px; }
+  body.v-tps #abilrow button { padding: 6px 4px; font-size: 11.5px; }
+  body.v-tps #joy { left: calc(22px + env(safe-area-inset-left, 0px)); bottom: 20px; width: 132px; height: 132px; }
+  body.v-tps #log { left: calc(170px + env(safe-area-inset-left, 0px)); bottom: 12px !important; right: auto; }
+  /* 建築中：下に建物のカード（横長の帯） */
+  body.v-tps.building #bottombar { left: calc(170px + env(safe-area-inset-left, 0px)); width: auto; }
+  body.v-tps.building #joy { bottom: 20px; }
+  body.v-tps.building .bcard { width: 60px; padding: 3px 2px; }
+  body.v-tps.building .bcard .ico { width: 32px !important; height: 32px !important; margin-bottom: 0 !important; }
+  body.v-tps.building .bcard small { flex-wrap: nowrap; }
+  body.v-tps.building .bcard b { font-size: 11px; }
+  body.v-tps.building .bcard small { font-size: 9px; }
+  body.v-tps.building #bcats button { padding: 2px 8px; font-size: 11px; }
+  body.v-tps.building #bcats { margin-bottom: 2px; }
+  body.v-tps.building #buildctl button { padding: 7px 10px; }
+  /* 地図ビュー */
+  body.v-map #mapbar { left: auto; right: calc(70px + env(safe-area-inset-right, 0px)); width: min(380px, 50vw); bottom: 10px; }
+  body.v-map #mapbar button { height: 46px; font-size: 14px; }
+  body.v-map #log { bottom: 12px !important; }
+}
+
+/* 縦向きのときは横にするよう案内 */
+#rotate { display: none; }
+@media (orientation: portrait) {
+  body[data-state="PLAYING"]:not(.allow-portrait) #rotate { display: flex; }
+}
+#rotate { position: fixed; inset: 0; z-index: 60; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center;
+  background: radial-gradient(circle at 50% 40%, rgba(61,44,24,.97), rgba(18,11,5,.98)); color: var(--parch); font-family: var(--serif); padding: 24px; }
+#rotate svg { width: 96px; height: 96px; animation: rot 2.4s ease-in-out infinite; }
+@keyframes rot { 0%, 25% { transform: rotate(0); } 55%, 100% { transform: rotate(-90deg); } }
+#rotate b { font-size: 20px; letter-spacing: .1em; color: var(--gold-hi); }
+#rotate p { margin: 0; font-size: 13px; color: var(--parch-dk); line-height: 1.6; }
+#rotate button { margin-top: 6px; background: none; border: 1px solid var(--gold-dk); border-radius: 6px; padding: 8px 14px; color: var(--muted); font-size: 12px; }
 </style>
 </head>
 <body>
@@ -382,10 +443,11 @@ body.v-tps.building #abilrow, body.v-tps.building #tpsbar { display: none; }
         <summary>遊び方</summary>
         <ul>
           <li>あなたは県の参加者の1人。県の仲間と一緒に建物を建て、兵を送り、<b>旗を立てて領土を広げます</b>（あなた以外はAIが担当）。</li>
-          <li><b>建てる</b>：下のメニューで分類（経済・兵の生産・防衛・支援・拠点）を選び、建物を選んで<b>自県の領土をタップ</b>。36種類あります。</li>
-          <li><b>🚩 旗を立てる</b>：押して<b>敵の領土をタップ</b>すると、あなたの兵と近くの仲間が向かって旗を立てます。旗の周りの正方形に味方の兵がいる状態を<b>6時間</b>（試作版は3分）守りきると、その正方形と中の拠点が自分のものに。兵がいないと旗は弱って消えます。自県の中で敵の旗の近くをタップすると<b>迎撃</b>。</li>
-          <li><b>🐎 大将</b>：押して地図をタップすると大将が向かい、あなたの兵がついて行きます。敵の領土で止まるとその場に旗を立てます。</li>
-          <li><b>作戦</b>：💣 砲撃（タップした場所に砲弾）・🛡 援軍（県庁に足軽10人）・📯 鼓舞（画面の中のあなたの兵が強く速く）。使うと待ち時間があります。</li>
+          <li><b>あなたは大将</b>：横画面で遊びます。左下のスティック（PCはWASD・Shiftで走る）で歩き、画面をなぞって見回します。</li>
+          <li><b>建てる</b>：「建築」を押して建物を選ぶと、大将の目の前に設計図が出ます。緑なら置けます（赤は理由が出ます）。「回転」で向きを変えて「建てる」。36種類あります。</li>
+          <li><b>旗を立てる</b>：敵の領土まで歩いて押すと、その場に旗を立て、仲間が加勢に来ます。旗の周りの正方形に味方の兵がいる状態を<b>6時間</b>（試作版は3分）守りきると、その正方形と中の拠点が自分のものに。兵がいないと旗は弱って消えます。自県の中で敵の旗の近くなら<b>迎撃</b>。</li>
+          <li><b>地図</b>：斜め・真上から全体を見られます（見るだけ。大将の操作と建築はできません）。「大将に戻る」で元の視点へ。</li>
+          <li><b>作戦</b>：砲撃（大将の視線の先に砲弾）・援軍（県庁に足軽10人）・鼓舞（大将のまわりのあなたの兵が強く速く）。使うと待ち時間があります。</li>
           <li>地図の上の帯に順位・<b>宣戦布告</b>（どの県と戦っているか）・<b>🎯 目標</b>が出ます。目標を達成すると作戦の待ち時間がなくなります。</li>
           <li>1シーズンは<b>7日間</b>（試作版は1時間）。最後の1/4は<b>決戦</b>で旗が2倍の速さで取れます。終了時に<b>支配人口</b>が一番多い県が優勝。それより前に人口の50%を支配すれば即優勝。自県の拠点が0になると敗北。</li>
         </ul>
@@ -458,6 +520,12 @@ body.v-tps.building #abilrow, body.v-tps.building #tpsbar { display: none; }
     </div>
   </div>
 
+  <div id="rotate" role="dialog" aria-label="横向きにしてください">
+    <svg viewBox="0 0 96 96" aria-hidden="true"><rect x="30" y="12" width="36" height="66" rx="6" fill="none" stroke="#f3d98e" stroke-width="4"/><circle cx="48" cy="70" r="3" fill="#f3d98e"/><path d="M74 28 a 26 26 0 0 1 8 18" fill="none" stroke="#d9b45c" stroke-width="3" stroke-linecap="round"/><path d="M84 40 l -2 8 l -7 -4" fill="none" stroke="#d9b45c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <b>端末を横向きにしてください</b>
+    <p>このゲームは横画面で遊びます。<br>左手でスティック、右手で建築・旗・作戦。</p>
+    <button id="rotate-skip">縦のまま遊ぶ</button>
+  </div>
   <div id="banner"></div>
   <div id="shutsujin" class="hidden"><span>出陣</span></div>
 
@@ -557,7 +625,7 @@ const CONFIG = {
   ZOOM_MIN: 6, ZOOM_MAX: 13500,
   FILL: 0.035, FILL_TOP: 0.7,     // 領土の塗りの濃さ（斜め／真上）。斜めは国境線が主役
   TREE_MAX: 3500,
-  LOG_MAX: 3, BANNER_MS: 1800, MINIMAP_REFRESH: 1.0, MAX_DPR: 2, HUD_REFRESH: 0.25,
+  LOG_MAX: 3, BANNER_MS: 1800, MINIMAP_REFRESH: 1.0, MAX_DPR: 3, HUD_REFRESH: 0.25,
 };
 const RES_KEYS = ['food', 'wood', 'gold'];
 const RES_ICON = { food: '🌾', wood: '🪵', gold: '💰' };
@@ -1055,7 +1123,7 @@ vec3 fogged(vec3 c){
   float d = length(vec3(vWorld.x - uEye.x, uEye.y, vWorld.y - uEye.z));
   return mix(c, uFogCol, smoothstep(uFog.x, uFog.y, d) * 0.92);
 }
-float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float hash(vec2 p){ p = mod(p, 289.0); return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }   // 座標を折り返してから（大きな座標で縞が出ないように）
 float noise(vec2 p){
   vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
   return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
@@ -1144,15 +1212,18 @@ void main(){
   float nz = noise(vWorld * 0.35) * 0.45 + noise(vWorld * 1.6) * 0.35 + noise(vWorld * 6.0) * 0.2 * zin;
   // 拡大したときの草（細かいまだらと、暗い草の株）
   float fine = clamp(0.5 - cpp * 3.0, 0.0, 1.0);
-  nz += (noise(vWorld * 17.0) - 0.5) * 0.35 * fine + (noise(vWorld * 41.0) - 0.5) * 0.25 * fine;
+  vec2 lw0 = mod(vWorld, 512.0);
+  nz += (noise(lw0 * 17.0) - 0.5) * 0.35 * fine + (noise(lw0 * 41.0) - 0.5) * 0.25 * fine;
   vec3 land = t.rgb * (0.82 + 0.36 * nz);
   if (uHasGrass > 0.5) {
     // 草の筋の絵を2つの大きさで重ねて貼る（くり返しが目立たないように）
     // 引いたときも筋がつぶれて平らな色にならないよう、拡大率に合わせて絵の大きさを2倍ずつ切り替える（となりの段となめらかに混ぜる）
     float lod = max(-2.5, log2(cpp * 40.0));   // ごく近く（三人称視点）では絵を細かくくり返して、ぼやけないように
     float s0 = exp2(floor(lod)), lf = fract(lod);
-    vec2 r2 = vec2(vWorld.y, -vWorld.x);
-    vec2 w1 = vWorld / (5.0 * s0), w2 = r2 / (17.0 * s0) + 0.37;
+    // 近くでは座標を小さく折り返す（大きな座標のままだと、絵を読む位置の精度が足りず縦横の線や段が出る）
+    vec2 lw = s0 <= 1.0 ? mod(vWorld, 680.0) : vWorld;
+    vec2 r2 = vec2(lw.y, -lw.x);
+    vec2 w1 = lw / (5.0 * s0), w2 = r2 / (17.0 * s0) + 0.37;
     vec2 v1 = w1 * 0.5 + 0.13, v2 = w2 * 0.5 + 0.61;
     vec3 g = mix(texture2D(uGrass, w1).rgb * 0.6 + texture2D(uGrass, w2).rgb * 0.4, texture2D(uGrass, v1).rgb * 0.6 + texture2D(uGrass, v2).rgb * 0.4, lf);
     vec3 d = mix(texture2D(uDry, w1 * 0.9 + 0.21).rgb * 0.6 + texture2D(uDry, w2 * 1.1).rgb * 0.4, texture2D(uDry, v1 * 0.9 + 0.21).rgb * 0.6 + texture2D(uDry, v2 * 1.1).rgb * 0.4, lf);
@@ -1170,13 +1241,13 @@ void main(){
     // 市街地：ぼやけた灰色の四角にならないよう、小さな屋根と道の区画をくっきり描く（拡大したときだけ）
     // 市街地の広がり：まわり4マスから求め（ゆらした位置）、ふちをなめらかに
     float cityK = smoothstep(0.35, 0.65, mix(mix(step(abs(k00 - 4.0), 0.5), step(abs(k10 - 4.0), 0.5), qf.x), mix(step(abs(k01 - 4.0), 0.5), step(abs(k11 - 4.0), 0.5), qf.x), qf.y));
-    float cityZ = clamp(1.6 - cpp * 3.0, 0.0, 1.0) * cityK;
+    float cityZ = clamp(1.6 - cpp * 3.0, 0.0, 1.0) * cityK * smoothstep(0.03, 0.12, cpp);   // 三人称視点のようにごく近いときは描かない（四角い線に見えるので。家は立体で建っている）
     if (cityZ > 0.0) {
       vec2 bw = vWorld * 1.6, bf = fract(bw), bi = floor(bw);
       float hb = hash(bi);
       float roof = step(0.16, bf.x) * step(bf.x, 0.86) * step(0.16, bf.y) * step(bf.y, 0.86) * step(0.3, hb);
       vec3 rc = hb > 0.7 ? vec3(0.36, 0.37, 0.42) : hb > 0.5 ? vec3(0.55, 0.32, 0.22) : vec3(0.62, 0.58, 0.5);
-      land = mix(land, mix(vec3(0.66, 0.6, 0.48), rc, roof), 0.45 * cityZ * clamp(cpp * 6.0, 0.35, 1.0));
+      land = mix(land, mix(vec3(0.66, 0.6, 0.48), rc, roof), 0.3 * cityZ * clamp(cpp * 6.0, 0.35, 1.0));
     }
   } else {
     float patch = noise(vWorld * 0.06 + 7.3), patch2 = noise(vWorld * 0.11 - 3.1);
@@ -1235,7 +1306,8 @@ void main(){
   // ごく近く（三人称視点）：草の細かいむらと土の粒
   float closeK = 1.0 - smoothstep(0.01, 0.06, cpp);
   if (closeK > 0.0) {
-    float n1 = noise(vWorld * 6.0), n2 = noise(vWorld * 21.0 + 3.1), n3 = noise(vWorld * 1.6 - 4.0), n4 = noise(vWorld * vec2(55.0, 9.0));
+    vec2 lc = mod(vWorld, 512.0);
+    float n1 = noise(lc * 6.0), n2 = noise(lc * 21.0 + 3.1), n3 = noise(lc * 1.6 - 4.0), n4 = noise(lc * vec2(55.0, 9.0));
     col *= 1.0 + closeK * isLand * ((n1 - 0.5) * 0.24 + (n2 - 0.5) * 0.2 + (n3 - 0.5) * 0.16 + (n4 - 0.5) * 0.12);
   }
   gl_FragColor = vec4(fogged(col), 1.0);
@@ -1328,18 +1400,19 @@ varying vec3 vN;
 varying vec3 vC;
 varying vec3 vL;
 varying vec3 vW;
-float h21(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 15731.7); }
+float h21(vec2 p){ p = mod(p, 289.0); return fract(sin(dot(p, vec2(41.3, 289.1))) * 15731.7); }
 float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y); }
 void main(){
   vec3 n = normalize(vN);
+  vec2 wz = mod(vW.xz, 256.0);   // 模様は小さく折り返した座標で（大きな座標だと精度が足りず縞になる）
   vec3 c = vC;
   float d = uDetail;
   if (d > 0.01) {
     if (uMat < 1.5) {
       // 屋根：段になった瓦・茅の筋と、細かいざらつき
       float row = fract(vL.y * 9.0);
-      c *= 1.0 - d * (0.22 * smoothstep(0.75, 1.0, row) + 0.1 * vn(vW.xz * 30.0 + vL.y * 20.0));
+      c *= 1.0 - d * (0.22 * smoothstep(0.75, 1.0, row) + 0.1 * vn(wz * 30.0 + vL.y * 20.0));
       if (uMat > 0.5 && abs(n.y) < 0.3) c *= 1.0 - 0.12 * d;
     } else if (uMat < 2.5) {
       // 壁：縦の板目と、柱・梁の帯（上面は少し明るく）
@@ -1347,21 +1420,21 @@ void main(){
         float u = abs(n.x) > abs(n.z) ? vL.z : vL.x;
         float plank = smoothstep(0.85, 1.0, fract(u * 11.0));
         float beam = smoothstep(0.9, 1.0, fract(vL.y * 3.2));
-        c *= 1.0 - d * (0.16 * plank + 0.22 * beam + 0.08 * vn(vW.xz * 22.0 + vL.y * 9.0));
+        c *= 1.0 - d * (0.16 * plank + 0.22 * beam + 0.08 * vn(wz * 22.0 + vL.y * 9.0));
       } else c *= 1.0 + 0.06 * d;
     } else if (uMat < 3.5) {
       // 針葉樹：枝の段
-      c *= 1.0 - d * (0.28 * smoothstep(0.55, 1.0, fract(vL.y * 4.5)) + 0.18 * vn(vW.xz * 18.0 + vL.y * 7.0));
+      c *= 1.0 - d * (0.28 * smoothstep(0.55, 1.0, fract(vL.y * 4.5)) + 0.18 * vn(wz * 18.0 + vL.y * 7.0));
     } else if (uMat < 4.5) {
       // 広葉樹：葉のかたまり
-      float k = vn(vW.xz * 12.0 + vW.y * 9.0) * 0.6 + vn(vW.xz * 31.0 - vW.y * 17.0) * 0.4;
+      float k = vn(wz * 12.0 + vW.y * 9.0) * 0.6 + vn(wz * 31.0 - vW.y * 17.0) * 0.4;
       c *= 0.72 + 0.5 * k * d + (1.0 - d) * 0.28;
     } else if (uMat < 5.5) {
       float u = abs(n.x) > abs(n.z) ? vL.z : vL.x;
       c *= 1.0 - d * 0.2 * vn(vec2(u * 40.0, vL.y * 4.0));
     } else {
       // 土の敷物：まだら
-      c *= 0.86 + 0.24 * vn(vW.xz * 6.0) * (0.4 + 0.6 * d);
+      c *= 0.86 + 0.24 * vn(wz * 6.0) * (0.4 + 0.6 * d);
     }
   }
   // 光は手前左上から（見えている壁が明るくなるように）
@@ -1459,8 +1532,9 @@ class Renderer {
     if (!hp || hp.precision === 0) fs = fs.replace('precision highp float;', 'precision mediump float;');
     this.ground = compile(gl, GROUND_VS, fs, deriv ? '#define HAS_DERIV\n' : '');
     this.line = compile(gl, LINE_VS, LINE_FS);
-    this.mesh = compile(gl, MESH_VS, MESH_FS);
-    this.sprite = compile(gl, SPRITE_VS, SPRITE_FS);
+    const hi = (src) => (hp && hp.precision > 0 ? src.replace('precision mediump float;', 'precision highp float;') : src);   // スマホでも細かい模様がつぶれないように
+    this.mesh = compile(gl, MESH_VS, hi(MESH_FS));
+    this.sprite = compile(gl, SPRITE_VS, hi(SPRITE_FS));
     this.sky = compile(gl, SKY_VS, SKY_FS);
     this.skyBuf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.skyBuf);
@@ -5638,6 +5712,7 @@ const App = {
   },
   drawFx(ctx, cam, cpx) {
     const v = [0, 0], w = [0, 0], now = this.clock;
+    const P = (b) => (this.isTps() && this.pxAt ? this.pxAt(b.x, b.h, b.z) : cpx);   // その場所での1マスの大きさ
     const pos = (f, p, out) => {
       const x = f.x0 + (f.x1 - f.x0) * p, z = f.z0 + (f.z1 - f.z0) * p;
       const h = f.k === 5 ? f.h0 + (f.h1 - f.h0) * p * p : f.h0 + (f.h1 - f.h0) * p + f.arc * 4 * p * (1 - p);
@@ -5674,7 +5749,7 @@ const App = {
       if (!cam.project(b.x, b.h + 0.2, b.z, v) || v[0] < -80 || v[0] > this.w + 80 || v[1] < -80 || v[1] > this.h + 80) continue;
       if (b.k === 7) {   // 硝煙：撃った所から白い煙が上がって消える
         if (!cam.project(b.x, b.h + k * 0.8, b.z, w)) continue;
-        ctx.fillStyle = `rgba(235,235,228,${0.55 * (1 - k)})`; ctx.beginPath(); ctx.arc(w[0], w[1], Math.max(2, b.r * cpx) * (0.6 + k), 0, 7); ctx.fill();
+        ctx.fillStyle = `rgba(235,235,228,${0.55 * (1 - k)})`; ctx.beginPath(); ctx.arc(w[0], w[1], Math.min(14, Math.max(1.5, b.r * P(b))) * (0.6 + k), 0, 7); ctx.fill();
         continue;
       }
       if (b.k === 9) {   // 銃弾：小さな土ぼこりと火花
@@ -5685,7 +5760,7 @@ const App = {
         ctx.fillStyle = `rgba(60,58,55,${0.7 * (1 - k)})`; ctx.beginPath(); ctx.arc(v[0], v[1], 3 + k * 8, 0, 7); ctx.fill();
         continue;
       }
-      const r = Math.max(5, b.r * cpx * 0.6) * (0.35 + k * 0.9);
+      const r = Math.min(Math.min(this.w, this.h) * 0.25, Math.max(5, b.r * P(b) * 0.6)) * (0.35 + k * 0.9);
       if (b.k === 2) { ctx.fillStyle = `rgba(120,95,65,${0.7 * (1 - k)})`; ctx.beginPath(); ctx.ellipse(v[0], v[1] - r * 0.3, r, r * 0.8, 0, 0, 7); ctx.fill(); continue; }
       // 爆発：白い閃光 → 橙の火の玉 → 灰色の煙
       if (k < 0.15) { ctx.fillStyle = 'rgba(255,250,220,.9)'; ctx.beginPath(); ctx.ellipse(v[0], v[1], r * 0.8, r * 0.5, 0, 0, 7); ctx.fill(); }
@@ -5708,6 +5783,14 @@ const App = {
     const v = [0, 0], w = [0, 0];
     const onScreen = () => v[0] > -40 && v[0] < this.w + 40 && v[1] > -40 && v[1] < this.h + 40;
     ctx.lineJoin = 'round';
+    // その場所での 1マスの画面上の大きさ（三人称視点では近いほど大きい。演出が画面いっぱいにならないよう、兵の大きさに合わせて縮める）
+    const tpsO = this.isTps(), pa = [0, 0], pb = [0, 0];
+    const pxAt = (x, y, z) => {
+      if (!tpsO) return cpx;
+      if (!cam.project(x, y, z, pa) || !cam.project(x, y + 1, z, pb)) return 0;
+      return Math.hypot(pa[0] - pb[0], pa[1] - pb[1]) * TPS.H / 0.96;
+    };
+    this.pxAt = pxAt;
     // 煙突の煙（拡大時）
     if (this.smoke && this.smoke.length) {
       for (let k = 0; k < this.smoke.length; k++) {
@@ -5730,8 +5813,9 @@ const App = {
         if (n > 500) break;
         const flick = ((u.id * 7 + Math.floor(this.clock * 9)) % 4) === 0;
         if (!flick) continue;
-        if (!cam.project(u.px + (u.x - u.px) * a, cpx > 2.6 ? 0.35 : clamp(cam.dist * 0.0022, 0.6, 16) * 0.6, u.py + (u.y - u.py) * a, v) || !onScreen()) continue;
-        const r = clamp(cpx * 0.5, 1.5, 4);
+        const ux = u.px + (u.x - u.px) * a, uz = u.py + (u.y - u.py) * a;
+        if (!cam.project(ux, tpsO ? TPS.H * 0.55 : cpx > 2.6 ? 0.35 : clamp(cam.dist * 0.0022, 0.6, 16) * 0.6, uz, v) || !onScreen()) continue;
+        const r = tpsO ? clamp(pxAt(ux, 0.2, uz) * 0.06, 0.8, 3.5) : clamp(cpx * 0.5, 1.5, 4);
         ctx.fillStyle = 'rgba(255,214,120,.95)';
         ctx.beginPath(); ctx.arc(v[0] + 3, v[1], r, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = 'rgba(255,120,40,.45)';
@@ -5743,7 +5827,7 @@ const App = {
     if (g && g.gas && g.gas.length) {
       for (const c of g.gas) {
         if (!cam.project(c.x, 0.3, c.y, v) || !onScreen()) continue;
-        const r = c.r * cpx, life = clamp((c.until - g.time) / 6, 0, 1);
+        const r = Math.min(this.w, c.r * pxAt(c.x, 0.3, c.y)), life = clamp((c.until - g.time) / 6, 0, 1);
         for (let k = 0; k < 3; k++) {
           const a = this.clock * 0.6 + k * 2.1;
           ctx.fillStyle = `rgba(170,200,60,${0.22 * life})`;
@@ -5770,13 +5854,13 @@ const App = {
         for (let q = 0; q < 4; q++) {
           const ph = (this.clock * 0.45 + q / 4 + id * 0.173) % 1;
           if (!cam.project(x + ph * 1.2 * sc, (0.6 + ph * 3.2) * sc, z - ph * 0.5 * sc, v) || !onScreen()) continue;
-          const r = (3 + ph * 11) * Math.min(2, cpx / 4) * (1.3 - f);
+          const r = (3 + ph * 11) * Math.min(2, pxAt(x, 1, z) / 4) * (1.3 - f);
           ctx.fillStyle = `rgba(40,34,30,${0.5 * (1 - ph)})`;
           ctx.beginPath(); ctx.arc(v[0], v[1], r, 0, Math.PI * 2); ctx.fill();
         }
         if (!cam.project(x, 0.5 * sc, z, v) || !onScreen()) continue;
         // 炎：小さな舌を何本か、ばらばらに揺らす（先のとがった形）
-        const base = Math.max(2.5, cpx * 0.45 * sc) * (1.2 - f);
+        const base = Math.min(40, Math.max(2.5, pxAt(x, 0.5 * sc, z) * 0.45 * sc)) * (1.2 - f);
         for (let q = 0; q < 4; q++) {
           const fl = 0.6 + 0.4 * Math.abs(Math.sin(this.clock * (9 + q * 3) + id + q * 1.7)), h = base * 1.8 * fl, w = base * 0.55;
           const ox = (q - 1.5) * base * 0.55, oy = (q % 2) * base * 0.2;
@@ -5788,7 +5872,7 @@ const App = {
     }
     // 弾の軌道と着弾
     if (g && this.state === STATE.PLAYING || this.state === STATE.GAMEOVER) {
-      const H = clamp(cam.dist * 0.004, 0.96, 18);
+      const H = this.unitH();
       if (g && cpx > 0.35) this.spawnSimFx(g, cam, H, clamp(cam.dist * 0.0016, 0.9, 7) * 2);
       this.drawFx(ctx, cam, cpx);
     }
@@ -6472,7 +6556,7 @@ const App = {
     this.qT = now; this.qN = 0;
     if (document.hidden || this.state !== STATE.PLAYING) return;
     let q = this.quality;
-    if (ms > 45 && q > 0.5) q = Math.max(0.5, q - 0.25);
+    if (ms > 45 && q > 0.75) q = Math.max(0.75, q - 0.25);
     else if (ms < 22 && q < 1) q = Math.min(1, q + 0.25);
     if (q !== this.quality) { this.quality = q; this.resize(); }
   },
@@ -6621,7 +6705,10 @@ Object.assign(App, {
     const tx = gen ? gen.x : (this.tpsLast ? this.tpsLast[0] : cam.tx), tz = gen ? gen.y : (this.tpsLast ? this.tpsLast[1] : cam.tz);
     this.tpsLast = [tx, tz];
     const sh = H * 0.55 * Math.min(1, T.dist / 3);
-    const gx = tx + rx * sh, gz = tz + rz * sh;
+    let gx = tx + rx * sh, gz = tz + rz * sh;
+    // 建築中は、大将と設計図の間を見る（下のカードに隠れないように、少し先を画面の真ん中に）
+    const bk0 = this.buildK || 0;
+    if (bk0 > 0 && gen) { gx += -sy * TPS.REACH * 1.5 * bk0; gz += -cy * TPS.REACH * 1.5 * bk0; }
     const k = this.tpsSnap ? 1 : Math.min(1, dt * 12);
     this.tpsSnap = false;
     cam.goal = null;
@@ -6755,6 +6842,15 @@ Object.assign(App, {
     joy.addEventListener('pointerup', up); joy.addEventListener('pointercancel', up);
     $('bc-rot').addEventListener('click', () => this.rotateBuild());
     $('bc-close').addEventListener('click', () => this.endBuild());
+    $('rotate-skip').addEventListener('click', () => document.body.classList.add('allow-portrait'));
+    // 出陣を押したら、できる端末では全画面＋横向きに固定する（できなければ案内だけ）
+    $('btn-start').addEventListener('click', () => {
+      try {
+        const el = document.documentElement, fs = el.requestFullscreen || el.webkitRequestFullscreen;
+        const lock = () => { try { const p = screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape'); if (p && p.catch) p.catch(() => {}); } catch (e) { /* 対応していない */ } };
+        if (fs && matchMedia('(pointer: coarse)').matches && !document.fullscreenElement) { const p = fs.call(el); if (p && p.then) p.then(lock, () => {}); else lock(); } else lock();
+      } catch (e) { /* 全画面にできない環境（埋め込みなど） */ }
+    });
     // 下の帯の高さ（スティックと記録をその上に置く）
     const bb = $('bottombar'), setH = () => document.body.style.setProperty('--bbh', bb.offsetHeight + 'px');
     if (window.ResizeObserver) new ResizeObserver(setH).observe(bb); else window.addEventListener('resize', setH);
@@ -6832,18 +6928,7 @@ Object.assign(App, {
     const G = this.ghost, cam = this.cam;
     if (!G || !this.isTps()) return;
     const v = [0, 0], ok = !G.why;
-    const x0 = Math.floor(G.x), z0 = Math.floor(G.z), n = 3;
     ctx.save();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(255,255,255,.22)';
-    ctx.beginPath();
-    for (let k = -n; k <= n + 1; k++) {
-      let a = cam.project(x0 + k, 0.01, z0 - n, [0, 0]), b = cam.project(x0 + k, 0.01, z0 + n + 1, [0, 0]);
-      if (a && b) { ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
-      a = cam.project(x0 - n, 0.01, z0 + k, [0, 0]); b = cam.project(x0 + n + 1, 0.01, z0 + k, [0, 0]);
-      if (a && b) { ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
-    }
-    ctx.stroke();
     // 建物の大きさの四角（向きつき）
     const def = BUILDINGS[G.type], hw = (def.node ? 1.6 : 1.15) * 0.72, cs = Math.cos(G.rot), sn = Math.sin(G.rot);
     const pts = [[-hw, -hw], [hw, -hw], [hw, hw], [-hw, hw]].map(([lx, lz]) => cam.project(G.x + lx * cs - lz * sn, 0.02, G.z + lx * sn + lz * cs, [0, 0]));

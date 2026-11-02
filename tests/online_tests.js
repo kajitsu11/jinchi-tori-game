@@ -98,6 +98,7 @@ function client(pref) {
     const errs = [];
     page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
     page.on('pageerror', (e) => errs.push(e.message));
+    await page.addInitScript(() => document.addEventListener('DOMContentLoaded', () => document.body.classList.add('allow-portrait')));   // 縦画面のまま確かめる（横向きの案内を出さない）
     await page.goto(`http://localhost:${PORT}/`);
     await page.waitForFunction(() => window.__jinchi && window.__jinchi.App.state === 'TITLE');
     await page.evaluate(() => { const A = window.__jinchi.App; A.selectTitlePref(27, false); A.startGame(27); });

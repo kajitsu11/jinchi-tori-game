@@ -1303,6 +1303,7 @@ const App = {
   },
   drawFx(ctx, cam, cpx) {
     const v = [0, 0], w = [0, 0], now = this.clock;
+    const P = (b) => (this.isTps() && this.pxAt ? this.pxAt(b.x, b.h, b.z) : cpx);   // その場所での1マスの大きさ
     const pos = (f, p, out) => {
       const x = f.x0 + (f.x1 - f.x0) * p, z = f.z0 + (f.z1 - f.z0) * p;
       const h = f.k === 5 ? f.h0 + (f.h1 - f.h0) * p * p : f.h0 + (f.h1 - f.h0) * p + f.arc * 4 * p * (1 - p);
@@ -1339,7 +1340,7 @@ const App = {
       if (!cam.project(b.x, b.h + 0.2, b.z, v) || v[0] < -80 || v[0] > this.w + 80 || v[1] < -80 || v[1] > this.h + 80) continue;
       if (b.k === 7) {   // 硝煙：撃った所から白い煙が上がって消える
         if (!cam.project(b.x, b.h + k * 0.8, b.z, w)) continue;
-        ctx.fillStyle = `rgba(235,235,228,${0.55 * (1 - k)})`; ctx.beginPath(); ctx.arc(w[0], w[1], Math.max(2, b.r * cpx) * (0.6 + k), 0, 7); ctx.fill();
+        ctx.fillStyle = `rgba(235,235,228,${0.55 * (1 - k)})`; ctx.beginPath(); ctx.arc(w[0], w[1], Math.min(14, Math.max(1.5, b.r * P(b))) * (0.6 + k), 0, 7); ctx.fill();
         continue;
       }
       if (b.k === 9) {   // 銃弾：小さな土ぼこりと火花
@@ -1350,7 +1351,7 @@ const App = {
         ctx.fillStyle = `rgba(60,58,55,${0.7 * (1 - k)})`; ctx.beginPath(); ctx.arc(v[0], v[1], 3 + k * 8, 0, 7); ctx.fill();
         continue;
       }
-      const r = Math.max(5, b.r * cpx * 0.6) * (0.35 + k * 0.9);
+      const r = Math.min(Math.min(this.w, this.h) * 0.25, Math.max(5, b.r * P(b) * 0.6)) * (0.35 + k * 0.9);
       if (b.k === 2) { ctx.fillStyle = `rgba(120,95,65,${0.7 * (1 - k)})`; ctx.beginPath(); ctx.ellipse(v[0], v[1] - r * 0.3, r, r * 0.8, 0, 0, 7); ctx.fill(); continue; }
       // 爆発：白い閃光 → 橙の火の玉 → 灰色の煙
       if (k < 0.15) { ctx.fillStyle = 'rgba(255,250,220,.9)'; ctx.beginPath(); ctx.ellipse(v[0], v[1], r * 0.8, r * 0.5, 0, 0, 7); ctx.fill(); }
@@ -1373,6 +1374,14 @@ const App = {
     const v = [0, 0], w = [0, 0];
     const onScreen = () => v[0] > -40 && v[0] < this.w + 40 && v[1] > -40 && v[1] < this.h + 40;
     ctx.lineJoin = 'round';
+    // その場所での 1マスの画面上の大きさ（三人称視点では近いほど大きい。演出が画面いっぱいにならないよう、兵の大きさに合わせて縮める）
+    const tpsO = this.isTps(), pa = [0, 0], pb = [0, 0];
+    const pxAt = (x, y, z) => {
+      if (!tpsO) return cpx;
+      if (!cam.project(x, y, z, pa) || !cam.project(x, y + 1, z, pb)) return 0;
+      return Math.hypot(pa[0] - pb[0], pa[1] - pb[1]) * TPS.H / 0.96;
+    };
+    this.pxAt = pxAt;
     // 煙突の煙（拡大時）
     if (this.smoke && this.smoke.length) {
       for (let k = 0; k < this.smoke.length; k++) {
@@ -1395,8 +1404,9 @@ const App = {
         if (n > 500) break;
         const flick = ((u.id * 7 + Math.floor(this.clock * 9)) % 4) === 0;
         if (!flick) continue;
-        if (!cam.project(u.px + (u.x - u.px) * a, cpx > 2.6 ? 0.35 : clamp(cam.dist * 0.0022, 0.6, 16) * 0.6, u.py + (u.y - u.py) * a, v) || !onScreen()) continue;
-        const r = clamp(cpx * 0.5, 1.5, 4);
+        const ux = u.px + (u.x - u.px) * a, uz = u.py + (u.y - u.py) * a;
+        if (!cam.project(ux, tpsO ? TPS.H * 0.55 : cpx > 2.6 ? 0.35 : clamp(cam.dist * 0.0022, 0.6, 16) * 0.6, uz, v) || !onScreen()) continue;
+        const r = tpsO ? clamp(pxAt(ux, 0.2, uz) * 0.06, 0.8, 3.5) : clamp(cpx * 0.5, 1.5, 4);
         ctx.fillStyle = 'rgba(255,214,120,.95)';
         ctx.beginPath(); ctx.arc(v[0] + 3, v[1], r, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = 'rgba(255,120,40,.45)';
@@ -1408,7 +1418,7 @@ const App = {
     if (g && g.gas && g.gas.length) {
       for (const c of g.gas) {
         if (!cam.project(c.x, 0.3, c.y, v) || !onScreen()) continue;
-        const r = c.r * cpx, life = clamp((c.until - g.time) / 6, 0, 1);
+        const r = Math.min(this.w, c.r * pxAt(c.x, 0.3, c.y)), life = clamp((c.until - g.time) / 6, 0, 1);
         for (let k = 0; k < 3; k++) {
           const a = this.clock * 0.6 + k * 2.1;
           ctx.fillStyle = `rgba(170,200,60,${0.22 * life})`;
@@ -1435,13 +1445,13 @@ const App = {
         for (let q = 0; q < 4; q++) {
           const ph = (this.clock * 0.45 + q / 4 + id * 0.173) % 1;
           if (!cam.project(x + ph * 1.2 * sc, (0.6 + ph * 3.2) * sc, z - ph * 0.5 * sc, v) || !onScreen()) continue;
-          const r = (3 + ph * 11) * Math.min(2, cpx / 4) * (1.3 - f);
+          const r = (3 + ph * 11) * Math.min(2, pxAt(x, 1, z) / 4) * (1.3 - f);
           ctx.fillStyle = `rgba(40,34,30,${0.5 * (1 - ph)})`;
           ctx.beginPath(); ctx.arc(v[0], v[1], r, 0, Math.PI * 2); ctx.fill();
         }
         if (!cam.project(x, 0.5 * sc, z, v) || !onScreen()) continue;
         // 炎：小さな舌を何本か、ばらばらに揺らす（先のとがった形）
-        const base = Math.max(2.5, cpx * 0.45 * sc) * (1.2 - f);
+        const base = Math.min(40, Math.max(2.5, pxAt(x, 0.5 * sc, z) * 0.45 * sc)) * (1.2 - f);
         for (let q = 0; q < 4; q++) {
           const fl = 0.6 + 0.4 * Math.abs(Math.sin(this.clock * (9 + q * 3) + id + q * 1.7)), h = base * 1.8 * fl, w = base * 0.55;
           const ox = (q - 1.5) * base * 0.55, oy = (q % 2) * base * 0.2;
@@ -1453,7 +1463,7 @@ const App = {
     }
     // 弾の軌道と着弾
     if (g && this.state === STATE.PLAYING || this.state === STATE.GAMEOVER) {
-      const H = clamp(cam.dist * 0.004, 0.96, 18);
+      const H = this.unitH();
       if (g && cpx > 0.35) this.spawnSimFx(g, cam, H, clamp(cam.dist * 0.0016, 0.9, 7) * 2);
       this.drawFx(ctx, cam, cpx);
     }
@@ -2137,7 +2147,7 @@ const App = {
     this.qT = now; this.qN = 0;
     if (document.hidden || this.state !== STATE.PLAYING) return;
     let q = this.quality;
-    if (ms > 45 && q > 0.5) q = Math.max(0.5, q - 0.25);
+    if (ms > 45 && q > 0.75) q = Math.max(0.75, q - 0.25);
     else if (ms < 22 && q < 1) q = Math.min(1, q + 0.25);
     if (q !== this.quality) { this.quality = q; this.resize(); }
   },

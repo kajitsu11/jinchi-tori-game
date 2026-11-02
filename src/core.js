@@ -82,7 +82,7 @@ const CONFIG = {
   ZOOM_MIN: 6, ZOOM_MAX: 13500,
   FILL: 0.035, FILL_TOP: 0.7,     // 領土の塗りの濃さ（斜め／真上）。斜めは国境線が主役
   TREE_MAX: 3500,
-  LOG_MAX: 3, BANNER_MS: 1800, MINIMAP_REFRESH: 1.0, MAX_DPR: 2, HUD_REFRESH: 0.25,
+  LOG_MAX: 3, BANNER_MS: 1800, MINIMAP_REFRESH: 1.0, MAX_DPR: 3, HUD_REFRESH: 0.25,
 };
 const RES_KEYS = ['food', 'wood', 'gold'];
 const RES_ICON = { food: '🌾', wood: '🪵', gold: '💰' };
@@ -580,7 +580,7 @@ vec3 fogged(vec3 c){
   float d = length(vec3(vWorld.x - uEye.x, uEye.y, vWorld.y - uEye.z));
   return mix(c, uFogCol, smoothstep(uFog.x, uFog.y, d) * 0.92);
 }
-float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float hash(vec2 p){ p = mod(p, 289.0); return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }   // 座標を折り返してから（大きな座標で縞が出ないように）
 float noise(vec2 p){
   vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
   return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
@@ -669,15 +669,18 @@ void main(){
   float nz = noise(vWorld * 0.35) * 0.45 + noise(vWorld * 1.6) * 0.35 + noise(vWorld * 6.0) * 0.2 * zin;
   // 拡大したときの草（細かいまだらと、暗い草の株）
   float fine = clamp(0.5 - cpp * 3.0, 0.0, 1.0);
-  nz += (noise(vWorld * 17.0) - 0.5) * 0.35 * fine + (noise(vWorld * 41.0) - 0.5) * 0.25 * fine;
+  vec2 lw0 = mod(vWorld, 512.0);
+  nz += (noise(lw0 * 17.0) - 0.5) * 0.35 * fine + (noise(lw0 * 41.0) - 0.5) * 0.25 * fine;
   vec3 land = t.rgb * (0.82 + 0.36 * nz);
   if (uHasGrass > 0.5) {
     // 草の筋の絵を2つの大きさで重ねて貼る（くり返しが目立たないように）
     // 引いたときも筋がつぶれて平らな色にならないよう、拡大率に合わせて絵の大きさを2倍ずつ切り替える（となりの段となめらかに混ぜる）
     float lod = max(-2.5, log2(cpp * 40.0));   // ごく近く（三人称視点）では絵を細かくくり返して、ぼやけないように
     float s0 = exp2(floor(lod)), lf = fract(lod);
-    vec2 r2 = vec2(vWorld.y, -vWorld.x);
-    vec2 w1 = vWorld / (5.0 * s0), w2 = r2 / (17.0 * s0) + 0.37;
+    // 近くでは座標を小さく折り返す（大きな座標のままだと、絵を読む位置の精度が足りず縦横の線や段が出る）
+    vec2 lw = s0 <= 1.0 ? mod(vWorld, 680.0) : vWorld;
+    vec2 r2 = vec2(lw.y, -lw.x);
+    vec2 w1 = lw / (5.0 * s0), w2 = r2 / (17.0 * s0) + 0.37;
     vec2 v1 = w1 * 0.5 + 0.13, v2 = w2 * 0.5 + 0.61;
     vec3 g = mix(texture2D(uGrass, w1).rgb * 0.6 + texture2D(uGrass, w2).rgb * 0.4, texture2D(uGrass, v1).rgb * 0.6 + texture2D(uGrass, v2).rgb * 0.4, lf);
     vec3 d = mix(texture2D(uDry, w1 * 0.9 + 0.21).rgb * 0.6 + texture2D(uDry, w2 * 1.1).rgb * 0.4, texture2D(uDry, v1 * 0.9 + 0.21).rgb * 0.6 + texture2D(uDry, v2 * 1.1).rgb * 0.4, lf);
@@ -695,13 +698,13 @@ void main(){
     // 市街地：ぼやけた灰色の四角にならないよう、小さな屋根と道の区画をくっきり描く（拡大したときだけ）
     // 市街地の広がり：まわり4マスから求め（ゆらした位置）、ふちをなめらかに
     float cityK = smoothstep(0.35, 0.65, mix(mix(step(abs(k00 - 4.0), 0.5), step(abs(k10 - 4.0), 0.5), qf.x), mix(step(abs(k01 - 4.0), 0.5), step(abs(k11 - 4.0), 0.5), qf.x), qf.y));
-    float cityZ = clamp(1.6 - cpp * 3.0, 0.0, 1.0) * cityK;
+    float cityZ = clamp(1.6 - cpp * 3.0, 0.0, 1.0) * cityK * smoothstep(0.03, 0.12, cpp);   // 三人称視点のようにごく近いときは描かない（四角い線に見えるので。家は立体で建っている）
     if (cityZ > 0.0) {
       vec2 bw = vWorld * 1.6, bf = fract(bw), bi = floor(bw);
       float hb = hash(bi);
       float roof = step(0.16, bf.x) * step(bf.x, 0.86) * step(0.16, bf.y) * step(bf.y, 0.86) * step(0.3, hb);
       vec3 rc = hb > 0.7 ? vec3(0.36, 0.37, 0.42) : hb > 0.5 ? vec3(0.55, 0.32, 0.22) : vec3(0.62, 0.58, 0.5);
-      land = mix(land, mix(vec3(0.66, 0.6, 0.48), rc, roof), 0.45 * cityZ * clamp(cpp * 6.0, 0.35, 1.0));
+      land = mix(land, mix(vec3(0.66, 0.6, 0.48), rc, roof), 0.3 * cityZ * clamp(cpp * 6.0, 0.35, 1.0));
     }
   } else {
     float patch = noise(vWorld * 0.06 + 7.3), patch2 = noise(vWorld * 0.11 - 3.1);
@@ -760,7 +763,8 @@ void main(){
   // ごく近く（三人称視点）：草の細かいむらと土の粒
   float closeK = 1.0 - smoothstep(0.01, 0.06, cpp);
   if (closeK > 0.0) {
-    float n1 = noise(vWorld * 6.0), n2 = noise(vWorld * 21.0 + 3.1), n3 = noise(vWorld * 1.6 - 4.0), n4 = noise(vWorld * vec2(55.0, 9.0));
+    vec2 lc = mod(vWorld, 512.0);
+    float n1 = noise(lc * 6.0), n2 = noise(lc * 21.0 + 3.1), n3 = noise(lc * 1.6 - 4.0), n4 = noise(lc * vec2(55.0, 9.0));
     col *= 1.0 + closeK * isLand * ((n1 - 0.5) * 0.24 + (n2 - 0.5) * 0.2 + (n3 - 0.5) * 0.16 + (n4 - 0.5) * 0.12);
   }
   gl_FragColor = vec4(fogged(col), 1.0);
@@ -853,18 +857,19 @@ varying vec3 vN;
 varying vec3 vC;
 varying vec3 vL;
 varying vec3 vW;
-float h21(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 15731.7); }
+float h21(vec2 p){ p = mod(p, 289.0); return fract(sin(dot(p, vec2(41.3, 289.1))) * 15731.7); }
 float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y); }
 void main(){
   vec3 n = normalize(vN);
+  vec2 wz = mod(vW.xz, 256.0);   // 模様は小さく折り返した座標で（大きな座標だと精度が足りず縞になる）
   vec3 c = vC;
   float d = uDetail;
   if (d > 0.01) {
     if (uMat < 1.5) {
       // 屋根：段になった瓦・茅の筋と、細かいざらつき
       float row = fract(vL.y * 9.0);
-      c *= 1.0 - d * (0.22 * smoothstep(0.75, 1.0, row) + 0.1 * vn(vW.xz * 30.0 + vL.y * 20.0));
+      c *= 1.0 - d * (0.22 * smoothstep(0.75, 1.0, row) + 0.1 * vn(wz * 30.0 + vL.y * 20.0));
       if (uMat > 0.5 && abs(n.y) < 0.3) c *= 1.0 - 0.12 * d;
     } else if (uMat < 2.5) {
       // 壁：縦の板目と、柱・梁の帯（上面は少し明るく）
@@ -872,21 +877,21 @@ void main(){
         float u = abs(n.x) > abs(n.z) ? vL.z : vL.x;
         float plank = smoothstep(0.85, 1.0, fract(u * 11.0));
         float beam = smoothstep(0.9, 1.0, fract(vL.y * 3.2));
-        c *= 1.0 - d * (0.16 * plank + 0.22 * beam + 0.08 * vn(vW.xz * 22.0 + vL.y * 9.0));
+        c *= 1.0 - d * (0.16 * plank + 0.22 * beam + 0.08 * vn(wz * 22.0 + vL.y * 9.0));
       } else c *= 1.0 + 0.06 * d;
     } else if (uMat < 3.5) {
       // 針葉樹：枝の段
-      c *= 1.0 - d * (0.28 * smoothstep(0.55, 1.0, fract(vL.y * 4.5)) + 0.18 * vn(vW.xz * 18.0 + vL.y * 7.0));
+      c *= 1.0 - d * (0.28 * smoothstep(0.55, 1.0, fract(vL.y * 4.5)) + 0.18 * vn(wz * 18.0 + vL.y * 7.0));
     } else if (uMat < 4.5) {
       // 広葉樹：葉のかたまり
-      float k = vn(vW.xz * 12.0 + vW.y * 9.0) * 0.6 + vn(vW.xz * 31.0 - vW.y * 17.0) * 0.4;
+      float k = vn(wz * 12.0 + vW.y * 9.0) * 0.6 + vn(wz * 31.0 - vW.y * 17.0) * 0.4;
       c *= 0.72 + 0.5 * k * d + (1.0 - d) * 0.28;
     } else if (uMat < 5.5) {
       float u = abs(n.x) > abs(n.z) ? vL.z : vL.x;
       c *= 1.0 - d * 0.2 * vn(vec2(u * 40.0, vL.y * 4.0));
     } else {
       // 土の敷物：まだら
-      c *= 0.86 + 0.24 * vn(vW.xz * 6.0) * (0.4 + 0.6 * d);
+      c *= 0.86 + 0.24 * vn(wz * 6.0) * (0.4 + 0.6 * d);
     }
   }
   // 光は手前左上から（見えている壁が明るくなるように）
@@ -984,8 +989,9 @@ class Renderer {
     if (!hp || hp.precision === 0) fs = fs.replace('precision highp float;', 'precision mediump float;');
     this.ground = compile(gl, GROUND_VS, fs, deriv ? '#define HAS_DERIV\n' : '');
     this.line = compile(gl, LINE_VS, LINE_FS);
-    this.mesh = compile(gl, MESH_VS, MESH_FS);
-    this.sprite = compile(gl, SPRITE_VS, SPRITE_FS);
+    const hi = (src) => (hp && hp.precision > 0 ? src.replace('precision mediump float;', 'precision highp float;') : src);   // スマホでも細かい模様がつぶれないように
+    this.mesh = compile(gl, MESH_VS, hi(MESH_FS));
+    this.sprite = compile(gl, SPRITE_VS, hi(SPRITE_FS));
     this.sky = compile(gl, SKY_VS, SKY_FS);
     this.skyBuf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.skyBuf);

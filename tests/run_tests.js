@@ -62,6 +62,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
 
   await test('読み込み → TITLE 状態になる', async () => {
     const t0 = Date.now();
+    await page.addInitScript(() => document.addEventListener('DOMContentLoaded', () => document.body.classList.add('allow-portrait')));   // 縦画面のまま確かめる（横向きの案内を出さない）
     await page.goto(URL);
     await page.waitForFunction(() => (window.__jinchi && window.__jinchi.App.state === 'TITLE') || window.__jinchiError, null, { timeout: 60000 });
     assert(!(await ev(() => window.__jinchiError || null)), 'load error');
