@@ -1187,7 +1187,7 @@ const App = {
             I.coneT.push(px, sz * 1.15, pz, sz * 0.55, sz * 0.65, sz * 0.55, cc, h2 * 3);
           } else I.coneT.push(px, sz * 0.35, pz, sz * 0.95, sz * 1.5, sz * 0.95, cc, 0);
         } else {
-          const cc = [0.24 + h3 * 0.12, 0.44 + h2 * 0.12, 0.16];
+          const cc = [0.2 + h3 * 0.1, 0.34 + h2 * 0.1, 0.13 + h3 * 0.04];   // 広葉樹：くすんだ緑（明るすぎないように）
           if (rich) {
             I.sphereT.push(px, sz * 0.4, pz, sz * 1.1, sz * 0.9, sz * 1.1, cc, 0);
             I.sphereT.push(px + sz * 0.3, sz * 0.75, pz - sz * 0.15, sz * 0.75, sz * 0.7, sz * 0.75, cc, 0);
