@@ -1508,6 +1508,14 @@ const App = {
       const rect = [v[0] - tw / 2 - 2, ly - size - 2, v[0] + tw / 2 + 2, ly];
       if (placed.some((q) => q[0] < rect[2] && rect[0] < q[2] && q[1] < rect[3] && rect[1] < q[3])) continue;
       placed.push(rect);
+      if (isCap) {
+        // 県庁の名前は木の札に：焦げ茶の板・金の縁・持ち主の県の色の小さな印
+        const px = 7, x0 = rect[0] - px, y0 = rect[1] - 3, w0 = rect[2] - rect[0] + px * 2, h0 = rect[3] - rect[1] + 5;
+        ctx.fillStyle = 'rgba(52,32,16,.88)'; ctx.strokeStyle = 'rgba(217,180,92,.85)'; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(x0 + 3, y0); ctx.lineTo(x0 + w0 - 3, y0); ctx.lineTo(x0 + w0, y0 + 3); ctx.lineTo(x0 + w0, y0 + h0 - 3); ctx.lineTo(x0 + w0 - 3, y0 + h0);
+        ctx.lineTo(x0 + 3, y0 + h0); ctx.lineTo(x0, y0 + h0 - 3); ctx.lineTo(x0, y0 + 3); ctx.closePath(); ctx.fill(); ctx.stroke();
+        if (map.prefs[n.owner]) { ctx.fillStyle = map.prefs[n.owner].color; ctx.fillRect(x0 + 2.5, y0 + 2.5, 3, h0 - 5); }
+      }
       ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(30,18,6,.85)';
       ctx.strokeText(label, v[0], ly);
       ctx.fillStyle = g && n.id === g.rally ? '#ff9b6b' : n.owner === n.pref ? '#fff5dc' : '#ffb3a8';
