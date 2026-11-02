@@ -1073,6 +1073,12 @@ const App = {
       let pose = P_IDLE;
       if (e || u.hitB) pose = P_ATK + ((((t + u.id * 0.37) * (gun ? 0.8 : 1.6)) % 1) < (gun ? 0.15 : 0.5) ? 1 : 0);
       else if (moved > 1e-4) pose = P_WALK + (Math.floor(s.phase / (Math.PI / 2)) & 3);
+      else {
+        // 立ち止まっている兵：ときどき足を踏みかえ、あちこちを見まわす（全員がそろって見えないよう、1人ずつ時間をずらす）
+        const tt = t * 0.35 + u.id * 1.37;
+        if ((tt % 7) < 0.35) pose = P_WALK + ((u.id >> 1) & 3);
+        if (((tt * 0.6) % 9) < 0.03) s.yaw += ((u.id * 13) % 7 - 3) * 0.12;
+      }
       I.shadow.push(x + 0.12 * H, 0.02, z - 0.14 * H, 0.55 * H, 0.01, 0.36 * H, [0, 0, 0], 0);
       // 鉄砲を撃つ（1〜2秒に1発。弾が飛んで当たる）・毒ガス兵は缶を投げる
       if (e && (gun || type === 'gas') && type !== 'ninja' && t >= (s.fireAt || 0)) {
