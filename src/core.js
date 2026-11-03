@@ -740,7 +740,7 @@ void main(){
       float w = max(0.35, cpp * 1.7);
       float edge = 0.0;
       float nearB = 1.0 - smoothstep(0.01, 0.06, cpp);
-      if (nearB < 0.9) for (int k = 0; k < 4; k++) {   // 三人称視点（ごく近く）では国境の線を調べない（重いので）
+      if (nearB < 0.9 && uFog.z < 0.5) for (int k = 0; k < 4; k++) {   // 三人称視点では国境の線を描かない（ギザギザの線に見える。今いる領土は画面左上に出す）   // 三人称視点（ごく近く）では国境の線を調べない（重いので）
         vec2 o = k == 0 ? vec2(w, 0.0) : k == 1 ? vec2(-w, 0.0) : k == 2 ? vec2(0.0, w) : vec2(0.0, -w);
         float q = ownerAt(vWorld + o);
         if (q > 0.5 && abs(q - id) > 0.5) edge = 1.0;
