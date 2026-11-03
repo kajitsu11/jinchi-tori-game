@@ -3277,7 +3277,7 @@ class Sim {
     if (!pairs.length) return 0;
     const budget = opt.total || 1100, per = Math.max(4, Math.min(14, Math.round(budget / pairs.length / 2)));
     const wars = new Map();
-    let n = 0;
+    let n = 0, nb = 0;
     for (const [a, b] of pairs) {
       // a→b の線の上で、持ち主が変わる所（国境）を探す
       const L = Math.hypot(b.x - a.x, b.y - a.y) || 1;
@@ -3294,8 +3294,12 @@ class Sim {
         }
         if (!wars.has(P)) wars.set(P, new Map());
         const m = wars.get(P); m.set(foe.owner, (m.get(foe.owner) || 0) + 1);
+        // 国境の守り：境界のすぐ手前に見張り塔・トーチカ・砲台・塹壕など、少し後ろに兵舎などの兵を出す建物
+        const own = P === a.owner ? a : b, ux = (own.x - x) / (Math.hypot(own.x - x, own.y - y) || 1), uy = (own.y - y) / (Math.hypot(own.x - x, own.y - y) || 1);
+        nb += this.borderWorks(P, x, y, ux, uy);
       }
     }
+    this.openingBuilt = nb;
     // 県の作戦：いちばん長く接している県に宣戦布告
     for (const [P, m] of wars) {
       let foe = 0, best = -1;
@@ -3305,6 +3309,29 @@ class Sim {
       this.emit('war', { by: P, to: foe });
     }
     return n;
+  }
+  /** 国境の手前（x,y）から自県の奥の向き（ux,uy）に、守りの建物と兵を出す建物を建てる。建てた数を返す */
+  borderWorks(P, x, y, ux, uy) {
+    const S = this.S, rng = this.rng, px = -uy, py = ux;
+    const FRONT = ['tower', 'bunker', 'battery', 'trench', 'wall', 'tower', 'aagun', 'rocket', 'mines', 'bunker'];
+    const BACK = ['barracks', 'barracks', 'stable', 'foundry', 'gaslab', 'barracks', 'airfield', 'ninja', 'hospital', 'beacon'];
+    let made = 0;
+    const put = (list, d0, d1, count) => {
+      for (let k = 0; k < count; k++) {
+        const type = list[Math.floor(rng() * list.length)];
+        for (let tr = 0; tr < 6; tr++) {
+          const d = d0 + rng() * (d1 - d0), lat = (rng() - 0.5) * 9 * S / 3;
+          const c = this.cellAt(x + ux * d + px * lat, y + uy * d + py * lat);
+          if (c < 0 || this.canBuild(type, P, c, P)) continue;
+          const r = this.build(type, P, c, P);
+          if (r.ok) { made++; if (r.building) r.building.t = rng() * 5; }
+          break;
+        }
+      }
+    };
+    put(FRONT, 1.5 * S / 3 + 1, 5 * S / 3 + 2, 3);   // 境界のすぐ手前
+    put(BACK, 6 * S / 3 + 3, 13 * S / 3 + 4, 2);    // 少し後ろ
+    return made;
   }
   isSea(x, y) { const i = this.cellAt(x, y); return i < 0 || !this.map.initPref[i]; }
   unitCap(P) { return Math.floor(this.parts[P] * CONFIG.UNIT_CAP_PER_PARTICIPANT + this.nodeCount[P] * CONFIG.UNIT_CAP_PER_NODE + (this.capPlus ? Math.min(this.capPlus[P], this.parts[P] * 0.6) : 0)); }   // 兵站基地で増やせるのは参加者1人あたり0.6人まで
