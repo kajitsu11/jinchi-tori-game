@@ -1309,7 +1309,7 @@ void main(){
     // 市街地の広がり：まわり4マスから求め（ゆらした位置）、ふちをなめらかに
     float cityK = smoothstep(0.35, 0.65, mix(mix(step(abs(k00 - 4.0), 0.5), step(abs(k10 - 4.0), 0.5), qf.x), mix(step(abs(k01 - 4.0), 0.5), step(abs(k11 - 4.0), 0.5), qf.x), qf.y));
     float cityZ = clamp(1.6 - cpp * 3.0, 0.0, 1.0) * cityK * smoothstep(0.03, 0.12, cpp);   // 三人称視点のようにごく近いときは描かない（四角い線に見えるので。家は立体で建っている）
-    if (cityZ > 0.0 && uFog.z < 0.5) {   // 三人称視点では描かない（家は立体で建っているので、地面の四角はモザイクに見える）
+    if (false && cityZ > 0.0) {   // 市街地の屋根の四角模様はやめる（地図でもモザイクに見えるため。家は立体で建つ）   // 三人称視点では描かない（家は立体で建っているので、地面の四角はモザイクに見える）
       vec2 bw = vWorld * 1.6, bf = fract(bw), bi = floor(bw);
       float hb = hash(bi);
       float roof = step(0.16, bf.x) * step(bf.x, 0.86) * step(0.16, bf.y) * step(bf.y, 0.86) * step(0.3, hb);
