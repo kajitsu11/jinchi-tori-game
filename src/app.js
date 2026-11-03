@@ -1204,7 +1204,7 @@ const App = {
   addTrees(I, cpx) {
     const map = this.map, cam = this.cam, W = map.W, t = map.terrain, ew = map.elevW, ev = map.elev;
     const tps = this.isTps();
-    const vb = tps ? [cam.tx - 75, cam.tz - 75, cam.tx + 75, cam.tz + 75] : this.viewBox(0);
+    const vb = tps ? [cam.tx - 55, cam.tz - 55, cam.tx + 55, cam.tz + 55] : this.viewBox(0);
     if (!vb) return;
     const x0 = Math.max(0, Math.floor(vb[0])), x1 = Math.min(W - 1, Math.ceil(vb[2]));
     const y0 = Math.max(0, Math.floor(vb[1])), y1 = Math.min(map.H - 1, Math.ceil(vb[3]));
@@ -1213,8 +1213,8 @@ const App = {
     const s = tps ? 1.15 : clamp(cam.dist * 0.002, 0.55, 2.6) * 1.2;   // 三人称視点では人より高い木
     const eye = cam.basis().eye, gen = tps && this.game && this.game.general;
     const v = [0, 0];
-    const rich = cpx > 5;          // かなり拡大したら、木を段重ねにして立体的に
-    const shadows = cpx > 3;
+    const rich0 = cpx > 5;          // かなり拡大したら、木を段重ねにして立体的に
+    const shadows0 = cpx > 3;
     let n = 0;
     for (let y = y0; y <= y1; y += step) {
       for (let x = x0; x <= x1; x += step) {
@@ -1227,11 +1227,14 @@ const App = {
         if (k === 1 ? h > (tps ? 0.012 : 0.004) : h > 0.18) continue;   // 木は控えめに（兵や建物が隠れないように）
         const h2 = ((hk * 40503 + 7) % 997) / 997, h3 = ((hk * 69069 + 3) % 991) / 991;
         const px = x + h2, pz = y + h3;
-        if (tps && ((px - eye[0]) ** 2 + (pz - eye[2]) ** 2 < 2.2 || (gen && (px - gen.x) ** 2 + (pz - gen.y) ** 2 < 1.2) || (px - cam.tx) ** 2 + (pz - cam.tz) ** 2 > 5600)) continue;   // カメラと大将の前の木は描かない
+        if (tps && ((px - eye[0]) ** 2 + (pz - eye[2]) ** 2 < 2.2 || (gen && (px - gen.x) ** 2 + (pz - gen.y) ** 2 < 1.2) || (px - cam.tx) ** 2 + (pz - cam.tz) ** 2 > 3000)) continue;   // カメラと大将の前の木は描かない
         if (!cam.project(px, 0, pz, v) || v[0] < -20 || v[0] > this.w + 20 || v[1] < -40 || v[1] > this.h + 20) continue;
         const sz = s * (0.8 + h2 * 0.5), snow = t[i] & 8;
         const es = map.elevScale, e = ev[Math.floor(y / es) * ew + Math.floor(x / es)];
         const conifer = snow || e > 120 || y < map.H * 0.3 || h3 > 0.75;
+        // 三人称視点：近くの木だけ段重ね・影つき（遠くは霧に溶けるので1つの形で軽く）
+        const near = !tps || (px - cam.tx) ** 2 + (pz - cam.tz) ** 2 < 500;
+        const rich = rich0 && near, shadows = shadows0 && near;
         if (shadows) I.shadow.push(px + sz * 0.35, 0.02, pz - sz * 0.4, sz * 0.9, 0.01, sz * 0.7, [0, 0, 0], 0);
         I.cylW.push(px, 0, pz, sz * 0.15, sz * 0.55, sz * 0.15, [0.36, 0.25, 0.15], 0);
         if (conifer) {
@@ -1249,7 +1252,7 @@ const App = {
             I.sphereT.push(px - sz * 0.28, sz * 0.7, pz + sz * 0.2, sz * 0.7, sz * 0.65, sz * 0.7, cc, 0);
           } else I.sphereT.push(px, sz * 0.35, pz, sz * 1.15, sz * 1.0, sz * 1.15, cc, 0);
         }
-        if (++n >= CONFIG.TREE_MAX) return;
+        if (++n >= (tps ? 1400 : CONFIG.TREE_MAX)) return;
       }
     }
   },
@@ -2150,18 +2153,21 @@ const App = {
     if (navigator.webdriver) return;   // 自動テストでは調整しない（ソフトウェア描画で遅いため）
     if (!this.qT) { this.qT = now; this.qN = 0; this.quality = 1; return; }
     this.qN++;
-    if (now - this.qT < 3000) return;
+    if (now - this.qT < 1500) return;
     const ms = (now - this.qT) / this.qN;
     this.qT = now; this.qN = 0;
     if (document.hidden || this.state !== STATE.PLAYING) return;
+    // なめらかさ優先：1コマ24ms（約40fps）より遅ければ解像度を下げ、14ms より速ければ少し上げる
     let q = this.quality;
-    if (ms > 45 && q > 0.75) q = Math.max(0.75, q - 0.25);
-    else if (ms < 22 && q < 1) q = Math.min(1, q + 0.25);
+    if (ms > 24 && q > 0.45) q = Math.max(0.45, +(q - (ms > 40 ? 0.2 : 0.1)).toFixed(2));
+    else if (ms < 14 && q < 1) q = Math.min(1, +(q + 0.05).toFixed(2));
     if (q !== this.quality) { this.quality = q; this.resize(); }
   },
   resize() {
     this.applyOrient();   // this.w / this.h（画面を回しているときは縦横を入れ替える）
-    this.dpr = Math.min(window.devicePixelRatio || 1, CONFIG.MAX_DPR) * (this.quality || 1);
+    // 三人称視点は画面いっぱいに地面を描くので重い：画素比は1.5まで（それ以上は見た目がほとんど変わらない）
+    const maxD = this.view === 'tps' ? 1.5 : CONFIG.MAX_DPR;
+    this.dpr = Math.max(0.75, Math.min(window.devicePixelRatio || 1, maxD) * (this.quality || 1));
     this.cam.setViewport(this.w, this.h);
     if (this.renderer) this.renderer.resize(this.w, this.h, this.dpr);
   },

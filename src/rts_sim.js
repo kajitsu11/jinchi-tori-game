@@ -696,11 +696,14 @@ class Sim {
       if (this.flagOrder) this.recruit(0, this.flagOrder);
       for (const h of this.humans.values()) if (h.w && h.flagOrder) this.recruit(h.w, h.flagOrder);
     }
-    for (let p = 1; p <= 47; p++) {
+    // 作戦を立てるのは1回の刻みで2県まで（全県が同じ刻みに重なって画面がカクつかないように）
+    let budget = 2;
+    for (let p = 1; p <= 47 && budget > 0; p++) {
       const pl = this.plans[p];
       if (this.time < pl.next || this.nodeCount[p] === 0) continue;
-      pl.next = this.time + CONFIG.AI_PLAN_INTERVAL;
+      pl.next = this.time + CONFIG.AI_PLAN_INTERVAL * (0.9 + this.rng() * 0.2);
       this.plan(p, pl);
+      budget--;
     }
   }
   plan(P, pl) {
@@ -783,14 +786,18 @@ class Sim {
   }
   /** 県のAI参加者たちの建築。参加者が多いほど頻繁に建てる */
   aiBuildAll() {
-    for (let p = 1; p <= 47; p++) {
+    // 1回の刻みで建てる数に上限をつけ、県の順番を回す（刻みごとの重さをならして、画面がカクつかないように）
+    let budget = CONFIG.AI_BUILD_PER_STEP || 8;
+    const start = this.aiRot = ((this.aiRot || 0) % 47) + 1;
+    for (let i = 0; i < 47 && budget > 0; i++) {
+      const p = ((start - 1 + i) % 47) + 1;
       if (this.time < this.aiBuildAt[p] || !this.nodeCount[p]) continue;
       const k = this.aiCount(p);
       if (!k) { this.aiBuildAt[p] = this.time + 600; continue; }
       this.aiBuildAt[p] = this.time + CONFIG.AI_BUILD_INTERVAL * 10 / k * (0.6 + this.rng() * 0.8);
       // 参加者が多い県は、一度に何人分も建てる（25人ごとに1つ）
       const n = CONFIG.FREE_AI ? Math.max(1, Math.round(k / 25)) : 1;
-      for (let q = 0; q < n; q++) this.aiBuild(p, k);
+      for (let q = 0; q < n && budget > 0; q++, budget--) this.aiBuild(p, k);
     }
   }
   aiBuild(P, k) {

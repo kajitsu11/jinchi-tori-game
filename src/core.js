@@ -82,7 +82,7 @@ const CONFIG = {
   ZOOM_MIN: 6, ZOOM_MAX: 13500,
   FILL: 0.035, FILL_TOP: 0.7,     // 領土の塗りの濃さ（斜め／真上）。斜めは国境線が主役
   TREE_MAX: 3500,
-  LOG_MAX: 3, BANNER_MS: 1800, MINIMAP_REFRESH: 1.0, MAX_DPR: 3, HUD_REFRESH: 0.25,
+  LOG_MAX: 3, BANNER_MS: 1800, MINIMAP_REFRESH: 1.0, MAX_DPR: 2, HUD_REFRESH: 0.25,
 };
 const RES_KEYS = ['food', 'wood', 'gold'];
 const RES_ICON = { food: '🌾', wood: '🪵', gold: '💰' };
@@ -739,7 +739,8 @@ void main(){
       // 引いているときは画面上で2pxくらい、拡大すると0.35マスの帯
       float w = max(0.35, cpp * 1.7);
       float edge = 0.0;
-      for (int k = 0; k < 4; k++) {
+      float nearB = 1.0 - smoothstep(0.01, 0.06, cpp);
+      if (nearB < 0.9) for (int k = 0; k < 4; k++) {   // 三人称視点（ごく近く）では国境の線を調べない（重いので）
         vec2 o = k == 0 ? vec2(w, 0.0) : k == 1 ? vec2(-w, 0.0) : k == 2 ? vec2(0.0, w) : vec2(0.0, -w);
         float q = ownerAt(vWorld + o);
         if (q > 0.5 && abs(q - id) > 0.5) edge = 1.0;
@@ -765,8 +766,8 @@ void main(){
   float closeK = 1.0 - smoothstep(0.01, 0.06, cpp);
   if (closeK > 0.0) {
     vec2 lc = mod(vWorld, 512.0);
-    float n1 = noise(lc * 6.0), n2 = noise(lc * 21.0 + 3.1), n3 = noise(lc * 1.6 - 4.0), n4 = noise(lc * vec2(55.0, 9.0));
-    col *= 1.0 + closeK * isLand * ((n1 - 0.5) * 0.24 + (n2 - 0.5) * 0.2 + (n3 - 0.5) * 0.16 + (n4 - 0.5) * 0.12);
+    float n1 = noise(lc * 6.0), n2 = noise(lc * vec2(41.0, 9.0));
+    col *= 1.0 + closeK * isLand * ((n1 - 0.5) * 0.3 + (n2 - 0.5) * 0.18);
   }
   gl_FragColor = vec4(fogged(col), 1.0);
 }`;

@@ -22,6 +22,7 @@ Object.assign(App, {
     if (v === 'tps' && !this.hasTps()) v = 'map';
     const prev = this.view;
     this.view = v;
+    if (prev !== v && this.renderer) this.resize();   // 視点ごとに描画の解像度の上限が違う
     const B = document.body.classList;
     B.toggle('v-tps', v === 'tps'); B.toggle('v-map', v === 'map' && this.hasTps());
     const cam = this.cam, g = this.game;
