@@ -176,6 +176,7 @@ const App = {
     const seedParam = new URLSearchParams(location.search).get('seed');
     const seed = seedParam ? +seedParam : (Date.now() & 0x7fffffff);
     this.game = new Sim(this.map, p, seed);
+    this.game.sliced = true;   // 刻みの仕事を数コマに分ける（カクつかないように）
     // 確認用の早送り（例：?speed=600 で 1秒＝10分）
     this.speed = clamp(+(new URLSearchParams(location.search).get('speed') || 1), 1, 5000);
     this.renderer.attachGame(this.game, p);
@@ -2167,7 +2168,9 @@ const App = {
     this.applyOrient();   // this.w / this.h（画面を回しているときは縦横を入れ替える）
     // 三人称視点は画面いっぱいに地面を描くので重い：画素比は1.5まで（それ以上は見た目がほとんど変わらない）
     const maxD = this.view === 'tps' ? 1.5 : CONFIG.MAX_DPR;
-    this.dpr = Math.max(0.75, Math.min(window.devicePixelRatio || 1, maxD) * (this.quality || 1));
+    // 解像度を下げすぎるとモザイクのように粗くなるので、画面の1ピクセル（最大1.25倍）より下げない
+    const dev = window.devicePixelRatio || 1;
+    this.dpr = Math.max(Math.min(dev, 1.25), Math.min(dev, maxD) * (this.quality || 1));
     this.cam.setViewport(this.w, this.h);
     if (this.renderer) this.renderer.resize(this.w, this.h, this.dpr);
   },

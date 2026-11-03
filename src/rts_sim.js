@@ -377,11 +377,26 @@ class Sim {
     const tick = Math.min(CONFIG.TICK * Math.max(1, speed / 8), CONFIG.MAX_TICK);
     this.acc += dt * speed;
     let steps = 0;
+    // 等速の1人用：1回の刻みの仕事を3コマに分けて行う（1コマだけ重くなって画面が引っかからないように）
+    if (this.sliced && speed <= 2) {
+      if (this.claimJobs && this.claimJobs.length) this.runClaimJobs(1500);
+      if (this.phase) { this.stepPhase(); this.lastTick = tick; return; }
+      if (this.acc >= tick && !this.over) { this.acc -= tick; this.phaseDt = tick; this.phase = 1; this.stepPhase(); }
+      if (this.acc > tick * 3) this.acc = tick;   // 遅れすぎたら追いつこうとしない
+      this.lastTick = tick;
+      return;
+    }
+    if (this.claimJobs && this.claimJobs.length) this.runClaimJobs(Infinity);
     while (this.acc >= tick && steps < 8 && !this.over) { this.step(tick); this.acc -= tick; steps++; }
     if (steps >= 8) this.acc = 0;
     this.lastTick = tick;
   }
   step(dt) {
+    if (this.claimJobs && this.claimJobs.length) this.runClaimJobs(Infinity);   // 途中の国境広げは先に終わらせる
+    this.stepA(dt); this.stepB(dt); this.stepC(dt);
+  }
+  /** 刻みを3つに分けたもの（stepPhase で1コマに1つずつ行える） */
+  stepA(dt) {
     this.time += dt;
     this.pathBudget = CONFIG.PATH_BUDGET;
     this.incomeT += dt;
@@ -393,7 +408,12 @@ class Sim {
     this.planAll();
     this.aiBuildAll();
     this.trainAll(dt);
+  }
+  stepB(dt) {
     this.thinkAll();
+    void dt;
+  }
+  stepC(dt) {
     this.combat(dt);
     this.moveAll(dt);
     this.updateNodes(dt);
@@ -402,6 +422,16 @@ class Sim {
     if (this.time >= CONFIG.SEASON_DAYS * 86400) this.checkEnd();
     // 倒れた兵士は片付ける（兵舎から補充される）。空間ハッシュの番号がずれないよう、刻みの最後に行う
     if (this.units.some((u) => !u.alive)) this.units = this.units.filter((u) => u.alive);
+  }
+  stepPhase() {
+    const dt = this.phaseDt, ph = this.phase;
+    this.inSlice = true;
+    try { this.stepPart(ph, dt); } finally { this.inSlice = false; }
+  }
+  stepPart(ph, dt) {
+    if (ph === 1) { this.stepA(dt); this.phase = 2; }
+    else if (ph === 2) { this.stepB(dt); this.phase = 3; }
+    else { this.stepC(dt); this.phase = 0; }
   }
 
   // ---------------------------------------------------------- 資源
@@ -544,31 +574,54 @@ class Sim {
     const byPlayer = this.isHuman(w);
     const n = this.addNode({ cell: c, pref: P, owner: P, type, name: `${this.map.prefs[P].short}の${BUILDINGS[type].name}${k}`, byPlayer, wallet: byPlayer ? w : -1 });
     this.nodeCount[P]++;
-    const nodeOf = this.nodeOf, dist = this.nodeDist;
-    const changed = [], claimed = [];
-    const q = [c], d = new Map([[c, 0]]);
-    const take = (i, di) => {
-      nodeOf[i] = n.id; dist[i] = di; claimed.push(i);
-      if (this.owner[i] !== P) { this.moveCell(i, this.owner[i], P); changed.push(i); }
-    };
-    take(c, 0);
-    for (let qh = 0; qh < q.length; qh++) {
-      const i = q[qh], di = d.get(i) + 1;
-      if (di > CONFIG.NODE_RADIUS * this.S * (BUILDINGS[type].radius || 1)) continue;
-      this.forNeighbors(i, (j) => {
-        if (d.has(j) || dist[j] === 0 || di >= dist[j]) return;
-        d.set(j, di); q.push(j); take(j, di);
-      });
-    }
-    this.nodeCells.push(Int32Array.from(claimed));
+    this.nodeCells.push(new Int32Array(0));
     this.nodeAdj.push([]);
-    const adj = new Set();
-    for (const i of claimed) this.forNeighbors(i, (j) => { const b = nodeOf[j]; if (b !== n.id) adj.add(b); });
-    for (const b of adj) { this.nodeAdj[n.id].push(b); if (!this.nodeAdj[b].includes(n.id)) this.nodeAdj[b].push(n.id); }
-    this.flipBuildings(changed, P);
-    this.emit('cells', changed);
+    const job = { n, P, q: [c], d: new Map([[c, 0]]), qh: 0, claimed: [], R: CONFIG.NODE_RADIUS * this.S * (BUILDINGS[type].radius || 1) };
+    this.claimTake(job, c, 0);
+    // 1人用の等速では、AIの町・砦の国境は数コマに分けて広げる（一度に数万マスを調べて画面が止まらないように）
+    if (this.inSlice && !byPlayer) { (this.claimJobs || (this.claimJobs = [])).push(job); return n; }
+    this.claimRun(job, Infinity);
     this.checkEnd();
     return n;
+  }
+  claimTake(job, i, di) {
+    this.nodeOf[i] = job.n.id; this.nodeDist[i] = di; job.claimed.push(i);
+    if (this.owner[i] !== job.P) { this.moveCell(i, this.owner[i], job.P); (job.changed || (job.changed = [])).push(i); }
+  }
+  /** 国境を広げる続き：budget マスまで調べる。終わったら true */
+  claimRun(job, budget) {
+    const dist = this.nodeDist, q = job.q, d = job.d;
+    let qh = job.qh;
+    for (; qh < q.length && budget > 0; qh++, budget--) {
+      const i = q[qh], di = d.get(i) + 1;
+      if (di > job.R) continue;
+      this.forNeighbors(i, (j) => {
+        if (d.has(j) || dist[j] === 0 || di >= dist[j]) return;
+        d.set(j, di); q.push(j); this.claimTake(job, j, di);
+      });
+    }
+    job.qh = qh;
+    const changed = job.changed || [];
+    job.changed = [];
+    if (changed.length) { this.flipBuildings(changed, job.P); this.emit('cells', changed); }
+    if (qh < q.length) return false;
+    // 終わり：拠点の区画と、となりの拠点
+    const n = job.n, nodeOf = this.nodeOf;
+    const old = this.nodeCells[n.id], cl = Int32Array.from(job.claimed);   // 途中で旗の土地が足されていたら残す
+    if (old.length) { const m = new Int32Array(old.length + cl.length); m.set(old); m.set(cl, old.length); this.nodeCells[n.id] = m; } else this.nodeCells[n.id] = cl;
+    const adj = new Set();
+    for (const i of job.claimed) this.forNeighbors(i, (j) => { const b = nodeOf[j]; if (b !== n.id) adj.add(b); });
+    for (const b of adj) { if (!this.nodeAdj[n.id].includes(b)) this.nodeAdj[n.id].push(b); if (!this.nodeAdj[b].includes(n.id)) this.nodeAdj[b].push(n.id); }
+    return true;
+  }
+  /** 途中の国境広げを少しずつ進める（1コマに数千マスまで） */
+  runClaimJobs(budget) {
+    const J = this.claimJobs;
+    while (J && J.length && budget > 0) {
+      const job = J[0], before = job.qh;
+      if (this.claimRun(job, budget)) { J.shift(); this.checkEnd(); }
+      budget -= Math.max(1, job.qh - before);
+    }
   }
   /** 建物の一覧を2秒ごとに作り直す：訓練する建物・撃つ建物・県ごとの数（建物が数万あっても毎刻み全部を見ないように） */
   catalog() {
