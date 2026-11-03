@@ -384,7 +384,7 @@ body.land.v-tps #log { left: calc(170px + env(safe-area-inset-left, 0px)); botto
 body.land.v-tps.building #bottombar { left: calc(170px + env(safe-area-inset-left, 0px)); width: auto; }
 body.land.v-tps.building #joy { bottom: 20px; }
 body.land.v-tps.building .bcard { width: 60px; padding: 3px 2px; }
-body.land.v-tps.building .bcard .ico { width: 32px !important; height: 32px !important; margin-bottom: 0 !important; }
+body.land.v-tps.building .bcard > .ico { width: 32px !important; height: 32px !important; margin-bottom: 0 !important; }
 body.land.v-tps.building .bcard small { flex-wrap: nowrap; }
 body.land.v-tps.building .bcard b { font-size: 11px; }
 body.land.v-tps.building .bcard small { font-size: 9px; }
@@ -409,6 +409,69 @@ body.land .or-ico::before { width: 10px; height: 16px; margin-top: 1px; }   /* �
 .sheet-top .sheet-label { flex: 1; }
 #t-orient { flex: none; display: flex; align-items: center; gap: 4px; padding: 4px 9px; border-radius: 12px; border: 1px solid var(--gold-dk); background: rgba(0,0,0,.3); color: var(--parch); font: 600 11.5px var(--serif); margin-bottom: 6px; }
 body:not(.can-orient) .b-orient { display: none !important; }
+
+/* ---------- 三人称視点（横画面）のHUD：画面を広く。上は半透明の細い帯、右下は丸いボタン ---------- */
+#genhp { display: none; }
+body.v-tps #genhp { display: block; position: absolute; left: 8px; top: calc(var(--hudtop, 230px)); width: 210px; pointer-events: none;
+  background: linear-gradient(90deg, rgba(20,12,4,.72), rgba(20,12,4,0)); padding: 5px 8px 6px; border-radius: 6px 0 0 6px; }
+#genhp .gh-top { display: flex; align-items: baseline; gap: 6px; font: 700 13px var(--serif); color: var(--gold-hi); text-shadow: 0 1px 2px #000; }
+#genhp .gh-top span { font: 700 11px var(--sans); color: var(--parch); }
+#genhp i { display: block; height: 7px; margin-top: 3px; background: rgba(0,0,0,.55); border: 1px solid rgba(243,217,142,.45); border-radius: 4px; overflow: hidden; }
+#genhp s { display: block; height: 100%; width: 100%; background: linear-gradient(#8fe07a, #3f9a34); transition: width .2s; }
+#genhp s.mid { background: linear-gradient(#ffe07a, #c99a1e); } #genhp s.low { background: linear-gradient(#ff8a70, #b8321c); }
+#gh-where { margin-top: 4px; font-size: 11px; color: var(--parch); text-shadow: 0 1px 2px #000; white-space: nowrap; }
+#gh-where.enemy { color: #ffcf9a; font-weight: 700; }
+#gh-where i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; border: 1px solid rgba(255,255,255,.6); }
+
+body.land.v-tps #topbar { background: linear-gradient(rgba(16,10,4,.86), rgba(16,10,4,.55)); border: 0; box-shadow: none; height: calc(36px + var(--sat)); padding-top: calc(2px + var(--sat)); padding-bottom: 2px; }
+body.land.v-tps #topbar .row3 { display: none; }
+body.land.v-tps #topbar .row1 { font-size: 14px; }
+body.land.v-tps #topbar .resbar { flex: 0 1 auto; margin-left: auto !important; }
+body.land.v-tps #topbar .resbar .res { background: rgba(0,0,0,.3) !important; border-color: rgba(217,180,92,.35) !important; box-shadow: none !important; padding: 1px 8px !important; }
+body.land.v-tps #minimap { top: calc(42px + var(--sat)); width: 96px; height: 84px; }
+body.land.v-tps #race { top: calc(42px + var(--sat)); left: 112px; width: min(250px, calc(var(--appw, 100vw) * 0.32)); background: rgba(16,10,4,.5); border: 0; box-shadow: none; font-size: 10px; padding: 4px 7px; }
+body.land.v-tps #race > :last-child { display: none; }
+body.land.v-tps { --hudtop: calc(132px + var(--sat)); }
+body.land.v-tps #sidebtns { top: calc(42px + var(--sat)); gap: 6px; }
+body.land.v-tps #sidebtns button { width: 38px; height: 38px; border-radius: 50%; font-size: 0; gap: 0; padding: 0; background: rgba(20,12,4,.6); }
+body.land.v-tps #sidebtns button .ico { width: 20px !important; height: 20px !important; }
+body.land.v-tps #log { bottom: 12px !important; left: 50%; transform: translateX(-60%); width: min(330px, calc(var(--appw, 100vw) * 0.38)); align-items: center; }
+body.land.v-tps #log div { background: rgba(16,10,4,.6); font-size: 10.5px; }
+body.land.v-tps #log div:nth-child(n+3) { display: none; }
+/* 右下：丸いボタン（大きい「建築」・旗・地図、その上に作戦） */
+body.land.v-tps:not(.building) #bottombar { left: auto; width: auto; right: calc(14px + env(safe-area-inset-right, 0px)); bottom: 14px; background: none; border: 0; box-shadow: none; padding: 0; gap: 10px; backdrop-filter: none; align-items: flex-end; }
+body.land.v-tps #tpsbar { gap: 10px; align-items: flex-end; }
+body.land.v-tps #tpsbar button, body.land.v-tps #abilrow button { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 0 !important;
+  border-radius: 50%; border: 2px solid rgba(217,180,92,.75); color: var(--parch); text-shadow: 0 1px 2px #000;
+  background: radial-gradient(circle at 40% 30%, rgba(96,68,38,.94), rgba(28,18,8,.94)); box-shadow: 0 3px 10px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,236,190,.25); }
+body.land.v-tps #tpsbar button { width: 62px; height: 62px; font-size: 10.5px !important; }
+body.land.v-tps #tpsbar #t-build { width: 78px; height: 78px; font-size: 12px !important; order: 3; border-color: var(--gold-hi); background: radial-gradient(circle at 40% 30%, #a0743a, #4a3013); }
+body.land.v-tps #tpsbar #t-flag { order: 2; }
+body.land.v-tps #tpsbar #t-map { order: 1; width: 50px; height: 50px; }
+body.land.v-tps #tpsbar .ico { width: 26px !important; height: 26px !important; margin: 0 !important; }
+body.land.v-tps #tpsbar #t-build .ico { width: 32px !important; height: 32px !important; }
+body.land.v-tps #abilrow { order: -1; gap: 8px; justify-content: flex-end; }
+body.land.v-tps #abilrow button { width: 50px; height: 50px; font-size: 9.5px !important; }
+body.land.v-tps #abilrow button .ico { width: 20px !important; height: 20px !important; margin: 0 !important; }
+body.land.v-tps #abilrow button.cool { opacity: .55; filter: grayscale(.6); }
+body.land.v-tps #joy { width: 120px; height: 120px; left: calc(26px + env(safe-area-inset-left, 0px)); bottom: 18px; opacity: .9; }
+
+/* 建築中（横画面）：下に低い帯（分類のタブ＋建物のカード）、右に丸い「建てる」「回転」「やめる」 */
+body.land.v-tps.building #bottombar { left: calc(160px + env(safe-area-inset-left, 0px)); right: calc(8px + env(safe-area-inset-right, 0px)); width: auto; bottom: 6px; padding: 4px 6px 5px; gap: 3px;
+  background: rgba(16,10,4,.72); border-radius: 10px; }
+body.land.v-tps.building #buildctl { position: absolute; right: 6px; bottom: calc(100% + 10px); flex-direction: row; align-items: flex-end; gap: 10px; }
+body.land.v-tps.building #buildctl button { border-radius: 50%; padding: 0 !important; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.15;
+  box-shadow: 0 3px 10px rgba(0,0,0,.55); background: radial-gradient(circle at 40% 30%, rgba(96,68,38,.95), rgba(28,18,8,.95)); border: 2px solid rgba(217,180,92,.75); }
+body.land.v-tps.building #bc-close { width: 44px; height: 44px; flex: none; font-size: 16px; }
+body.land.v-tps.building #bc-rot { width: 54px; height: 54px; flex: none; font-size: 12px; }
+body.land.v-tps.building #bc-place { width: 80px; height: 80px; flex: none; font-size: 14px !important; }
+body.land.v-tps.building #bcats { margin: 0; gap: 3px; }
+body.land.v-tps.building .bcard { width: 58px; padding: 2px 2px 3px; gap: 0; }
+body.land.v-tps.building .bcard b { font-size: 10.5px; }
+body.land.v-tps.building .bcard small { font-size: 8.5px; }
+body.land.v-tps.building .bcard small .ico { width: 11px !important; height: 11px !important; }
+body.land.v-tps.building #joy { bottom: 18px; }
+body.land.v-tps.building #genhp { display: none; }
 </style>
 </head>
 <body>
@@ -494,6 +557,7 @@ body:not(.can-orient) .b-orient { display: none !important; }
       <div class="cp-note" id="cp-note"></div>
     </div>
     <div id="joy" class="tps-only" aria-label="移動"><i></i></div>
+    <div id="genhp" aria-label="大将の体力"><div class="gh-top"><b>大将</b><span id="gh-lv">Lv1</span></div><i><s id="gh-bar"></s></i><div id="gh-where"></div></div>
     <div id="mapbar" class="map-only">
       <button id="mb-back" class="btn-primary"><i data-ico="general"></i><span>大将に戻る</span></button>
       <button id="mb-top"><i data-ico="top"></i><span>真上／斜め</span></button>
@@ -502,7 +566,7 @@ body:not(.can-orient) .b-orient { display: none !important; }
       <div id="hint" class="hidden"></div>
       <div class="actrow" id="tpsbar">
         <button id="t-build" class="b-rally"><i data-ico="build"></i><span>建築</span></button>
-        <button id="t-flag" class="b-rally b-flag"><i data-ico="flag"></i><span>旗を立てる</span></button>
+        <button id="t-flag" class="b-rally b-flag"><i data-ico="flag"></i><span>旗立て</span></button>
         <button id="t-map" class="b-rally"><i data-ico="top"></i><span>地図</span></button>
       </div>
       <div class="actrow" id="oldrow">
@@ -1284,14 +1348,15 @@ void main(){
         if (q > 0.5 && abs(q - id) > 0.5) edge = 1.0;
       }
       float zoomedIn = clamp((1.0 / cpp - 3.0) / 6.0, 0.0, 1.0);
+      float nearK = 1.0 - smoothstep(0.01, 0.06, cpp);   // 三人称視点：国境は地面にうっすら（マスの階段の線にならないよう）
       // 国境線：筆で引いたような強弱（場所でかすれる）と、墨の縁取り
       if (edge > 0.5) {
         float brush = 0.65 + 0.35 * noise(vWorld * 0.18 + 11.0);
-        col = mix(col, pc * 0.95 + 0.06, (0.85 - 0.4 * zoomedIn) * isLand * brush);
+        col = mix(col, pc * 0.95 + 0.06, (0.85 - 0.4 * zoomedIn) * isLand * brush * (1.0 - nearK * 0.8));
         col *= 1.0 - 0.18 * (1.0 - zoomedIn) * isLand;   // 引いているときは少し暗くして、地図の上でくっきり
       }
       // 最近占領されたところは斜線
-      if (rec > 0.5) {
+      if (rec > 0.5 && nearK < 0.5) {
         float s = step(0.5, fract((gl_FragCoord.x + gl_FragCoord.y) / 12.0));
         col = mix(col, pc, s * 0.35);
       }
@@ -1866,8 +1931,9 @@ class Renderer {
     setFog(g);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.disableVertexAttribArray(g.a.aPos);
-    // --- 連絡線・インセット枠
+    // --- 連絡線・インセット枠（地図の上の線。三人称視点では描かない：カメラの近くで線が画面を横切ってしまうため）
     const L = this.line, cpp = 1 / cam.cellPx();
+    if (!fog) {
     gl.useProgram(L.p);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -1892,6 +1958,7 @@ class Renderer {
     draw('inset', 1.5, [1, 1, 1, 0.5], 10);
     for (const k of ['aA', 'aB', 'aInfo']) gl.disableVertexAttribArray(L.a[k]);
     gl.disable(gl.BLEND);
+    }
     // --- 建物・兵士・木（インスタンス描画）。先に半透明の影、つぎに本体
     const meshes = opt.meshes;
     if (meshes) {
@@ -5528,7 +5595,7 @@ const App = {
         continue;
       }
       if (type === 'general' && tpsOn) {   // 三人称視点の大将：歩く鎧武者（立体）
-        this.drawGeneral3D(I, x, z, s, moved, !!(e || u.hitB), c0, H, C);
+        this.drawGeneral3D(I, x, z, s, moved, !!(e || u.hitB), c0, H * 1.3, C);   // 大将はまわりの兵より少し大きく
         continue;
       }
       if (type === 'cavalry' || type === 'general') {   // 騎馬隊・大将：馬の上に兵（大将は金色の旗）
@@ -5875,8 +5942,13 @@ const App = {
     }
     // 旗：取ろうとしている正方形（点線）と、守った時間・旗の体力
     if (g && g.flags && g.flags.length && cpx > 0.12) {
-      const half = CONFIG.FLAG_SIZE * (map.scale || 1) / 2, bh2 = clamp(cam.dist * 0.0016, 0.9, 7) * 3.2;
+      const half = CONFIG.FLAG_SIZE * (map.scale || 1) / 2, bh2 = tpsO ? 1.5 : clamp(cam.dist * 0.0016, 0.9, 7) * 3.2;
       for (const f of g.flags) {
+        if (tpsO) {   // 三人称視点：正方形の辺を地面に沿って細かく区切って描く（カメラの後ろに回る所は描かない）
+          if ((f.x - cam.tx) ** 2 + (f.y - cam.tz) ** 2 > (half + TPS.R) ** 2) continue;
+          this.groundSquare(ctx, f.x, f.y, half, map.prefs[f.pref].color);
+          if (!cam.project(f.x, bh2, f.y, v) || !onScreen()) continue;
+        } else {
         const pts = [];
         for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { const o = [0, 0]; if (cam.project(f.x + a * half, 0, f.y + b * half, o)) pts.push(o); }
         if (pts.length < 4 || pts.every((p) => p[0] < 0) || pts.every((p) => p[0] > this.w) || pts.every((p) => p[1] < 0) || pts.every((p) => p[1] > this.h)) continue;
@@ -5885,6 +5957,7 @@ const App = {
         ctx.globalAlpha = 0.12; ctx.fillStyle = pc; ctx.fill();
         ctx.globalAlpha = 0.95; ctx.setLineDash([7, 5]); ctx.lineWidth = 2; ctx.strokeStyle = pc; ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
         if (!cam.project(f.x, bh2, f.y, v) || !onScreen()) continue;
+        }
         const pr = clamp(f.prog / CONFIG.FLAG_HOLD, 0, 1), r = 10;
         ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.beginPath(); ctx.arc(v[0], v[1] - 14, r, 0, 7); ctx.stroke();
         ctx.lineWidth = 3; ctx.strokeStyle = pc; ctx.beginPath(); ctx.arc(v[0], v[1] - 14, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * pr); ctx.stroke();
@@ -5918,7 +5991,8 @@ const App = {
         if (k >= 1) continue;
         keep.push(c);
         const col = map.prefs[c.pref].color;
-        if (c.sq) {
+        if (c.sq && tpsO) { ctx.globalAlpha = 1 - k; this.groundSquare(ctx, c.x, c.y, c.half * (0.85 + 0.15 * k), '#fff6c8', 3); ctx.globalAlpha = 1; }
+        else if (c.sq) {
           const h = c.half * (0.85 + 0.15 * k), pts = [];
           for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { const o = [0, 0]; if (cam.project(c.x + a * h, 0, c.y + b * h, o)) pts.push(o); }
           if (pts.length < 4) continue;
@@ -5989,7 +6063,7 @@ const App = {
       }
     }
     // あなたの兵（と加勢中の仲間）の足元に白い輪
-    if (g && cpx > 1.0) {
+    if (g && cpx > 1.0 && !this.isTps()) {
       const a = clamp(g.acc / CONFIG.TICK, 0, 1);
       let k = 0;
       ctx.lineWidth = 1.5;
@@ -6203,7 +6277,7 @@ const App = {
       if (this.iconQ && this.iconQ.length) this.renderIconStep();   // 建物のアイコンを1つずつ撮影
       const mixT = clamp((this.cam.pitch - CONFIG.CAMERA_PITCH) / (CONFIG.TOP_PITCH - CONFIG.CAMERA_PITCH), 0, 1);
       this.renderer.render(this.cam, {
-        fill: CONFIG.FILL + (CONFIG.FILL_TOP - CONFIG.FILL) * mixT,
+        fill: this.isTps() ? 0.14 : CONFIG.FILL + (CONFIG.FILL_TOP - CONFIG.FILL) * mixT,   // 三人称視点では領土の色はうっすら
         place: this.state === STATE.PLAYING && this.mode && this.mode.kind === 'place',
         time: this.clock, fog: this.fogOpt(), meshes: this.buildScene(), sprites: this.state === STATE.PLAYING || this.state === STATE.GAMEOVER ? this.sprites : null,
       });
@@ -6705,18 +6779,36 @@ Object.assign(App, {
     let gx = tx + rx * sh, gz = tz + rz * sh;
     // 建築中は、大将と設計図の間を見る（下のカードに隠れないように、少し先を画面の真ん中に）
     const bk0 = this.buildK || 0;
-    if (bk0 > 0 && gen) { gx += -sy * TPS.REACH * 1.5 * bk0; gz += -cy * TPS.REACH * 1.5 * bk0; }
+    if (bk0 > 0 && gen) { gx += -sy * TPS.REACH * 0.7 * bk0; gz += -cy * TPS.REACH * 0.7 * bk0; }
     const k = this.tpsSnap ? 1 : Math.min(1, dt * 12);
     this.tpsSnap = false;
     cam.goal = null;
     cam.tx += (gx - cam.tx) * k; cam.tz += (gz - cam.tz) * k;
-    cam.ty = H * 1.05;
+    cam.ty = H * 1.35;
     // 建築中は少し引いて見下ろす（置く場所と周りが見えるように）
     this.buildK = (this.buildK || 0) + ((this.build ? 1 : 0) - (this.buildK || 0)) * Math.min(1, dt * 6);
     const bk = this.buildK;
-    cam.yaw = T.yaw; cam.pitch = cam.pitchGoal = clamp(T.pitch + bk * 16, TPS.PMIN, 75); cam.dist = T.dist * (1 + bk * 0.9);
+    cam.yaw = T.yaw; cam.pitch = cam.pitchGoal = clamp(T.pitch + bk * 12, TPS.PMIN, 75); cam.dist = T.dist * (1 + bk * 0.7);
     cam.fovY = TPS.FOV * Math.PI / 180; cam.minDist = TPS.DMIN; cam.nearMin = 0.04;
     this.ghostUpdate();
+    this.genHud(gen);
+  },
+  /** 大将の体力・レベルと、今いる場所（自県／敵の領土） */
+  genHud(gen) {
+    const g = this.game, bar = $('gh-bar'), where = $('gh-where');
+    const f = gen ? clamp(gen.hp / UNITS.general.hp, 0, 1) : 0;
+    const w = Math.round(f * 100);
+    if (w !== this.ghW) { this.ghW = w; bar.style.width = w + '%'; bar.className = f > 0.6 ? '' : f > 0.3 ? 'mid' : 'low'; }
+    const lv = `Lv${g.genLv || 1}`;
+    if (lv !== this.ghLv) { this.ghLv = lv; $('gh-lv').textContent = lv; }
+    let txt = '', cls = '';
+    if (!gen) txt = '県庁で立て直し中';
+    else {
+      const own = g.owner[g.cellAt(gen.x, gen.y)], P = this.map.prefs[own];
+      if (own === this.me) txt = `<i style="background:${P.color}"></i>自県の領土`;
+      else if (P) { txt = `<i style="background:${P.color}"></i>${P.name}の領土 — 旗を立てられる`; cls = 'enemy'; }
+    }
+    if (txt !== this.ghTxt) { this.ghTxt = txt; where.innerHTML = txt; where.className = cls; }
   },
   /** 視点を回す（ドラッグ量 px） */
   tpsLook(dx, dy) {
@@ -6770,7 +6862,8 @@ Object.assign(App, {
     const G = this.ghost, ok = G && !G.why;
     el.classList.toggle('ng', !ok);
     const lab = el.querySelector('span');
-    if (lab) lab.textContent = !G ? '置けません' : ok ? `${BUILDINGS[G.type].name}を建てる` : this.buildWhy(G.why);
+    if (lab) lab.textContent = document.body.classList.contains('land') ? (ok ? '建てる' : '置けない')   // 横画面は丸いボタン（理由は設計図の上に出る）
+      : !G ? '置けません' : ok ? `${BUILDINGS[G.type].name}を建てる` : this.buildWhy(G.why);
   },
   buildWhy(why) {
     return { sea: '海には置けない', notown: '自県の領土の外', crowded: '近くに建物がある', nearnode: '拠点に近すぎる', terrain: '地形が合わない',
@@ -6975,7 +7068,7 @@ Object.assign(App, {
       const f = cam.project(G.x - hw * 1.25 * sn, 0.02, G.z + hw * 1.25 * cs, v);
       if (f) { ctx.fillStyle = ctx.strokeStyle; ctx.beginPath(); ctx.arc(f[0], f[1], 4, 0, 7); ctx.fill(); }
     }
-    const top = cam.project(G.x, def.node ? 2.4 : 1.5, G.z, v);
+    const top = cam.project(G.x, def.node ? 1.6 : 1.0, G.z, v);
     if (top) {
       const txt = ok ? `${BUILDINGS[G.type].name}` : `✕ ${this.buildWhy(G.why)}`;
       ctx.font = '700 13px ' + getComputedStyle(document.body).getPropertyValue('--serif');
@@ -6986,6 +7079,26 @@ Object.assign(App, {
       ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(txt, top[0], top[1] - 13);
     }
+    ctx.restore();
+  },
+  /** 地面の上の正方形（旗の領域）を、辺を細かく区切って描く。カメラの後ろの部分は描かない */
+  groundSquare(ctx, x, z, half, color, width) {
+    const cam = this.cam, N = 28, a = [0, 0];
+    ctx.save();
+    ctx.strokeStyle = color; ctx.lineWidth = width || 2.5; ctx.setLineDash([9, 6]); ctx.globalAlpha *= 0.9;
+    ctx.beginPath();
+    const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]];
+    for (let e = 0; e < 4; e++) {
+      const [x0, z0] = corners[e], [x1, z1] = corners[e + 1];
+      let pen = false;
+      for (let k = 0; k <= N; k++) {
+        const t = k / N, wx = x + (x0 + (x1 - x0) * t) * half, wz = z + (z0 + (z1 - z0) * t) * half;
+        // 近すぎる（カメラのすぐ下・後ろ）点は飛ばす
+        const ok = cam.project(wx, 0.05, wz, a) && a[0] > -this.w && a[0] < this.w * 2 && a[1] > -this.h && a[1] < this.h * 2;
+        if (ok) { if (pen) ctx.lineTo(a[0], a[1]); else { ctx.moveTo(a[0], a[1]); pen = true; } } else pen = false;
+      }
+    }
+    ctx.stroke();
     ctx.restore();
   },
   /** 大将の頭上の名前と体力（三人称視点） */

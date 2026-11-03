@@ -1123,7 +1123,7 @@ const App = {
         continue;
       }
       if (type === 'general' && tpsOn) {   // 三人称視点の大将：歩く鎧武者（立体）
-        this.drawGeneral3D(I, x, z, s, moved, !!(e || u.hitB), c0, H, C);
+        this.drawGeneral3D(I, x, z, s, moved, !!(e || u.hitB), c0, H * 1.3, C);   // 大将はまわりの兵より少し大きく
         continue;
       }
       if (type === 'cavalry' || type === 'general') {   // 騎馬隊・大将：馬の上に兵（大将は金色の旗）
@@ -1470,8 +1470,13 @@ const App = {
     }
     // 旗：取ろうとしている正方形（点線）と、守った時間・旗の体力
     if (g && g.flags && g.flags.length && cpx > 0.12) {
-      const half = CONFIG.FLAG_SIZE * (map.scale || 1) / 2, bh2 = clamp(cam.dist * 0.0016, 0.9, 7) * 3.2;
+      const half = CONFIG.FLAG_SIZE * (map.scale || 1) / 2, bh2 = tpsO ? 1.5 : clamp(cam.dist * 0.0016, 0.9, 7) * 3.2;
       for (const f of g.flags) {
+        if (tpsO) {   // 三人称視点：正方形の辺を地面に沿って細かく区切って描く（カメラの後ろに回る所は描かない）
+          if ((f.x - cam.tx) ** 2 + (f.y - cam.tz) ** 2 > (half + TPS.R) ** 2) continue;
+          this.groundSquare(ctx, f.x, f.y, half, map.prefs[f.pref].color);
+          if (!cam.project(f.x, bh2, f.y, v) || !onScreen()) continue;
+        } else {
         const pts = [];
         for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { const o = [0, 0]; if (cam.project(f.x + a * half, 0, f.y + b * half, o)) pts.push(o); }
         if (pts.length < 4 || pts.every((p) => p[0] < 0) || pts.every((p) => p[0] > this.w) || pts.every((p) => p[1] < 0) || pts.every((p) => p[1] > this.h)) continue;
@@ -1480,6 +1485,7 @@ const App = {
         ctx.globalAlpha = 0.12; ctx.fillStyle = pc; ctx.fill();
         ctx.globalAlpha = 0.95; ctx.setLineDash([7, 5]); ctx.lineWidth = 2; ctx.strokeStyle = pc; ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
         if (!cam.project(f.x, bh2, f.y, v) || !onScreen()) continue;
+        }
         const pr = clamp(f.prog / CONFIG.FLAG_HOLD, 0, 1), r = 10;
         ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.beginPath(); ctx.arc(v[0], v[1] - 14, r, 0, 7); ctx.stroke();
         ctx.lineWidth = 3; ctx.strokeStyle = pc; ctx.beginPath(); ctx.arc(v[0], v[1] - 14, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * pr); ctx.stroke();
@@ -1513,7 +1519,8 @@ const App = {
         if (k >= 1) continue;
         keep.push(c);
         const col = map.prefs[c.pref].color;
-        if (c.sq) {
+        if (c.sq && tpsO) { ctx.globalAlpha = 1 - k; this.groundSquare(ctx, c.x, c.y, c.half * (0.85 + 0.15 * k), '#fff6c8', 3); ctx.globalAlpha = 1; }
+        else if (c.sq) {
           const h = c.half * (0.85 + 0.15 * k), pts = [];
           for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { const o = [0, 0]; if (cam.project(c.x + a * h, 0, c.y + b * h, o)) pts.push(o); }
           if (pts.length < 4) continue;
@@ -1584,7 +1591,7 @@ const App = {
       }
     }
     // あなたの兵（と加勢中の仲間）の足元に白い輪
-    if (g && cpx > 1.0) {
+    if (g && cpx > 1.0 && !this.isTps()) {
       const a = clamp(g.acc / CONFIG.TICK, 0, 1);
       let k = 0;
       ctx.lineWidth = 1.5;
@@ -1798,7 +1805,7 @@ const App = {
       if (this.iconQ && this.iconQ.length) this.renderIconStep();   // 建物のアイコンを1つずつ撮影
       const mixT = clamp((this.cam.pitch - CONFIG.CAMERA_PITCH) / (CONFIG.TOP_PITCH - CONFIG.CAMERA_PITCH), 0, 1);
       this.renderer.render(this.cam, {
-        fill: CONFIG.FILL + (CONFIG.FILL_TOP - CONFIG.FILL) * mixT,
+        fill: this.isTps() ? 0.14 : CONFIG.FILL + (CONFIG.FILL_TOP - CONFIG.FILL) * mixT,   // 三人称視点では領土の色はうっすら
         place: this.state === STATE.PLAYING && this.mode && this.mode.kind === 'place',
         time: this.clock, fog: this.fogOpt(), meshes: this.buildScene(), sprites: this.state === STATE.PLAYING || this.state === STATE.GAMEOVER ? this.sprites : null,
       });

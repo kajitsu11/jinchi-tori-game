@@ -102,18 +102,36 @@ Object.assign(App, {
     let gx = tx + rx * sh, gz = tz + rz * sh;
     // 建築中は、大将と設計図の間を見る（下のカードに隠れないように、少し先を画面の真ん中に）
     const bk0 = this.buildK || 0;
-    if (bk0 > 0 && gen) { gx += -sy * TPS.REACH * 1.5 * bk0; gz += -cy * TPS.REACH * 1.5 * bk0; }
+    if (bk0 > 0 && gen) { gx += -sy * TPS.REACH * 0.7 * bk0; gz += -cy * TPS.REACH * 0.7 * bk0; }
     const k = this.tpsSnap ? 1 : Math.min(1, dt * 12);
     this.tpsSnap = false;
     cam.goal = null;
     cam.tx += (gx - cam.tx) * k; cam.tz += (gz - cam.tz) * k;
-    cam.ty = H * 1.05;
+    cam.ty = H * 1.35;
     // 建築中は少し引いて見下ろす（置く場所と周りが見えるように）
     this.buildK = (this.buildK || 0) + ((this.build ? 1 : 0) - (this.buildK || 0)) * Math.min(1, dt * 6);
     const bk = this.buildK;
-    cam.yaw = T.yaw; cam.pitch = cam.pitchGoal = clamp(T.pitch + bk * 16, TPS.PMIN, 75); cam.dist = T.dist * (1 + bk * 0.9);
+    cam.yaw = T.yaw; cam.pitch = cam.pitchGoal = clamp(T.pitch + bk * 12, TPS.PMIN, 75); cam.dist = T.dist * (1 + bk * 0.7);
     cam.fovY = TPS.FOV * Math.PI / 180; cam.minDist = TPS.DMIN; cam.nearMin = 0.04;
     this.ghostUpdate();
+    this.genHud(gen);
+  },
+  /** 大将の体力・レベルと、今いる場所（自県／敵の領土） */
+  genHud(gen) {
+    const g = this.game, bar = $('gh-bar'), where = $('gh-where');
+    const f = gen ? clamp(gen.hp / UNITS.general.hp, 0, 1) : 0;
+    const w = Math.round(f * 100);
+    if (w !== this.ghW) { this.ghW = w; bar.style.width = w + '%'; bar.className = f > 0.6 ? '' : f > 0.3 ? 'mid' : 'low'; }
+    const lv = `Lv${g.genLv || 1}`;
+    if (lv !== this.ghLv) { this.ghLv = lv; $('gh-lv').textContent = lv; }
+    let txt = '', cls = '';
+    if (!gen) txt = '県庁で立て直し中';
+    else {
+      const own = g.owner[g.cellAt(gen.x, gen.y)], P = this.map.prefs[own];
+      if (own === this.me) txt = `<i style="background:${P.color}"></i>自県の領土`;
+      else if (P) { txt = `<i style="background:${P.color}"></i>${P.name}の領土 — 旗を立てられる`; cls = 'enemy'; }
+    }
+    if (txt !== this.ghTxt) { this.ghTxt = txt; where.innerHTML = txt; where.className = cls; }
   },
   /** 視点を回す（ドラッグ量 px） */
   tpsLook(dx, dy) {
@@ -167,7 +185,8 @@ Object.assign(App, {
     const G = this.ghost, ok = G && !G.why;
     el.classList.toggle('ng', !ok);
     const lab = el.querySelector('span');
-    if (lab) lab.textContent = !G ? '置けません' : ok ? `${BUILDINGS[G.type].name}を建てる` : this.buildWhy(G.why);
+    if (lab) lab.textContent = document.body.classList.contains('land') ? (ok ? '建てる' : '置けない')   // 横画面は丸いボタン（理由は設計図の上に出る）
+      : !G ? '置けません' : ok ? `${BUILDINGS[G.type].name}を建てる` : this.buildWhy(G.why);
   },
   buildWhy(why) {
     return { sea: '海には置けない', notown: '自県の領土の外', crowded: '近くに建物がある', nearnode: '拠点に近すぎる', terrain: '地形が合わない',
@@ -372,7 +391,7 @@ Object.assign(App, {
       const f = cam.project(G.x - hw * 1.25 * sn, 0.02, G.z + hw * 1.25 * cs, v);
       if (f) { ctx.fillStyle = ctx.strokeStyle; ctx.beginPath(); ctx.arc(f[0], f[1], 4, 0, 7); ctx.fill(); }
     }
-    const top = cam.project(G.x, def.node ? 2.4 : 1.5, G.z, v);
+    const top = cam.project(G.x, def.node ? 1.6 : 1.0, G.z, v);
     if (top) {
       const txt = ok ? `${BUILDINGS[G.type].name}` : `✕ ${this.buildWhy(G.why)}`;
       ctx.font = '700 13px ' + getComputedStyle(document.body).getPropertyValue('--serif');
@@ -383,6 +402,26 @@ Object.assign(App, {
       ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(txt, top[0], top[1] - 13);
     }
+    ctx.restore();
+  },
+  /** 地面の上の正方形（旗の領域）を、辺を細かく区切って描く。カメラの後ろの部分は描かない */
+  groundSquare(ctx, x, z, half, color, width) {
+    const cam = this.cam, N = 28, a = [0, 0];
+    ctx.save();
+    ctx.strokeStyle = color; ctx.lineWidth = width || 2.5; ctx.setLineDash([9, 6]); ctx.globalAlpha *= 0.9;
+    ctx.beginPath();
+    const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]];
+    for (let e = 0; e < 4; e++) {
+      const [x0, z0] = corners[e], [x1, z1] = corners[e + 1];
+      let pen = false;
+      for (let k = 0; k <= N; k++) {
+        const t = k / N, wx = x + (x0 + (x1 - x0) * t) * half, wz = z + (z0 + (z1 - z0) * t) * half;
+        // 近すぎる（カメラのすぐ下・後ろ）点は飛ばす
+        const ok = cam.project(wx, 0.05, wz, a) && a[0] > -this.w && a[0] < this.w * 2 && a[1] > -this.h && a[1] < this.h * 2;
+        if (ok) { if (pen) ctx.lineTo(a[0], a[1]); else { ctx.moveTo(a[0], a[1]); pen = true; } } else pen = false;
+      }
+    }
+    ctx.stroke();
     ctx.restore();
   },
   /** 大将の頭上の名前と体力（三人称視点） */

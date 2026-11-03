@@ -377,7 +377,7 @@ body.land.v-tps #log { left: calc(170px + env(safe-area-inset-left, 0px)); botto
 body.land.v-tps.building #bottombar { left: calc(170px + env(safe-area-inset-left, 0px)); width: auto; }
 body.land.v-tps.building #joy { bottom: 20px; }
 body.land.v-tps.building .bcard { width: 60px; padding: 3px 2px; }
-body.land.v-tps.building .bcard .ico { width: 32px !important; height: 32px !important; margin-bottom: 0 !important; }
+body.land.v-tps.building .bcard > .ico { width: 32px !important; height: 32px !important; margin-bottom: 0 !important; }
 body.land.v-tps.building .bcard small { flex-wrap: nowrap; }
 body.land.v-tps.building .bcard b { font-size: 11px; }
 body.land.v-tps.building .bcard small { font-size: 9px; }
@@ -402,3 +402,66 @@ body.land .or-ico::before { width: 10px; height: 16px; margin-top: 1px; }   /* �
 .sheet-top .sheet-label { flex: 1; }
 #t-orient { flex: none; display: flex; align-items: center; gap: 4px; padding: 4px 9px; border-radius: 12px; border: 1px solid var(--gold-dk); background: rgba(0,0,0,.3); color: var(--parch); font: 600 11.5px var(--serif); margin-bottom: 6px; }
 body:not(.can-orient) .b-orient { display: none !important; }
+
+/* ---------- 三人称視点（横画面）のHUD：画面を広く。上は半透明の細い帯、右下は丸いボタン ---------- */
+#genhp { display: none; }
+body.v-tps #genhp { display: block; position: absolute; left: 8px; top: calc(var(--hudtop, 230px)); width: 210px; pointer-events: none;
+  background: linear-gradient(90deg, rgba(20,12,4,.72), rgba(20,12,4,0)); padding: 5px 8px 6px; border-radius: 6px 0 0 6px; }
+#genhp .gh-top { display: flex; align-items: baseline; gap: 6px; font: 700 13px var(--serif); color: var(--gold-hi); text-shadow: 0 1px 2px #000; }
+#genhp .gh-top span { font: 700 11px var(--sans); color: var(--parch); }
+#genhp i { display: block; height: 7px; margin-top: 3px; background: rgba(0,0,0,.55); border: 1px solid rgba(243,217,142,.45); border-radius: 4px; overflow: hidden; }
+#genhp s { display: block; height: 100%; width: 100%; background: linear-gradient(#8fe07a, #3f9a34); transition: width .2s; }
+#genhp s.mid { background: linear-gradient(#ffe07a, #c99a1e); } #genhp s.low { background: linear-gradient(#ff8a70, #b8321c); }
+#gh-where { margin-top: 4px; font-size: 11px; color: var(--parch); text-shadow: 0 1px 2px #000; white-space: nowrap; }
+#gh-where.enemy { color: #ffcf9a; font-weight: 700; }
+#gh-where i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; border: 1px solid rgba(255,255,255,.6); }
+
+body.land.v-tps #topbar { background: linear-gradient(rgba(16,10,4,.86), rgba(16,10,4,.55)); border: 0; box-shadow: none; height: calc(36px + var(--sat)); padding-top: calc(2px + var(--sat)); padding-bottom: 2px; }
+body.land.v-tps #topbar .row3 { display: none; }
+body.land.v-tps #topbar .row1 { font-size: 14px; }
+body.land.v-tps #topbar .resbar { flex: 0 1 auto; margin-left: auto !important; }
+body.land.v-tps #topbar .resbar .res { background: rgba(0,0,0,.3) !important; border-color: rgba(217,180,92,.35) !important; box-shadow: none !important; padding: 1px 8px !important; }
+body.land.v-tps #minimap { top: calc(42px + var(--sat)); width: 96px; height: 84px; }
+body.land.v-tps #race { top: calc(42px + var(--sat)); left: 112px; width: min(250px, calc(var(--appw, 100vw) * 0.32)); background: rgba(16,10,4,.5); border: 0; box-shadow: none; font-size: 10px; padding: 4px 7px; }
+body.land.v-tps #race > :last-child { display: none; }
+body.land.v-tps { --hudtop: calc(132px + var(--sat)); }
+body.land.v-tps #sidebtns { top: calc(42px + var(--sat)); gap: 6px; }
+body.land.v-tps #sidebtns button { width: 38px; height: 38px; border-radius: 50%; font-size: 0; gap: 0; padding: 0; background: rgba(20,12,4,.6); }
+body.land.v-tps #sidebtns button .ico { width: 20px !important; height: 20px !important; }
+body.land.v-tps #log { bottom: 12px !important; left: 50%; transform: translateX(-60%); width: min(330px, calc(var(--appw, 100vw) * 0.38)); align-items: center; }
+body.land.v-tps #log div { background: rgba(16,10,4,.6); font-size: 10.5px; }
+body.land.v-tps #log div:nth-child(n+3) { display: none; }
+/* 右下：丸いボタン（大きい「建築」・旗・地図、その上に作戦） */
+body.land.v-tps:not(.building) #bottombar { left: auto; width: auto; right: calc(14px + env(safe-area-inset-right, 0px)); bottom: 14px; background: none; border: 0; box-shadow: none; padding: 0; gap: 10px; backdrop-filter: none; align-items: flex-end; }
+body.land.v-tps #tpsbar { gap: 10px; align-items: flex-end; }
+body.land.v-tps #tpsbar button, body.land.v-tps #abilrow button { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 0 !important;
+  border-radius: 50%; border: 2px solid rgba(217,180,92,.75); color: var(--parch); text-shadow: 0 1px 2px #000;
+  background: radial-gradient(circle at 40% 30%, rgba(96,68,38,.94), rgba(28,18,8,.94)); box-shadow: 0 3px 10px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,236,190,.25); }
+body.land.v-tps #tpsbar button { width: 62px; height: 62px; font-size: 10.5px !important; }
+body.land.v-tps #tpsbar #t-build { width: 78px; height: 78px; font-size: 12px !important; order: 3; border-color: var(--gold-hi); background: radial-gradient(circle at 40% 30%, #a0743a, #4a3013); }
+body.land.v-tps #tpsbar #t-flag { order: 2; }
+body.land.v-tps #tpsbar #t-map { order: 1; width: 50px; height: 50px; }
+body.land.v-tps #tpsbar .ico { width: 26px !important; height: 26px !important; margin: 0 !important; }
+body.land.v-tps #tpsbar #t-build .ico { width: 32px !important; height: 32px !important; }
+body.land.v-tps #abilrow { order: -1; gap: 8px; justify-content: flex-end; }
+body.land.v-tps #abilrow button { width: 50px; height: 50px; font-size: 9.5px !important; }
+body.land.v-tps #abilrow button .ico { width: 20px !important; height: 20px !important; margin: 0 !important; }
+body.land.v-tps #abilrow button.cool { opacity: .55; filter: grayscale(.6); }
+body.land.v-tps #joy { width: 120px; height: 120px; left: calc(26px + env(safe-area-inset-left, 0px)); bottom: 18px; opacity: .9; }
+
+/* 建築中（横画面）：下に低い帯（分類のタブ＋建物のカード）、右に丸い「建てる」「回転」「やめる」 */
+body.land.v-tps.building #bottombar { left: calc(160px + env(safe-area-inset-left, 0px)); right: calc(8px + env(safe-area-inset-right, 0px)); width: auto; bottom: 6px; padding: 4px 6px 5px; gap: 3px;
+  background: rgba(16,10,4,.72); border-radius: 10px; }
+body.land.v-tps.building #buildctl { position: absolute; right: 6px; bottom: calc(100% + 10px); flex-direction: row; align-items: flex-end; gap: 10px; }
+body.land.v-tps.building #buildctl button { border-radius: 50%; padding: 0 !important; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.15;
+  box-shadow: 0 3px 10px rgba(0,0,0,.55); background: radial-gradient(circle at 40% 30%, rgba(96,68,38,.95), rgba(28,18,8,.95)); border: 2px solid rgba(217,180,92,.75); }
+body.land.v-tps.building #bc-close { width: 44px; height: 44px; flex: none; font-size: 16px; }
+body.land.v-tps.building #bc-rot { width: 54px; height: 54px; flex: none; font-size: 12px; }
+body.land.v-tps.building #bc-place { width: 80px; height: 80px; flex: none; font-size: 14px !important; }
+body.land.v-tps.building #bcats { margin: 0; gap: 3px; }
+body.land.v-tps.building .bcard { width: 58px; padding: 2px 2px 3px; gap: 0; }
+body.land.v-tps.building .bcard b { font-size: 10.5px; }
+body.land.v-tps.building .bcard small { font-size: 8.5px; }
+body.land.v-tps.building .bcard small .ico { width: 11px !important; height: 11px !important; }
+body.land.v-tps.building #joy { bottom: 18px; }
+body.land.v-tps.building #genhp { display: none; }

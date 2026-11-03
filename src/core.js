@@ -745,14 +745,15 @@ void main(){
         if (q > 0.5 && abs(q - id) > 0.5) edge = 1.0;
       }
       float zoomedIn = clamp((1.0 / cpp - 3.0) / 6.0, 0.0, 1.0);
+      float nearK = 1.0 - smoothstep(0.01, 0.06, cpp);   // 三人称視点：国境は地面にうっすら（マスの階段の線にならないよう）
       // 国境線：筆で引いたような強弱（場所でかすれる）と、墨の縁取り
       if (edge > 0.5) {
         float brush = 0.65 + 0.35 * noise(vWorld * 0.18 + 11.0);
-        col = mix(col, pc * 0.95 + 0.06, (0.85 - 0.4 * zoomedIn) * isLand * brush);
+        col = mix(col, pc * 0.95 + 0.06, (0.85 - 0.4 * zoomedIn) * isLand * brush * (1.0 - nearK * 0.8));
         col *= 1.0 - 0.18 * (1.0 - zoomedIn) * isLand;   // 引いているときは少し暗くして、地図の上でくっきり
       }
       // 最近占領されたところは斜線
-      if (rec > 0.5) {
+      if (rec > 0.5 && nearK < 0.5) {
         float s = step(0.5, fract((gl_FragCoord.x + gl_FragCoord.y) / 12.0));
         col = mix(col, pc, s * 0.35);
       }
@@ -1327,8 +1328,9 @@ class Renderer {
     setFog(g);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.disableVertexAttribArray(g.a.aPos);
-    // --- 連絡線・インセット枠
+    // --- 連絡線・インセット枠（地図の上の線。三人称視点では描かない：カメラの近くで線が画面を横切ってしまうため）
     const L = this.line, cpp = 1 / cam.cellPx();
+    if (!fog) {
     gl.useProgram(L.p);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -1353,6 +1355,7 @@ class Renderer {
     draw('inset', 1.5, [1, 1, 1, 0.5], 10);
     for (const k of ['aA', 'aB', 'aInfo']) gl.disableVertexAttribArray(L.a[k]);
     gl.disable(gl.BLEND);
+    }
     // --- 建物・兵士・木（インスタンス描画）。先に半透明の影、つぎに本体
     const meshes = opt.meshes;
     if (meshes) {

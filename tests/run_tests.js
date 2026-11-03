@@ -152,7 +152,8 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     await page.click('#t-build');
     await page.click('.bcard[data-b="farm"]');
     await ev(([x, z]) => { const { App, TPS } = window.__jinchi, g = App.game.general; g.x = x; g.y = z + TPS.REACH; App.tps.yaw = 0; }, enemy);
-    await page.waitForFunction(() => document.getElementById('bc-place').textContent.includes('自県の領土の外'), null, { timeout: 20000 }).catch(() => {});
+    await page.waitForFunction(() => { const G = window.__jinchi.App.ghost; return G && G.why === 'notown'; }, null, { timeout: 20000 }).catch(() => {});
+    assert((await ev(() => window.__jinchi.App.ghost && window.__jinchi.App.ghost.why)) === 'notown', 'not own land');
     assert((await page.textContent('#bc-place')).includes('自県の領土の外'), 'reason shown');
     const n0 = await ev(() => window.__jinchi.game.buildings.length);
     await page.click('#bc-place');
