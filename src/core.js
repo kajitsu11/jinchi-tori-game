@@ -571,6 +571,7 @@ uniform float uHasFine;
 uniform sampler2D uFine;       // 細かい持ち主の区画（64×64マスずつ。L=持ち主＋最近占領なら64）
 uniform sampler2D uFInd;       // 細かい区画の表：RG=区画の位置, A=受け取り済みか
 uniform vec2 uFTiles;
+uniform vec2 uCamXZ;   // カメラの注視点（絵の座標の原点に使う）
 uniform vec3 uEye;     // 三人称視点の霧（遠くを空の色に溶かす）
 uniform vec3 uFog;     // x=始まり, y=終わり, z=有効か
 uniform vec3 uFogCol;
@@ -670,6 +671,7 @@ void main(){
   // 拡大したときの草（細かいまだらと、暗い草の株）
   float fine = clamp(0.5 - cpp * 3.0, 0.0, 1.0);
   vec2 lw0 = mod(vWorld, 512.0);
+  fine *= smoothstep(0.03, 0.1, cpp);   // ごく近くでは使わない（細かい格子のノイズは四角いモザイクに見える。近くの細かさは草の絵で出す）
   nz += (noise(lw0 * 17.0) - 0.5) * 0.35 * fine + (noise(lw0 * 41.0) - 0.5) * 0.25 * fine;
   vec3 land = t.rgb * (0.82 + 0.36 * nz);
   if (uHasGrass > 0.5) {
@@ -677,12 +679,17 @@ void main(){
     // 引いたときも筋がつぶれて平らな色にならないよう、拡大率に合わせて絵の大きさを2倍ずつ切り替える（となりの段となめらかに混ぜる）
     float lod = max(-2.5, log2(cpp * 40.0));   // ごく近く（三人称視点）では絵を細かくくり返して、ぼやけないように
     float s0 = exp2(floor(lod)), lf = fract(lod);
-    // 近くでは座標を小さく折り返す（大きな座標のままだと、絵を読む位置の精度が足りず縦横の線や段が出る）
-    vec2 lw = s0 <= 1.0 ? mod(vWorld, 680.0) : vWorld;
+    // 絵を読む座標は、カメラの近くを原点にして小さくする（スマホのGPUは座標が大きいと絵を読む位置が粗くなり、芝生がモザイク状になる）。
+    // 原点は絵のくり返しの長さ（この段の 170×s0）の倍数にそろえるので、画面の中で継ぎ目は出ない
+    float P0 = 170.0 * s0;
+    vec2 lw = vWorld - floor(uCamXZ / P0) * P0;
     vec2 r2 = vec2(lw.y, -lw.x);
     vec2 w1 = lw / (5.0 * s0), w2 = r2 / (17.0 * s0) + 0.37;
     vec2 v1 = w1 * 0.5 + 0.13, v2 = w2 * 0.5 + 0.61;
     vec3 g = mix(texture2D(uGrass, w1).rgb * 0.6 + texture2D(uGrass, w2).rgb * 0.4, texture2D(uGrass, v1).rgb * 0.6 + texture2D(uGrass, v2).rgb * 0.4, lf);
+    // ごく近く（三人称視点）：もう1段細かい草の絵を重ねる（絵なので四角くならない）
+    float nearG = 1.0 - smoothstep(0.012, 0.05, cpp);
+    if (nearG > 0.0) { vec3 gd = texture2D(uGrass, r2 / (2.3 * s0) + 0.19).rgb; g *= 1.0 + nearG * (dot(gd, vec3(0.333)) - 0.45) * 0.5; }
     vec3 d = mix(texture2D(uDry, w1 * 0.9 + 0.21).rgb * 0.6 + texture2D(uDry, w2 * 1.1).rgb * 0.4, texture2D(uDry, v1 * 0.9 + 0.21).rgb * 0.6 + texture2D(uDry, v2 * 1.1).rgb * 0.4, lf);
     // 黄金色の枯れ草の帯（大きなむら。ふちはやわらかく）
     float m = noise(vWorld * 0.022 + 3.7) * 0.65 + noise(vWorld * 0.07 - 1.3) * 0.35;
@@ -761,13 +768,6 @@ void main(){
       // 建設モード：自県の領土を明るく、それ以外を暗く
       if (uPlace > 0.0) col = abs(id - uMe) < 0.5 ? mix(col, vec3(0.75, 1.0, 0.6), 0.12) : col * 0.7;
     }
-  }
-  // ごく近く（三人称視点）：草の細かいむらと土の粒
-  float closeK = 1.0 - smoothstep(0.01, 0.06, cpp);
-  if (closeK > 0.0) {
-    vec2 lc = mod(vWorld, 512.0);
-    float n1 = noise(lc * 6.0), n2 = noise(lc * vec2(41.0, 9.0));
-    col *= 1.0 + closeK * isLand * ((n1 - 0.5) * 0.3 + (n2 - 0.5) * 0.18);
   }
   gl_FragColor = vec4(fogged(col), 1.0);
 }`;
@@ -1326,6 +1326,7 @@ class Renderer {
     gl.uniform1f(g.u.uPlace, opt.place ? 1 : 0);
     gl.uniform1f(g.u.uTime, opt.time || 0);
     if (g.u.uCpp) gl.uniform1f(g.u.uCpp, 1 / cam.cellPx());
+    if (g.u.uCamXZ) gl.uniform2f(g.u.uCamXZ, cam.tx, cam.tz);
     setFog(g);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.disableVertexAttribArray(g.a.aPos);
