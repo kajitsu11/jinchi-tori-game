@@ -344,60 +344,61 @@ body.v-tps.building #abilrow, body.v-tps.building #tpsbar { display: none; }
 /* =====================================================================
    横画面（ゲームの基本の向き）：上に細い帯、左下にスティック、右下に操作ボタン
    ===================================================================== */
-@media (orientation: landscape) {
-  /* タイトル：左に題字、右に県選び */
-  #title { flex-direction: row; }
-  .title-head { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; padding-left: calc(16px + env(safe-area-inset-left, 0px)); }
-  .title-sheet { margin: 8px calc(8px + env(safe-area-inset-right, 0px)) 8px 0; width: min(46vw, 460px); max-height: none; border-radius: 12px; }
-  /* 上の帯：1行にまとめる */
-  #topbar { display: flex; align-items: center; gap: 10px; padding: calc(4px + var(--sat)) calc(10px + env(safe-area-inset-right, 0px)) 4px calc(10px + env(safe-area-inset-left, 0px)); height: calc(40px + var(--sat)); }
-  #topbar .row1 { flex: 0 0 auto; font-size: 15px; }
-  #topbar .row1 .day { margin-left: 8px; font-size: 13px; }
-  #topbar .resbar { flex: 1 1 auto; margin: 0 !important; gap: 6px !important; }
-  #topbar .resbar .res { padding: 2px 8px !important; min-height: 0 !important; }
-  #topbar .row3 { flex: 0 1 auto; max-width: 30%; }
-  #minimap { top: calc(46px + var(--sat)); left: calc(8px + env(safe-area-inset-left, 0px)); width: 112px; height: 96px; }
-  #race { top: calc(46px + var(--sat)); left: calc(128px + env(safe-area-inset-left, 0px)); right: auto; width: min(300px, 38vw); font-size: 10.5px; }
-  #sidebtns { top: calc(46px + var(--sat)); right: calc(6px + env(safe-area-inset-right, 0px)); gap: 4px; }
-  #sidebtns button { width: 50px; height: 40px; font-size: 9.5px; }
-  #toplabel { top: calc(46px + var(--sat)); }
-  #log { left: calc(150px + env(safe-area-inset-left, 0px)); right: auto; width: min(320px, 36vw); bottom: 12px !important; }
-  #log div { font-size: 10.5px; }
-  #cellpanel { left: auto; right: 70px; width: 340px; bottom: 12px; }
+/* 横画面（ゲームの基本の向き）。縦に持っているときも画面ごと回して横で表示する（JSが body.land を付ける） */
 
-  /* 大将の視点：下の帯はやめて、右下にまとまった操作ボタン */
-  body.v-tps #bottombar { left: auto; right: calc(8px + env(safe-area-inset-right, 0px)); bottom: 8px; width: min(360px, 44vw); border-radius: 12px; border-width: 1px;
-    background: rgba(29,19,10,.55); padding: 6px; gap: 5px; backdrop-filter: blur(2px); }
-  body.v-tps #tpsbar button { padding: 9px 4px; font-size: 13px; }
-  body.v-tps #abilrow button { padding: 6px 4px; font-size: 11.5px; }
-  body.v-tps #joy { left: calc(22px + env(safe-area-inset-left, 0px)); bottom: 20px; width: 132px; height: 132px; }
-  body.v-tps #log { left: calc(170px + env(safe-area-inset-left, 0px)); bottom: 12px !important; right: auto; }
-  /* 建築中：下に建物のカード（横長の帯） */
-  body.v-tps.building #bottombar { left: calc(170px + env(safe-area-inset-left, 0px)); width: auto; }
-  body.v-tps.building #joy { bottom: 20px; }
-  body.v-tps.building .bcard { width: 60px; padding: 3px 2px; }
-  body.v-tps.building .bcard .ico { width: 32px !important; height: 32px !important; margin-bottom: 0 !important; }
-  body.v-tps.building .bcard small { flex-wrap: nowrap; }
-  body.v-tps.building .bcard b { font-size: 11px; }
-  body.v-tps.building .bcard small { font-size: 9px; }
-  body.v-tps.building #bcats button { padding: 2px 8px; font-size: 11px; }
-  body.v-tps.building #bcats { margin-bottom: 2px; }
-  body.v-tps.building #buildctl button { padding: 7px 10px; }
-  /* 地図ビュー */
-  body.v-map #mapbar { left: auto; right: calc(70px + env(safe-area-inset-right, 0px)); width: min(380px, 50vw); bottom: 10px; }
-  body.v-map #mapbar button { height: 46px; font-size: 14px; }
-  body.v-map #log { bottom: 12px !important; }
-}
+/* タイトル：左に題字、右に県選び */
+body.land #title { flex-direction: row; }
+body.land .title-head { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; padding-left: calc(16px + env(safe-area-inset-left, 0px)); }
+body.land .title-sheet { margin: 8px calc(8px + env(safe-area-inset-right, 0px)) 8px 0; width: min(calc(var(--appw, 100vw) * 0.46), 460px); max-height: none; border-radius: 12px; }
+/* 上の帯：1行にまとめる */
+body.land #topbar { display: flex; align-items: center; gap: 10px; padding: calc(4px + var(--sat)) calc(10px + env(safe-area-inset-right, 0px)) 4px calc(10px + env(safe-area-inset-left, 0px)); height: calc(40px + var(--sat)); }
+body.land #topbar .row1 { flex: 0 0 auto; font-size: 15px; }
+body.land #topbar .row1 .day { margin-left: 8px; font-size: 13px; }
+body.land #topbar .resbar { flex: 1 1 auto; margin: 0 !important; gap: 6px !important; }
+body.land #topbar .resbar .res { padding: 2px 8px !important; min-height: 0 !important; }
+body.land #topbar .row3 { flex: 0 1 auto; max-width: 30%; }
+body.land #minimap { top: calc(46px + var(--sat)); left: calc(8px + env(safe-area-inset-left, 0px)); width: 112px; height: 96px; }
+body.land #race { top: calc(46px + var(--sat)); left: calc(128px + env(safe-area-inset-left, 0px)); right: auto; width: min(300px, calc(var(--appw, 100vw) * 0.38)); font-size: 10.5px; }
+body.land #sidebtns { top: calc(46px + var(--sat)); right: calc(6px + env(safe-area-inset-right, 0px)); gap: 4px; flex-direction: row; }
+body.land #sidebtns button { width: 50px; height: 40px; font-size: 9.5px; }
+body.land #toplabel { top: calc(46px + var(--sat)); }
+body.land #log { left: calc(150px + env(safe-area-inset-left, 0px)); right: auto; width: min(320px, calc(var(--appw, 100vw) * 0.36)); bottom: 12px !important; }
+body.land #log div { font-size: 10.5px; }
+body.land #cellpanel { left: auto; right: 70px; width: 340px; bottom: 12px; }
 
-/* 縦向きのときは横にするよう案内 */
-#rotate { display: none; }
-@media (orientation: portrait) {
-  body[data-state="PLAYING"]:not(.allow-portrait) #rotate { display: flex; }
-}
-#rotate { position: fixed; inset: 0; z-index: 60; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center;
-  background: radial-gradient(circle at 50% 40%, rgba(61,44,24,.97), rgba(18,11,5,.98)); color: var(--parch); font-family: var(--serif); padding: 24px; }
-#rotate svg { width: 96px; height: 96px; animation: rot 2.4s ease-in-out infinite; }
-@keyframes rot { 0%, 25% { transform: rotate(0); } 55%, 100% { transform: rotate(-90deg); } }
-#rotate b { font-size: 20px; letter-spacing: .1em; color: var(--gold-hi); }
-#rotate p { margin: 0; font-size: 13px; color: var(--parch-dk); line-height: 1.6; }
-#rotate button { margin-top: 6px; background: none; border: 1px solid var(--gold-dk); border-radius: 6px; padding: 8px 14px; color: var(--muted); font-size: 12px; }
+/* 大将の視点：下の帯はやめて、右下にまとまった操作ボタン */
+body.land.v-tps #bottombar { left: auto; right: calc(8px + env(safe-area-inset-right, 0px)); bottom: 8px; width: min(360px, calc(var(--appw, 100vw) * 0.44)); border-radius: 12px; border-width: 1px;
+background: rgba(29,19,10,.55); padding: 6px; gap: 5px; backdrop-filter: blur(2px); }
+body.land.v-tps #tpsbar button { padding: 9px 4px; font-size: 13px; }
+body.land.v-tps #abilrow button { padding: 6px 4px; font-size: 11.5px; }
+body.land.v-tps #joy { left: calc(22px + env(safe-area-inset-left, 0px)); bottom: 20px; width: 132px; height: 132px; }
+body.land.v-tps #log { left: calc(170px + env(safe-area-inset-left, 0px)); bottom: 12px !important; right: auto; }
+/* 建築中：下に建物のカード（横長の帯） */
+body.land.v-tps.building #bottombar { left: calc(170px + env(safe-area-inset-left, 0px)); width: auto; }
+body.land.v-tps.building #joy { bottom: 20px; }
+body.land.v-tps.building .bcard { width: 60px; padding: 3px 2px; }
+body.land.v-tps.building .bcard .ico { width: 32px !important; height: 32px !important; margin-bottom: 0 !important; }
+body.land.v-tps.building .bcard small { flex-wrap: nowrap; }
+body.land.v-tps.building .bcard b { font-size: 11px; }
+body.land.v-tps.building .bcard small { font-size: 9px; }
+body.land.v-tps.building #bcats button { padding: 2px 8px; font-size: 11px; }
+body.land.v-tps.building #bcats { margin-bottom: 2px; }
+body.land.v-tps.building #buildctl button { padding: 7px 10px; }
+/* 地図ビュー */
+body.land.v-map #mapbar { left: auto; right: calc(70px + env(safe-area-inset-right, 0px)); width: min(380px, calc(var(--appw, 100vw) * 0.5)); bottom: 10px; }
+body.land.v-map #mapbar button { height: 46px; font-size: 14px; }
+body.land.v-map #log { bottom: 12px !important; }
+
+
+/* 端末を縦に持っていても横画面で遊べるよう、画面全体を90度回す（入力の座標はJSで直す） */
+body.rot90 #app, body.rotm90 #app { inset: auto; top: 0; left: 0; width: var(--aw); height: var(--ah); transform-origin: 0 0; }
+body.rot90 #app { transform: translateX(var(--vw)) rotate(90deg); }
+body.rotm90 #app { transform: translateY(var(--vh)) rotate(-90deg); }
+/* 縦画面・横画面の切り替え */
+.or-ico { display: inline-block; width: 18px; height: 18px; background: none; }
+.or-ico::before { content: ''; display: block; margin: 4px auto 0; width: 16px; height: 10px; border: 2px solid currentColor; border-radius: 3px; box-sizing: border-box; }
+body.land .or-ico::before { width: 10px; height: 16px; margin-top: 1px; }   /* 押すとなる向きの絵 */
+.sheet-top { display: flex; align-items: center; gap: 8px; }
+.sheet-top .sheet-label { flex: 1; }
+#t-orient { flex: none; display: flex; align-items: center; gap: 4px; padding: 4px 9px; border-radius: 12px; border: 1px solid var(--gold-dk); background: rgba(0,0,0,.3); color: var(--parch); font: 600 11.5px var(--serif); margin-bottom: 6px; }
+body:not(.can-orient) .b-orient { display: none !important; }

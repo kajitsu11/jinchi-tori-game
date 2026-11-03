@@ -213,13 +213,57 @@ Object.assign(App, {
     return { x: gen.x - Math.sin(T.yaw) * d, z: gen.y - Math.cos(T.yaw) * d };
   },
 
+  // ------------------------------------------------ 画面の向き
+  // 基本は横画面。縦に持っているときは画面全体を90度回して横で表示する（縦画面に切り替えることもできる）
+  orientPref() {
+    if (window.JINCHI_ORIENT) return window.JINCHI_ORIENT;
+    try { return localStorage.getItem('jinchi.orient') || 'land'; } catch (e) { return 'land'; }
+  },
+  applyOrient() {
+    const W = window.innerWidth, H = window.innerHeight, coarse = matchMedia('(pointer: coarse)').matches;
+    const pref = this.orient || (this.orient = this.orientPref());
+    let rot = 0;
+    if (pref === 'land' && H > W) rot = 1;                  // 縦に持っている → 回して横画面に
+    else if (pref === 'port' && W > H && coarse) rot = -1;  // 横に持っているが縦画面を選んだ
+    this.rot = rot;
+    const B = document.body.classList, st = document.body.style;
+    B.toggle('rot90', rot === 1); B.toggle('rotm90', rot === -1);
+    B.toggle('land', pref === 'land');
+    B.toggle('can-orient', coarse || H > W || !!window.JINCHI_ORIENT);
+    const aw = rot ? H : W, ah = rot ? W : H;
+    st.setProperty('--vw', W + 'px'); st.setProperty('--vh', H + 'px');
+    st.setProperty('--aw', aw + 'px'); st.setProperty('--ah', ah + 'px'); st.setProperty('--appw', aw + 'px');
+    for (const el of document.querySelectorAll('.or-lab')) el.textContent = pref === 'land' ? '縦画面' : '横画面';
+    this.w = aw; this.h = ah;
+  },
+  toggleOrient() {
+    this.orient = this.orient === 'land' ? 'port' : 'land';
+    try { localStorage.setItem('jinchi.orient', this.orient); } catch (e) { /* 保存できない環境 */ }
+    window.JINCHI_ORIENT = null;
+    this.resize();
+    if (this.state === STATE.TITLE) this.resetCamera(true);
+  },
+  /** 画面（ブラウザ）の座標 → ゲーム画面の座標（回しているとき） */
+  toApp(cx, cy) {
+    const r = this.rot;
+    if (!r) return [cx, cy];
+    return r === 1 ? [cy, window.innerWidth - cx] : [window.innerHeight - cy, cx];
+  },
+  vecToApp(dx, dy) { const r = this.rot; return !r ? [dx, dy] : r === 1 ? [dy, -dx] : [-dy, dx]; },
+  /** 要素のゲーム画面の中での位置と大きさ */
+  appRect(el) {
+    let x = 0, y = 0, e = el;
+    while (e && e.id !== 'app') { x += e.offsetLeft; y += e.offsetTop; e = e.offsetParent; }
+    return { left: x, top: y, width: el.offsetWidth, height: el.offsetHeight };
+  },
+
   // ------------------------------------------------ 入力（スティック）
   setupTpsInput() {
     const joy = $('joy'), knob = joy.firstElementChild;
     let id = null, c0 = null;
     const R = 46;
     const set = (e) => {
-      let dx = e.clientX - c0[0], dy = e.clientY - c0[1];
+      let [dx, dy] = this.vecToApp(e.clientX - c0[0], e.clientY - c0[1]);   // 画面を回しているときは向きを直す
       const d = Math.hypot(dx, dy);
       if (d > R) { dx *= R / d; dy *= R / d; }
       knob.style.transform = `translate(${dx}px, ${dy}px)`;
@@ -236,15 +280,7 @@ Object.assign(App, {
     joy.addEventListener('pointerup', up); joy.addEventListener('pointercancel', up);
     $('bc-rot').addEventListener('click', () => this.rotateBuild());
     $('bc-close').addEventListener('click', () => this.endBuild());
-    $('rotate-skip').addEventListener('click', () => document.body.classList.add('allow-portrait'));
-    // 出陣を押したら、できる端末では全画面＋横向きに固定する（できなければ案内だけ）
-    $('btn-start').addEventListener('click', () => {
-      try {
-        const el = document.documentElement, fs = el.requestFullscreen || el.webkitRequestFullscreen;
-        const lock = () => { try { const p = screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape'); if (p && p.catch) p.catch(() => {}); } catch (e) { /* 対応していない */ } };
-        if (fs && !navigator.webdriver && matchMedia('(pointer: coarse)').matches && !document.fullscreenElement) { const p = fs.call(el); if (p && p.then) p.then(lock, () => {}); else lock(); } else lock();
-      } catch (e) { /* 全画面にできない環境（埋め込みなど） */ }
-    });
+    for (const id of ['t-orient']) $(id).addEventListener('click', () => this.toggleOrient());
     // 下の帯の高さ（スティックと記録をその上に置く）
     const bb = $('bottombar'), setH = () => document.body.style.setProperty('--bbh', bb.offsetHeight + 'px');
     if (window.ResizeObserver) new ResizeObserver(setH).observe(bb); else window.addEventListener('resize', setH);

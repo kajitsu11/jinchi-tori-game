@@ -62,7 +62,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
 
   await test('読み込み → TITLE 状態になる', async () => {
     const t0 = Date.now();
-    await page.addInitScript(() => document.addEventListener('DOMContentLoaded', () => document.body.classList.add('allow-portrait')));   // 縦画面のまま確かめる（横向きの案内を出さない）
+    await page.addInitScript(() => (window.JINCHI_ORIENT = 'port'));   // 縦画面のまま確かめる（基本は横画面）
     await page.goto(URL);
     await page.waitForFunction(() => (window.__jinchi && window.__jinchi.App.state === 'TITLE') || window.__jinchiError, null, { timeout: 60000 });
     assert(!(await ev(() => window.__jinchiError || null)), 'load error');
@@ -513,6 +513,17 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     });
     if (r.skip) { console.log('      (WEBGL_lose_context なし: スキップ)'); return; }
     assert(r.lost === true && r.after === false && !r.err, JSON.stringify(r));
+  });
+
+  await test('縦に持っても最初から横画面（画面ごと回す）・縦画面に切り替えられる', async () => {
+    const r = await ev(() => { const A = window.__jinchi.App; window.JINCHI_ORIENT = 'land'; A.orient = null; A.resize();
+      return { w: A.w, h: A.h, rot: A.rot, land: document.body.classList.contains('land'), cw: document.getElementById('gl').width, p: A.toApp(100, 200), iw: innerWidth }; });
+    assert(r.rot === 1 && r.w > r.h && r.land && r.cw > 0, 'rotated ' + JSON.stringify(r));
+    assert(r.p[0] === 200 && r.p[1] === r.iw - 100, 'tap mapped ' + JSON.stringify(r.p));
+    await page.waitForTimeout(500);
+    await shot('12_rotated_landscape');
+    const q = await ev(() => { const A = window.__jinchi.App; A.toggleOrient(); return { w: A.w, h: A.h, rot: A.rot, land: document.body.classList.contains('land'), lab: document.querySelector('.or-lab').textContent }; });
+    assert(q.rot === 0 && q.w < q.h && !q.land && q.lab === '横画面', 'portrait ' + JSON.stringify(q));
   });
 
   await test('画面サイズ変更（横向き・PC幅・小さい画面）でも崩れない', async () => {

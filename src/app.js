@@ -315,6 +315,7 @@ const App = {
       else if (act === 'top') this.toggleTop();
       else if (act === 'home') this.goHome();
       else if (act === 'squad') this.goSquad();
+      else if (act === 'orient') this.toggleOrient();
       else if (act === 'sound') { const on = Sfx.toggle(); b.classList.toggle('off', !on); }
       else if (act === 'title') this.confirmTitle();
     }, { signal });
@@ -1993,9 +1994,9 @@ const App = {
     }
   },
   onMinimap(e) {
-    const r = e.currentTarget.getBoundingClientRect();
+    const r = this.appRect(e.currentTarget), [ax, ay] = this.toApp(e.clientX, e.clientY);
     const V = this.map.view || { x0: 0, y0: 0, w: this.map.W, h: this.map.H };
-    const x = V.x0 + (e.clientX - r.left) / r.width * V.w, z = V.y0 + (e.clientY - r.top) / r.height * V.h;
+    const x = V.x0 + (ax - r.left) / r.width * V.w, z = V.y0 + (ay - r.top) / r.height * V.h;
     if (this.isTps()) { this.setView('map'); this.cam.goal = null; this.cam.tx = x; this.cam.tz = z; this.cam.dist = Math.max(this.cam.dist, 200); }
     this.cam.flyTo(x, z, null);
     e.preventDefault();
@@ -2010,11 +2011,11 @@ const App = {
     const cv = $('gl');
     const ptrs = new Map();
     let tap = null, pinch = null;
-    const pos = (e) => [e.clientX, e.clientY];
+    const pos = (e) => this.toApp(e.clientX, e.clientY);   // 画面を回しているときもゲーム画面の座標で
     cv.addEventListener('pointerdown', (e) => {
       cv.setPointerCapture(e.pointerId);
       ptrs.set(e.pointerId, pos(e));
-      if (ptrs.size === 1) tap = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
+      if (ptrs.size === 1) { const p = pos(e); tap = { x: p[0], y: p[1], t: performance.now(), moved: false }; }
       else { tap = null; pinch = null; }
     });
     cv.addEventListener('pointermove', (e) => {
@@ -2041,7 +2042,7 @@ const App = {
     const up = (e) => {
       if (!ptrs.has(e.pointerId)) return;
       ptrs.delete(e.pointerId);
-      if (tap && !tap.moved && performance.now() - tap.t < 500 && e.type === 'pointerup') this.onTap(e.clientX, e.clientY);
+      if (tap && !tap.moved && performance.now() - tap.t < 500 && e.type === 'pointerup') this.onTap(...pos(e));
       tap = null; pinch = null;
     };
     cv.addEventListener('pointerup', up);
@@ -2052,7 +2053,7 @@ const App = {
       e.preventDefault();
       const k = e.deltaMode === 1 ? 0.05 : 0.0015;
       if (this.isTps()) this.tpsZoom(Math.exp(e.deltaY * k));
-      else this.cam.zoomAt(e.clientX, e.clientY, Math.exp(e.deltaY * k));
+      else this.cam.zoomAt(...this.toApp(e.clientX, e.clientY), Math.exp(e.deltaY * k));
     }, { passive: false });
     window.addEventListener('keydown', (e) => this.onKey(e));
     window.addEventListener('resize', () => this.resize());
@@ -2152,7 +2153,7 @@ const App = {
     if (q !== this.quality) { this.quality = q; this.resize(); }
   },
   resize() {
-    this.w = window.innerWidth; this.h = window.innerHeight;
+    this.applyOrient();   // this.w / this.h（画面を回しているときは縦横を入れ替える）
     this.dpr = Math.min(window.devicePixelRatio || 1, CONFIG.MAX_DPR) * (this.quality || 1);
     this.cam.setViewport(this.w, this.h);
     if (this.renderer) this.renderer.resize(this.w, this.h, this.dpr);
