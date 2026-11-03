@@ -5944,6 +5944,7 @@ const App = {
     if (g && g.flags && g.flags.length && cpx > 0.12) {
       const half = CONFIG.FLAG_SIZE * (map.scale || 1) / 2, bh2 = tpsO ? 1.5 : clamp(cam.dist * 0.0016, 0.9, 7) * 3.2;
       for (const f of g.flags) {
+        const pc = map.prefs[f.pref].color;
         if (tpsO) {   // 三人称視点：正方形の辺を地面に沿って細かく区切って描く（カメラの後ろに回る所は描かない）
           if ((f.x - cam.tx) ** 2 + (f.y - cam.tz) ** 2 > (half + TPS.R) ** 2) continue;
           this.groundSquare(ctx, f.x, f.y, half, map.prefs[f.pref].color);
@@ -5952,7 +5953,6 @@ const App = {
         const pts = [];
         for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { const o = [0, 0]; if (cam.project(f.x + a * half, 0, f.y + b * half, o)) pts.push(o); }
         if (pts.length < 4 || pts.every((p) => p[0] < 0) || pts.every((p) => p[0] > this.w) || pts.every((p) => p[1] < 0) || pts.every((p) => p[1] > this.h)) continue;
-        const pc = map.prefs[f.pref].color;
         ctx.beginPath(); pts.forEach((p, k) => (k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.closePath();
         ctx.globalAlpha = 0.12; ctx.fillStyle = pc; ctx.fill();
         ctx.globalAlpha = 0.95; ctx.setLineDash([7, 5]); ctx.lineWidth = 2; ctx.strokeStyle = pc; ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
