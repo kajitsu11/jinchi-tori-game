@@ -124,17 +124,13 @@ Object.assign(App, {
   /** 大将の体力・レベルと、今いる場所（自県／敵の領土） */
   genHud(gen) {
     const g = this.game, bar = $('gh-bar'), where = $('gh-where');
-    const f = gen ? clamp(gen.hp / UNITS.general.hp, 0, 1) : 0;
-    const w = Math.round(f * 100);
-    if (w !== this.ghW) { this.ghW = w; bar.style.width = w + '%'; bar.className = f > 0.6 ? '' : f > 0.3 ? 'mid' : 'low'; }
-    const lv = `Lv${g.genLv || 1}`;
-    if (lv !== this.ghLv) { this.ghLv = lv; $('gh-lv').textContent = lv; }
+    void bar;   // 大将には体力がない（建てるだけ）
     let txt = '', cls = '';
     if (!gen) txt = '県庁で立て直し中';
     else {
       const own = g.owner[g.cellAt(gen.x, gen.y)], P = this.map.prefs[own];
       if (own === this.me) txt = `<i style="background:${P.color}"></i>自県の領土`;
-      else if (P) { txt = `<i style="background:${P.color}"></i>${P.name}の領土 — 旗を立てられる`; cls = 'enemy'; }
+      else if (P) { txt = `<i style="background:${P.color}"></i>${P.name}の領土（ここには建てられない）`; cls = 'enemy'; }
     }
     if (txt !== this.ghTxt) { this.ghTxt = txt; where.innerHTML = txt; where.className = cls; }
   },
@@ -311,7 +307,6 @@ Object.assign(App, {
     setH();
     $('bc-place').addEventListener('click', () => this.placeBuild());
     $('t-build').addEventListener('click', () => this.toggleBuild());
-    $('t-flag').addEventListener('click', () => this.tpsFlag());
     $('t-map').addEventListener('click', () => this.setView('map'));
     $('mb-back').addEventListener('click', () => this.setView('tps'));
     $('mb-top').addEventListener('click', () => this.toggleTop());

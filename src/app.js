@@ -202,6 +202,9 @@ const App = {
     this.goHome(48);   // 最初は自県の都を大きく映す
     // 大将を背中越しに操作する（オンライン版は地図だけ）
     g.genManual = this.hasTps();
+    // 三人称視点の大将は体力も戦いもない「建てるだけ」の存在（敵に狙われず、攻撃もしない）
+    g.genGhost = this.hasTps();
+    if (g.general && g.genGhost) { g.general.ghost = true; g.general.hp = UNITS.general.hp; }
     this.build = null; this.ghost = null; this.tps = null; this.tpsLast = null;
     if (this.hasTps()) {
       const cap = g.nodes[g.capNode ? g.capNode[this.me] : this.me - 1] || g.nodes[0];
@@ -340,8 +343,8 @@ const App = {
     Sfx.conch();
     if (!ONLINE) setTimeout(() => {
       if (this.state !== STATE.PLAYING) return;
-      if (this.hasTps() && TRIAL && this.openingN) { Sfx.alert(); this.banner('開戦！ 各地で大乱戦', 'ng', '城の前に敵の先鋒が攻めてきた！ スティックで向かい、近くの敵と戦おう'); }
-      else if (this.hasTps()) this.banner('あなたは大将', 'def', '左のスティックで移動・画面をなぞって見回す。「建築」で目の前に建物を置き、敵の領土で「旗を立てる」');
+      if (this.hasTps() && TRIAL && this.openingN) { Sfx.alert(); this.banner('開戦！ すべての国境で戦闘中', 'ng', 'あなたは大将：歩きまわって「建築」で兵舎や砦を建て、前線を支えよう'); }
+      else if (this.hasTps()) this.banner('あなたは大将', 'def', '左のスティックで移動・画面をなぞって見回す。「建築」で目の前に建物を置こう（大将は戦わず、攻撃もされない）');
       else if (TRIAL) this.banner('🚩 旗を立てる → 敵の領土をタップ', 'def', 'あなたの部隊15人と仲間が旗を立てて守る。守りきれば領土に');
       else this.banner('🐎 大将 → 敵の領土をタップ', 'def', '大将が止まった所に旗を立て、仲間と守りきれば領土に');
     }, 2500);
@@ -1558,7 +1561,7 @@ const App = {
         const r = clamp(cpx * 0.8, 7, 20);
         ctx.lineWidth = 2.5; ctx.strokeStyle = '#ffd34d'; ctx.beginPath(); ctx.ellipse(v[0], v[1], r, r * 0.5, 0, 0, 7); ctx.stroke();
         ctx.font = '700 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(30,18,6,.9)'; const gl = `大将 Lv${g.genLv || 1}`;
+        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(30,18,6,.9)'; const gl = g.genGhost ? "大将" : `大将 Lv${g.genLv || 1}`;
         ctx.strokeText(gl, v[0], v[1] + r * 0.5 + 2); ctx.fillStyle = '#ffe9a8'; ctx.fillText(gl, v[0], v[1] + r * 0.5 + 2);
       }
       const o = g.genOrder;
@@ -2100,7 +2103,6 @@ const App = {
       if (this.view === 'map') { if (k === 't' || k === 'T') this.toggleTop(); return; }
       if (k === 'b' || k === 'B') this.toggleBuild();
       else if ((k === 'r' || k === 'R') && this.build) this.rotateBuild();
-      else if (k === 'f' || k === 'F') this.tpsFlag();
       else if ((k === 'Enter' || k === ' ') && this.build) { e.preventDefault && e.preventDefault(); this.placeBuild(); }
       else if (k >= '1' && k <= '9') { const list = BUILD_ORDER.filter((t) => BUILDINGS[t].cat === (this.bcat || 'eco')); if (list[+k - 1]) this.startBuild(list[+k - 1]); }
       return;

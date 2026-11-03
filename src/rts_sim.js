@@ -678,73 +678,46 @@ class Sim {
    * あなたの城のすぐ近くにも敵の先鋒が攻めてきていて、すぐに戦いが見られる
    */
   openingBattle(opt = {}) {
-    const S = this.S, rng = this.rng, me = this.me;
-    const perFront = opt.perFront || 24, fronts = opt.fronts || 4;
-    const MIX = [['ashigaru', 34], ['cavalry', 16], ['cannon', 11], ['ninja', 8], ['gas', 7], ['fighter', 8], ['bomber', 3], ['ship', 3]];
+    // 試作版：すべての国境線のあたりで、両側の部隊がぶつかり合っている状態で始める（国境から離れた所では戦わない）
+    const S = this.S, rng = this.rng;
+    const MIX = [['ashigaru', 36], ['cavalry', 16], ['cannon', 11], ['ninja', 8], ['gas', 7], ['fighter', 8], ['bomber', 3], ['ship', 2]];
     const total = MIX.reduce((a, m) => a + m[1], 0);
     const pick = () => { let r = rng() * total; for (const [t, w] of MIX) { if ((r -= w) < 0) return t; } return 'ashigaru'; };
-    // 国境をはさんで向かい合う拠点の組
+    // となり合う拠点の組（拠点の領域は県の土地をすき間なく分けているので、すべての組で国境線全体をおおえる）
     const pairs = [];
     for (const a of this.nodes) for (const bid of this.nodeAdj[a.id] || []) {
       const b = this.nodes[bid];
       if (a.id < b.id && a.owner && b.owner && a.owner !== b.owner && a.owner <= 47 && b.owner <= 47) pairs.push([a, b]);
     }
-    for (let k = pairs.length - 1; k > 0; k--) { const j = Math.floor(rng() * (k + 1)); [pairs[k], pairs[j]] = [pairs[j], pairs[k]]; }
-    // あなたの県の前線を先に（画面の近くで戦いが見られるように）
-    pairs.sort((p, q) => ((q[0].owner === me || q[1].owner === me) ? 1 : 0) - ((p[0].owner === me || p[1].owner === me) ? 1 : 0));
-    const used = new Int32Array(49), fronts2 = new Map();
-    // 部隊を出す：国境の手前（自県の側）から、向かいの拠点へ
-    const army = (P, x, y, goal, n) => {
-      let made = 0;
-      for (let k = 0; k < n; k++) {
-        const u = this.spawnUnit(P, x, y, 5 * S, -1, pick());
-        if (!u) continue;
-        u.role = 'atk'; u.goalNode = -1; u.thinkAt = this.time + rng() * 1.5; made++;
-      }
-      if (!fronts2.has(P)) fronts2.set(P, []);
-      fronts2.get(P).push(goal.id);
-      return made;
-    };
+    if (!pairs.length) return 0;
+    const budget = opt.total || 1100, per = Math.max(4, Math.min(14, Math.round(budget / pairs.length / 2)));
+    const wars = new Map();
     let n = 0;
     for (const [a, b] of pairs) {
-      if (used[a.owner] >= fronts || used[b.owner] >= fronts) continue;
-      used[a.owner]++; used[b.owner]++;
-      for (const [s0, e0] of [[a, b], [b, a]]) {
-        // s0 から e0 へ向かって、国境を越える手前の場所
-        let t = 0.5, x = s0.x, y = s0.y;
-        for (; t > 0.05; t -= 0.03) { x = s0.x + (e0.x - s0.x) * t; y = s0.y + (e0.y - s0.y) * t; if (this.owner[this.cellAt(x, y)] === s0.owner) break; }
-        t = Math.max(0.05, t - 0.04); x = s0.x + (e0.x - s0.x) * t; y = s0.y + (e0.y - s0.y) * t;
-        n += army(s0.owner, x, y, e0, perFront + Math.floor(rng() * 8));
+      // a→b の線の上で、持ち主が変わる所（国境）を探す
+      const L = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+      let t = -1;
+      for (let k = 1; k <= 60; k++) { const q = k / 60; if (this.owner[this.cellAt(a.x + (b.x - a.x) * q, a.y + (b.y - a.y) * q)] !== a.owner) { t = q; break; } }
+      if (t < 0) continue;
+      const d = Math.min(0.2, (2.5 * S / 3 + 1.5) / L);   // 国境から2〜3マス手前
+      for (const [P, q, foe] of [[a.owner, t - d, b], [b.owner, t + d, a]]) {
+        const x = a.x + (b.x - a.x) * q, y = a.y + (b.y - a.y) * q;
+        for (let k = 0; k < per; k++) {
+          const u = this.spawnUnit(P, x, y, 2.5 * S, -1, pick());
+          if (!u) continue;
+          u.role = 'atk'; u.thinkAt = this.time + 2 + rng() * 4; n++;   // しばらくはその場で戦う
+        }
+        if (!wars.has(P)) wars.set(P, new Map());
+        const m = wars.get(P); m.set(foe.owner, (m.get(foe.owner) || 0) + 1);
       }
     }
-    // あなたの城の近くへ攻めてきた敵の先鋒と、迎え撃つ味方（大将の目の前で戦いが始まる）
-    const myCap = me ? this.nodes[this.capNode[me]] : null;
-    if (myCap) {
-      let foe = 0, fd = 1e18;
-      for (let p = 1; p <= 47; p++) {
-        if (p === me || !this.nodeCount[p]) continue;
-        const c = this.nodes[this.capNode[p]];
-        if (!c) continue;
-        const d = (c.x - myCap.x) ** 2 + (c.y - myCap.y) ** 2;
-        if (d < fd) { fd = d; foe = p; }
-      }
-      if (foe) {
-        const fc = this.nodes[this.capNode[foe]], L = Math.sqrt(fd) || 1, ux = (fc.x - myCap.x) / L, uy = (fc.y - myCap.y) / L;
-        const ex = myCap.x + ux * 11 * S / 3, ey = myCap.y + uy * 11 * S / 3 + 4;
-        for (let k = 0; k < 26; k++) { const u = this.spawnUnit(foe, ex, ey, 4 * S, -1, pick()); if (u) { u.role = 'atk'; u.x = ex + (rng() - 0.5) * 8; u.y = ey + (rng() - 0.5) * 8; u.px = u.x; u.py = u.y; } }
-        for (let k = 0; k < 22; k++) { const u = this.spawnUnit(me, myCap.x + ux * 6, myCap.y + uy * 6 + 4, 3 * S, -1, pick()); if (u) u.role = 'atk'; }
-        n += 48;
-        if (!fronts2.has(foe)) fronts2.set(foe, []);
-        fronts2.get(foe).unshift(myCap.id);
-      }
-    }
-    // 県の作戦：向かい合う県に宣戦布告し、前線の拠点を攻め先にする
-    for (const [P, goals] of fronts2) {
+    // 県の作戦：いちばん長く接している県に宣戦布告
+    for (const [P, m] of wars) {
+      let foe = 0, best = -1;
+      for (const [q, c] of m) if (c > best) { best = c; foe = q; }
       const pl = this.plans[P];
-      const foeP = this.nodes[goals[0]].owner;
-      pl.war = foeP; pl.warUntil = this.time + CONFIG.WAR_TIME; pl.targets = goals.slice(0, 3); pl.target = goals[0];
-      pl.next = this.time + CONFIG.AI_PLAN_INTERVAL * (0.5 + rng());
-      this.emit('war', { by: P, to: foeP });
+      pl.war = foe; pl.warUntil = this.time + CONFIG.WAR_TIME; pl.targets = null;
+      this.emit('war', { by: P, to: foe });
     }
     return n;
   }
@@ -809,7 +782,7 @@ class Sim {
   nearestEnemy(x, y, P, r, mask = 1, see = true) {
     let best = null, bd = 1e9;
     this.forUnitsNear(x, y, r, (v, d2) => {
-      if (v.pref === P || !(v.bit & mask) || d2 >= bd) return;
+      if (v.pref === P || !(v.bit & mask) || d2 >= bd || v.ghost) return;   // 幽霊の大将は狙われない
       if (!see && v.stealth && !(v.buff && v.buff.det)) return;
       bd = d2; best = v;
     });
@@ -1063,7 +1036,7 @@ class Sim {
     }
     if (u.goalNode === -2) { u.goalNode = -1; u.dest = null; u.path = null; }
     // 指示のないあなたの兵は大将について行く（攻撃目標を指定しているときは別）
-    const gen = u.fromPlayer && u.hw === 0 && this.general && this.general.alive && this.rally < 0 ? this.general : null;
+    const gen = u.fromPlayer && u.hw === 0 && this.general && this.general.alive && !this.general.ghost && this.rally < 0 ? this.general : null;
     if (gen && u.bit === 1) {
       if (Math.hypot(gen.x - u.x, gen.y - u.y) > 7) { if (this.setDest(u, gen.x + u.offX * 0.5, gen.y + u.offY * 0.5)) u.goalNode = -4; else u.thinkAt = this.time + 0.3; }
       else { u.dest = null; u.path = null; u.thinkAt = this.time + 1; }
@@ -1157,7 +1130,7 @@ class Sim {
     // 兵が多いときは、兵の攻撃を2組に分けて1刻みおきに計算する（そのぶん2刻み分の被害を与える）
     const half = U.length > 1500, parity = (this.tickNo || 0) & 1;
     for (const u of U) {
-      if (!u.alive) continue;
+      if (!u.alive || u.ghost) continue;   // 幽霊の大将は戦わない
       if (half && (u.id & 1) !== parity) continue;
       const udt = half ? dt * 2 : dt;
       const def = UNITS[u.type], buff = u.buff || {};
@@ -1247,6 +1220,7 @@ class Sim {
     for (const u of U) {
       if (!u.alive) continue;
       const def = UNITS[u.type];
+      if (u.ghost) { u.hp = def.hp; continue; }   // 幽霊の大将は体力が減らない
       const got = dmg[u.k];
       u.hp -= got;
       if (u.bit === 1) {
@@ -1317,7 +1291,7 @@ class Sim {
     const cnt = this.cnt;
     for (const n of this.nodes) {
       const touched = [];
-      this.forUnitsNear(n.x, n.y, CONFIG.CAPTURE_RADIUS, (v) => { if (v.bit !== 1) return; if (!cnt[v.pref]) touched.push(v.pref); cnt[v.pref]++; });
+      this.forUnitsNear(n.x, n.y, CONFIG.CAPTURE_RADIUS, (v) => { if (v.bit !== 1 || v.ghost) return; if (!cnt[v.pref]) touched.push(v.pref); cnt[v.pref]++; });
       const def = cnt[n.owner];
       let A = 0, ac = 0;
       for (const p of touched) if (p !== n.owner && cnt[p] > ac) { ac = cnt[p]; A = p; }
@@ -1360,7 +1334,7 @@ class Sim {
     for (const f of this.flags) {
       let own = 0, en = 0;
       this.forUnitsNear(f.x, f.y, half * 1.42, (v) => {
-        if (v.bit !== 1 || Math.abs(v.x - f.x) > half || Math.abs(v.y - f.y) > half) return;
+        if (v.bit !== 1 || v.ghost || Math.abs(v.x - f.x) > half || Math.abs(v.y - f.y) > half) return;
         if (v.pref === f.pref) own++; else en++;
       });
       f.own = own; f.enemy = en;
@@ -1593,6 +1567,7 @@ class Sim {
     if (!cap) return;
     const g = this.spawnUnit(this.me, cap.x, cap.y, 2, 0, 'general');
     g.isGeneral = true; g.role = 'atk';
+    if (this.genGhost) g.ghost = true;   // 三人称視点の大将：体力も戦いもない、建てるだけの存在
     if (this.general) this.emit('general', 'up');
     this.general = g; this.generalAt = 0; this.genOrder = null;
   }

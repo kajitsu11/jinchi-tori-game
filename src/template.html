@@ -42,7 +42,8 @@
           <li>あなたは県の参加者の1人。県の仲間と一緒に建物を建て、兵を送り、<b>旗を立てて領土を広げます</b>（あなた以外はAIが担当）。</li>
           <li><b>あなたは大将</b>：横画面で遊びます。左下のスティック（PCはWASD・Shiftで走る）で歩き、画面をなぞって見回します。</li>
           <li><b>建てる</b>：「建築」を押して建物を選ぶと、大将の目の前に設計図が出ます。緑なら置けます（赤は理由が出ます）。「回転」で向きを変えて「建てる」。36種類あります。</li>
-          <li><b>旗を立てる</b>：敵の領土まで歩いて押すと、その場に旗を立て、仲間が加勢に来ます。旗の周りの正方形に味方の兵がいる状態を<b>6時間</b>（試作版は3分）守りきると、その正方形と中の拠点が自分のものに。兵がいないと旗は弱って消えます。自県の中で敵の旗の近くなら<b>迎撃</b>。</li>
+          <li><b>大将は戦わない</b>：体力はなく、敵に狙われることも攻撃することもありません。歩きまわって建物を建てるのが役目です。</li>
+          <li><b>旗</b>：足軽は敵の領土に入ると旗を立てます。旗の周りの正方形に味方の兵がいる状態を<b>6時間</b>（試作版は3分）守りきると、その正方形と中の拠点が自分のものに。兵がいないと旗は弱って消えます。</li>
           <li><b>地図</b>：斜め・真上から全体を見られます（見るだけ。大将の操作と建築はできません）。「大将に戻る」で元の視点へ。</li>
           <li><b>作戦</b>：砲撃（大将の視線の先に砲弾）・援軍（県庁に足軽10人）・鼓舞（大将のまわりのあなたの兵が強く速く）。使うと待ち時間があります。</li>
           <li>地図の上の帯に順位・<b>宣戦布告</b>（どの県と戦っているか）・<b>🎯 目標</b>が出ます。目標を達成すると作戦の待ち時間がなくなります。</li>
@@ -90,7 +91,7 @@
       <div class="cp-note" id="cp-note"></div>
     </div>
     <div id="joy" class="tps-only" aria-label="移動"><i></i></div>
-    <div id="genhp" aria-label="大将の体力"><div class="gh-top"><b>大将</b><span id="gh-lv">Lv1</span></div><i><s id="gh-bar"></s></i><div id="gh-where"></div></div>
+    <div id="genhp" aria-label="大将の居場所"><div class="gh-top"><b>大将</b><span>建築の指揮</span></div><s id="gh-bar" hidden></s><div id="gh-where"></div></div>
     <div id="mapbar" class="map-only">
       <button id="mb-back" class="btn-primary"><i data-ico="general"></i><span>大将に戻る</span></button>
       <button id="mb-top"><i data-ico="top"></i><span>真上／斜め</span></button>
@@ -99,7 +100,6 @@
       <div id="hint" class="hidden"></div>
       <div class="actrow" id="tpsbar">
         <button id="t-build" class="b-rally"><i data-ico="build"></i><span>建築</span></button>
-        <button id="t-flag" class="b-rally b-flag"><i data-ico="flag"></i><span>旗立て</span></button>
         <button id="t-map" class="b-rally"><i data-ico="top"></i><span>地図</span></button>
       </div>
       <div class="actrow" id="oldrow">
