@@ -266,13 +266,17 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
   await test('三人称視点: スティック・WASDで大将が歩き、なぞると見回す。地図ビューでは建てられない', async () => {
     const p0 = await ev(() => { const { App } = window.__jinchi, g = App.game.general; const c = App.game.nodes.find((n) => n.owner === App.me && n.type === 'capital') || App.game.nodes.find((n) => n.owner === App.me); g.x = c.x; g.y = c.y + 4; App.tps.yaw = 0; return [g.x, g.y, App.view]; });
     assert(p0[2] === 'tps', 'starts in tps');
-    await page.keyboard.down('w'); await page.waitForTimeout(700); await page.keyboard.up('w');
+    // 描画が遅い環境でも確かめられるよう、動くまで押し続ける
+    await page.keyboard.down('w');
+    await page.waitForFunction((y) => window.__jinchi.App.game.general.y < y - 0.05, p0[1], { timeout: 30000 }).catch(() => {});
+    await page.keyboard.up('w');
     const p1 = await ev(() => { const g = window.__jinchi.App.game.general; return [g.x, g.y]; });
     assert(p1[1] < p0[1] - 0.05 && Math.abs(p1[0] - p0[0]) < 0.05, 'walks forward (−z) ' + JSON.stringify([p0, p1]));
     // スティック
     const jb = await page.locator('#joy').boundingBox();
     await page.mouse.move(jb.x + jb.width / 2, jb.y + jb.height / 2); await page.mouse.down();
-    await page.mouse.move(jb.x + jb.width / 2 + 40, jb.y + jb.height / 2, { steps: 3 }); await page.waitForTimeout(600);
+    await page.mouse.move(jb.x + jb.width / 2 + 40, jb.y + jb.height / 2, { steps: 3 });
+    await page.waitForFunction((x) => window.__jinchi.App.game.general.x > x + 0.05, p1[0], { timeout: 30000 }).catch(() => {});
     const p2 = await ev(() => { const g = window.__jinchi.App.game.general; return [g.x, g.y]; });
     await page.mouse.up();
     assert(p2[0] > p1[0] + 0.05, 'joystick right ' + JSON.stringify([p1, p2]));
