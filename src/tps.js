@@ -77,6 +77,10 @@ Object.assign(App, {
       if (map.isLand(map.id(Math.floor(gen.x), Math.floor(gen.y + oz)))) gen.y += oz;
       gen.px = gen.x; gen.py = gen.y;
       T.yaw = 0; this.tpsSnap = true;
+      // 近くで戦いが起きていれば、そちらを向いて始める
+      let foe = null, fd = 45 * 45;
+      for (const u of g.units) if (u.pref !== this.me && u.alive) { const d = (u.x - gen.x) ** 2 + (u.y - gen.y) ** 2; if (d < fd) { fd = d; foe = u; } }
+      if (foe) T.yaw = Math.atan2(gen.x - foe.x, gen.y - foe.y);
       void S0;
     }
     const mag = Math.min(1, Math.hypot(ix, iy));

@@ -673,6 +673,81 @@ class Sim {
     this.units.push(u);
     return u;
   }
+  /**
+   * 開戦の状態で始める（試作版）：となり合う県の国境のあちこちで、いろいろな兵科の部隊がぶつかり合っている。
+   * あなたの城のすぐ近くにも敵の先鋒が攻めてきていて、すぐに戦いが見られる
+   */
+  openingBattle(opt = {}) {
+    const S = this.S, rng = this.rng, me = this.me;
+    const perFront = opt.perFront || 24, fronts = opt.fronts || 4;
+    const MIX = [['ashigaru', 34], ['cavalry', 16], ['cannon', 11], ['ninja', 8], ['gas', 7], ['fighter', 8], ['bomber', 3], ['ship', 3]];
+    const total = MIX.reduce((a, m) => a + m[1], 0);
+    const pick = () => { let r = rng() * total; for (const [t, w] of MIX) { if ((r -= w) < 0) return t; } return 'ashigaru'; };
+    // 国境をはさんで向かい合う拠点の組
+    const pairs = [];
+    for (const a of this.nodes) for (const bid of this.nodeAdj[a.id] || []) {
+      const b = this.nodes[bid];
+      if (a.id < b.id && a.owner && b.owner && a.owner !== b.owner && a.owner <= 47 && b.owner <= 47) pairs.push([a, b]);
+    }
+    for (let k = pairs.length - 1; k > 0; k--) { const j = Math.floor(rng() * (k + 1)); [pairs[k], pairs[j]] = [pairs[j], pairs[k]]; }
+    // あなたの県の前線を先に（画面の近くで戦いが見られるように）
+    pairs.sort((p, q) => ((q[0].owner === me || q[1].owner === me) ? 1 : 0) - ((p[0].owner === me || p[1].owner === me) ? 1 : 0));
+    const used = new Int32Array(49), fronts2 = new Map();
+    // 部隊を出す：国境の手前（自県の側）から、向かいの拠点へ
+    const army = (P, x, y, goal, n) => {
+      let made = 0;
+      for (let k = 0; k < n; k++) {
+        const u = this.spawnUnit(P, x, y, 5 * S, -1, pick());
+        if (!u) continue;
+        u.role = 'atk'; u.goalNode = -1; u.thinkAt = this.time + rng() * 1.5; made++;
+      }
+      if (!fronts2.has(P)) fronts2.set(P, []);
+      fronts2.get(P).push(goal.id);
+      return made;
+    };
+    let n = 0;
+    for (const [a, b] of pairs) {
+      if (used[a.owner] >= fronts || used[b.owner] >= fronts) continue;
+      used[a.owner]++; used[b.owner]++;
+      for (const [s0, e0] of [[a, b], [b, a]]) {
+        // s0 から e0 へ向かって、国境を越える手前の場所
+        let t = 0.5, x = s0.x, y = s0.y;
+        for (; t > 0.05; t -= 0.03) { x = s0.x + (e0.x - s0.x) * t; y = s0.y + (e0.y - s0.y) * t; if (this.owner[this.cellAt(x, y)] === s0.owner) break; }
+        t = Math.max(0.05, t - 0.04); x = s0.x + (e0.x - s0.x) * t; y = s0.y + (e0.y - s0.y) * t;
+        n += army(s0.owner, x, y, e0, perFront + Math.floor(rng() * 8));
+      }
+    }
+    // あなたの城の近くへ攻めてきた敵の先鋒と、迎え撃つ味方（大将の目の前で戦いが始まる）
+    const myCap = me ? this.nodes[this.capNode[me]] : null;
+    if (myCap) {
+      let foe = 0, fd = 1e18;
+      for (let p = 1; p <= 47; p++) {
+        if (p === me || !this.nodeCount[p]) continue;
+        const c = this.nodes[this.capNode[p]];
+        if (!c) continue;
+        const d = (c.x - myCap.x) ** 2 + (c.y - myCap.y) ** 2;
+        if (d < fd) { fd = d; foe = p; }
+      }
+      if (foe) {
+        const fc = this.nodes[this.capNode[foe]], L = Math.sqrt(fd) || 1, ux = (fc.x - myCap.x) / L, uy = (fc.y - myCap.y) / L;
+        const ex = myCap.x + ux * 11 * S / 3, ey = myCap.y + uy * 11 * S / 3 + 4;
+        for (let k = 0; k < 26; k++) { const u = this.spawnUnit(foe, ex, ey, 4 * S, -1, pick()); if (u) { u.role = 'atk'; u.x = ex + (rng() - 0.5) * 8; u.y = ey + (rng() - 0.5) * 8; u.px = u.x; u.py = u.y; } }
+        for (let k = 0; k < 22; k++) { const u = this.spawnUnit(me, myCap.x + ux * 6, myCap.y + uy * 6 + 4, 3 * S, -1, pick()); if (u) u.role = 'atk'; }
+        n += 48;
+        if (!fronts2.has(foe)) fronts2.set(foe, []);
+        fronts2.get(foe).unshift(myCap.id);
+      }
+    }
+    // 県の作戦：向かい合う県に宣戦布告し、前線の拠点を攻め先にする
+    for (const [P, goals] of fronts2) {
+      const pl = this.plans[P];
+      const foeP = this.nodes[goals[0]].owner;
+      pl.war = foeP; pl.warUntil = this.time + CONFIG.WAR_TIME; pl.targets = goals.slice(0, 3); pl.target = goals[0];
+      pl.next = this.time + CONFIG.AI_PLAN_INTERVAL * (0.5 + rng());
+      this.emit('war', { by: P, to: foeP });
+    }
+    return n;
+  }
   isSea(x, y) { const i = this.cellAt(x, y); return i < 0 || !this.map.initPref[i]; }
   unitCap(P) { return Math.floor(this.parts[P] * CONFIG.UNIT_CAP_PER_PARTICIPANT + this.nodeCount[P] * CONFIG.UNIT_CAP_PER_NODE + (this.capPlus ? Math.min(this.capPlus[P], this.parts[P] * 0.6) : 0)); }   // 兵站基地で増やせるのは参加者1人あたり0.6人まで
   unitCount(P) { let n = 0; for (const u of this.units) if (u.pref === P) n++; return n; }

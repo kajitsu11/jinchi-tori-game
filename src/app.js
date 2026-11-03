@@ -177,6 +177,7 @@ const App = {
     const seed = seedParam ? +seedParam : (Date.now() & 0x7fffffff);
     this.game = new Sim(this.map, p, seed);
     this.game.sliced = true;   // 刻みの仕事を数コマに分ける（カクつかないように）
+    if (TRIAL) this.openingN = this.game.openingBattle();   // 試作版：最初から各地で大乱戦
     // 確認用の早送り（例：?speed=600 で 1秒＝10分）
     this.speed = clamp(+(new URLSearchParams(location.search).get('speed') || 1), 1, 5000);
     this.renderer.attachGame(this.game, p);
@@ -339,7 +340,8 @@ const App = {
     Sfx.conch();
     if (!ONLINE) setTimeout(() => {
       if (this.state !== STATE.PLAYING) return;
-      if (this.hasTps()) this.banner('あなたは大将', 'def', '左のスティックで移動・画面をなぞって見回す。「建築」で目の前に建物を置き、敵の領土で「旗を立てる」');
+      if (this.hasTps() && TRIAL && this.openingN) { Sfx.alert(); this.banner('開戦！ 各地で大乱戦', 'ng', '城の前に敵の先鋒が攻めてきた！ スティックで向かい、近くの敵と戦おう'); }
+      else if (this.hasTps()) this.banner('あなたは大将', 'def', '左のスティックで移動・画面をなぞって見回す。「建築」で目の前に建物を置き、敵の領土で「旗を立てる」');
       else if (TRIAL) this.banner('🚩 旗を立てる → 敵の領土をタップ', 'def', 'あなたの部隊15人と仲間が旗を立てて守る。守りきれば領土に');
       else this.banner('🐎 大将 → 敵の領土をタップ', 'def', '大将が止まった所に旗を立て、仲間と守りきれば領土に');
     }, 2500);
@@ -1615,6 +1617,7 @@ const App = {
       for (const u of g.units) {
         const mh = (UNITS[u.type] || UNITS.ashigaru).hp;
         if (u.hp >= mh - 0.5 || shown > 700) continue;
+        if (tpsO && (u.x - cam.tx) ** 2 + (u.y - cam.tz) ** 2 > 900) continue;   // 三人称視点では近くの兵だけ（地平線が体力の棒だらけにならないように）
         const air = u.type === 'fighter' || u.type === 'bomber';
         const hh = air ? (4.9 + (u.id % 5) * 0.4) * H : u.type === 'ship' ? 2.0 * H : 1.12 * H;
         if (!cam.project(u.px + (u.x - u.px) * a, hh, u.py + (u.y - u.py) * a, v) || !onScreen()) continue;
