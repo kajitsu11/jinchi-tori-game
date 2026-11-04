@@ -1626,7 +1626,8 @@ const App = {
         if (!cam.project(u.px + (u.x - u.px) * a, hh, u.py + (u.y - u.py) * a, v) || !onScreen()) continue;
         const bw = clamp(cpx * 0.8, 12, 26), f = Math.max(0, u.hp) / mh;
         ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(v[0] - bw / 2 - 1, v[1] - 1, bw + 2, 5);
-        ctx.fillStyle = f > 0.6 ? '#5fd35a' : f > 0.3 ? '#ffcf3f' : '#ff4a3d'; ctx.fillRect(v[0] - bw / 2, v[1], bw * f, 3);
+        // 体力の棒はその県の色（減っても同じ色）
+        ctx.fillStyle = (map.prefs[u.pref] && map.prefs[u.pref].color) || '#ccc'; ctx.fillRect(v[0] - bw / 2, v[1], bw * f, 3);
         shown++;
       }
     }
