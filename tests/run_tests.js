@@ -451,7 +451,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
       let worst = 0;
       for (let k = 0; k < steps && !g.over; k++) { const s = performance.now(); g.step(2); worst = Math.max(worst, performance.now() - s); }
       const ms = performance.now() - t;
-      let sum = 0; for (let p = 1; p <= 47; p++) sum += g.counts[p];
+      let sum = g.counts[48]; for (let p = 1; p <= 47; p++) sum += g.counts[p];   // 48 = 焦土（核ミサイルで焼けた土地）
       const cnt = new Int32Array(49), nc = new Int32Array(49);
       let badOwner = 0, badPos = 0, badB = 0, badRes = 0;
       for (const i of g.landIdx) { cnt[g.owner[i]]++; if (g.owner[i] !== g.nodes[g.nodeOf[i]].owner) badOwner++; }
