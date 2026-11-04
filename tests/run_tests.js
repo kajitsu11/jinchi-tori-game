@@ -340,7 +340,15 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
   });
 
   await test('三人称視点: スティック・WASDで大将が歩き、なぞると見回す。地図ビューでは建てられない', async () => {
-    const p0 = await ev(() => { const { App } = window.__jinchi, g = App.game.general; const c = App.game.nodes.find((n) => n.owner === App.me && n.type === 'capital') || App.game.nodes.find((n) => n.owner === App.me); g.x = c.x; g.y = c.y + 4; App.tps.yaw = 0; return [g.x, g.y, App.view]; });
+    const p0 = await ev(() => { const { App } = window.__jinchi, g = App.game.general; const m = App.map, land = (x, y) => m.isLand(m.id(Math.floor(x), Math.floor(y)));
+      // 前（−z）に10マス歩ける陸地を、自県の拠点の近くから探す
+      let px = 0, py = 0;
+      outer: for (const c of App.game.nodes.filter((n) => n.owner === App.me)) for (let dy = 0; dy < 30; dy += 3) for (let dx = -15; dx <= 15; dx += 3) {
+        const x = c.x + dx, y = c.y + dy; let ok = true;
+        for (let k = 0; k <= 10 && ok; k++) if (!land(x, y - k) || !land(x + 1, y - k)) ok = false;
+        if (ok) { px = x; py = y; break outer; }
+      }
+      g.x = px; g.y = py; App.tps.yaw = 0; return [g.x, g.y, App.view]; });
     assert(p0[2] === 'tps', 'starts in tps');
     // 描画が遅い環境でも確かめられるよう、動くまで押し続ける
     await page.keyboard.down('w');
