@@ -3053,6 +3053,7 @@ class Sim {
     this.updateGeneral();
     this.updateEvents();
     this.updateStormSet();
+    if (this.borderPts) this.borderReinforce();
     this.buildHash();
     this.planAll();
     this.aiBuildAll();
@@ -3364,11 +3365,7 @@ class Sim {
       const d = Math.min(0.2, (2.5 * S / 3 + 1.5) / L);   // 国境から2〜3マス手前
       for (const [P, q, foe] of [[a.owner, t - d, b], [b.owner, t + d, a]]) {
         const x = a.x + (b.x - a.x) * q, y = a.y + (b.y - a.y) * q;
-        for (let k = 0; k < per; k++) {
-          const u = this.spawnUnit(P, x, y, 2.5 * S * spread, -1, pick());
-          if (!u) continue;
-          u.role = 'atk'; u.thinkAt = this.time + 2 + rng() * 4; n++;   // しばらくはその場で戦う
-        }
+        void per; void spread;
         if (!wars.has(P)) wars.set(P, new Map());
         const m = wars.get(P); m.set(foe.owner, (m.get(foe.owner) || 0) + 1);
         // 国境の守り：境界のすぐ手前に見張り塔・トーチカ・砲台・塹壕など、少し後ろに兵舎などの兵を出す建物
@@ -3377,6 +3374,12 @@ class Sim {
       }
     }
     this.openingBuilt = nb;
+    // 兵：国境線の全体に、両側から少しずつ並べる（国境のマスを一定の間隔で拾う）
+    const pts = this.borderPoints(opt.spacing || 9 * S / 3 + 2);
+    this.borderPts = pts;
+    const perPt = Math.max(2, Math.round(budget / Math.max(1, pts.length) / 2));
+    for (const p of pts) n += this.borderSquad(p, perPt, pick);
+    this.borderPick = pick;
     // 県の作戦：いちばん長く接している県に宣戦布告
     for (const [P, m] of wars) {
       let foe = 0, best = -1;
@@ -3386,6 +3389,58 @@ class Sim {
       this.emit('war', { by: P, to: foe });
     }
     return n;
+  }
+  /** 国境の点を集める：となりのマスの持ち主が違う陸のマスを、spacing マスおきに（両側の県と向き付き） */
+  borderPoints(spacing) {
+    const map = this.map, own = this.owner, S = this.S, st = Math.max(1, Math.round(S)), out = [];
+    const taken = new Set(), g = Math.max(2, Math.round(spacing));
+    for (const i of this.landIdx) {
+      const x = map.X(i), y = map.Y(i);
+      if (x % st || y % st) continue;
+      const a = own[i];
+      if (!a || a > 47) continue;
+      const key = Math.floor(y / g) * 100000 + Math.floor(x / g);
+      if (taken.has(key)) continue;
+      for (const [dx, dy] of [[st, 0], [0, st]]) {
+        const j = map.id(x + dx, y + dy);
+        if (j < 0 || !map.initPref[j]) continue;
+        const b = own[j];
+        if (!b || b > 47 || b === a) continue;
+        taken.add(key);
+        out.push({ x: x + 0.5, y: y + 0.5, a, b, nx: dx / st, ny: dy / st });   // a 側は −n、b 側は +n
+        break;
+      }
+    }
+    return out;
+  }
+  /** 国境の点 p の両側に、それぞれ n 人ずつ並べる。しばらくは国境の近くにとどまって戦う */
+  borderSquad(p, n, pick) {
+    const S = this.S, rng = this.rng, off = 2.5 * S / 3 + 1.5;
+    let made = 0;
+    for (const [P, sg] of [[p.a, -1], [p.b, 1]]) {
+      if (!this.nodeCount[P]) continue;
+      const x = p.x + p.nx * off * sg, y = p.y + p.ny * off * sg;
+      for (let k = 0; k < n; k++) {
+        const u = this.spawnUnit(P, x, y, 2.5 * S / 3 + 1.5, -1, pick());
+        if (!u) continue;
+        u.role = 'atk'; u.thinkAt = this.time + rng() * 3;
+        u.hold = { x: x + (rng() - 0.5) * 3, y: y + (rng() - 0.5) * 3, until: this.time + (CONFIG.BORDER_HOLD || 900) * (0.7 + rng() * 0.6) };
+        made++;
+      }
+    }
+    return made;
+  }
+  /** 試作版：国境の大乱戦が続くよう、ときどき国境のあちこちに援軍が来る */
+  borderReinforce() {
+    if (!this.borderPts || !this.borderPts.length || this.time < (this.reinfAt || 0)) return;
+    this.reinfAt = this.time + 10;
+    if (this.units.length > (CONFIG.BORDER_CAP || 13000)) return;
+    const pts = this.borderPts;
+    for (let k = 0; k < 40; k++) {
+      const p = pts[Math.floor(this.rng() * pts.length)];
+      if (this.owner[this.cellAt(p.x, p.y)] !== p.a && this.owner[this.cellAt(p.x, p.y)] !== p.b) continue;
+      this.borderSquad(p, 2, this.borderPick);
+    }
   }
   /** 国境の手前（x,y）から自県の奥の向き（ux,uy）に、守りの建物と兵を出す建物を建てる。建てた数を返す */
   borderWorks(P, x, y, ux, uy, mult = 1) {
@@ -3693,6 +3748,15 @@ class Sim {
       if (e && u.type !== 'bomber') { u.chase = e.id; return; }
     }
     u.chase = -1;
+    // 国境で戦う部隊：敵がいなければ持ち場（国境の近く）へ戻る
+    if (u.hold) {
+      if (this.time < u.hold.until && this.owner[this.cellAt(u.hold.x, u.hold.y)]) {
+        if (Math.hypot(u.hold.x - u.x, u.hold.y - u.y) > 3 * S / 3 + 1) { if (!this.setDest(u, u.hold.x, u.hold.y)) u.thinkAt = this.time + 1; }
+        else { u.dest = null; u.path = null; u.thinkAt = this.time + 1.5; }
+        return;
+      }
+      delete u.hold;
+    }
     // 大将：あなたがタップした場所へ向かう（近くの敵とは戦う）
     if (u.isGeneral) {
       const o = this.genOrder;
