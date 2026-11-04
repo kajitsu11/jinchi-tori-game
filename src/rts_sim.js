@@ -374,12 +374,13 @@ class Sim {
   /** 実時間 dt 秒ぶん進める。speed>1 は早送り（確認用）：刻みを長くして回数を抑える */
   update(dt, speed = 1) {
     if (this.over) return;
+    this.rt = (this.rt || 0) + dt * speed;   // 描画の補間用の時計（兵が動いた時刻からの経過で、なめらかに間を埋める）
     const tick = Math.min(CONFIG.TICK * Math.max(1, speed / 8), CONFIG.MAX_TICK);
     this.acc += dt * speed;
     let steps = 0;
-    // 等速の1人用：1回の刻みの仕事を3コマに分けて行う（1コマだけ重くなって画面が引っかからないように）
+    // 等速の1人用：1回の刻みの仕事を4コマに分けて行う（1コマだけ重くなって画面が引っかからないように）
     if (this.sliced && speed <= 2) {
-      if (this.claimJobs && this.claimJobs.length) this.runClaimJobs(1500);
+      if (this.claimJobs && this.claimJobs.length) this.runClaimJobs(800);
       if (this.phase) { this.stepPhase(); this.lastTick = tick; return; }
       if (this.acc >= tick && !this.over) { this.acc -= tick; this.phaseDt = tick; this.phase = 1; this.stepPhase(); }
       if (this.acc > tick * 3) this.acc = tick;   // 遅れすぎたら追いつこうとしない
@@ -393,7 +394,13 @@ class Sim {
   }
   step(dt) {
     if (this.claimJobs && this.claimJobs.length) this.runClaimJobs(Infinity);   // 途中の国境広げは先に終わらせる
-    this.stepA(dt); this.stepB(dt); this.stepC(dt);
+    this.stepA(dt); this.stepB(dt); this.stepC(dt); this.stepD(dt);
+  }
+  /** 描画の補間の割合（0=前の位置, 1=今の位置）。兵が動いた時刻から、1刻みかけて前の位置→今の位置へ */
+  lerpA() {
+    const t = this.moveDt || CONFIG.TICK;
+    if (this.moveAt === undefined) return clamp(this.acc / t, 0, 1);
+    return clamp(((this.rt || 0) - this.moveAt) / t, 0, 1);
   }
   /** 刻みを3つに分けたもの（stepPhase で1コマに1つずつ行える） */
   stepA(dt) {
@@ -415,6 +422,8 @@ class Sim {
   }
   stepC(dt) {
     this.combat(dt);
+  }
+  stepD(dt) {
     this.moveAll(dt);
     this.updateNodes(dt);
     if (CONFIG.FLAG_MODE) this.updateFlags(dt);
@@ -431,7 +440,8 @@ class Sim {
   stepPart(ph, dt) {
     if (ph === 1) { this.stepA(dt); this.phase = 2; }
     else if (ph === 2) { this.stepB(dt); this.phase = 3; }
-    else { this.stepC(dt); this.phase = 0; }
+    else if (ph === 3) { this.stepC(dt); this.phase = 4; }
+    else { this.stepD(dt); this.phase = 0; }
   }
 
   // ---------------------------------------------------------- 資源
@@ -1275,6 +1285,8 @@ class Sim {
     if (gone) this.buildings = this.buildings.filter((b) => !b.dead);
   }
   moveAll(dt) {
+    this.moveAt = this.rt || 0;
+    this.moveDt = dt;
     const base = CONFIG.UNIT_SPEED * this.S * dt;
     for (const u of this.units) {
       u.px = u.x; u.py = u.y;

@@ -1028,7 +1028,7 @@ const App = {
   /** 兵の背の高さ（引いているときは見つけやすく大きめ。三人称視点は建物と釣り合う大きさ） */
   unitH() { return this.isTps() ? TPS.H : clamp(this.cam.dist * 0.004, 0.96, 18); },
   drawSoldiers(I, g, cpx, visible, col, C) {
-    const a = clamp(g.acc / CONFIG.TICK, 0, 1), t = this.clock;
+    const a = (g.lerpA ? g.lerpA() : clamp(g.acc / CONFIG.TICK, 0, 1)), t = this.clock;
     if (!this.anim) this.anim = new Map();
     if (!this.sprites) this.sprites = new SpriteList();
     const S = this.sprites;
@@ -1407,7 +1407,7 @@ const App = {
     }
     // 銃撃の閃光（兵士）と、塔・砦の射撃
     if (g && cpx > 0.5) {
-      const a = clamp(g.acc / CONFIG.TICK, 0, 1);
+      const a = (g.lerpA ? g.lerpA() : clamp(g.acc / CONFIG.TICK, 0, 1));
       let n = 0;
       for (const u of g.units) {
         if (u.engaged < 0 && !u.hitB) continue;
@@ -1556,7 +1556,7 @@ const App = {
     }
     // 大将：金色の輪と名前・向かう場所
     if (g && g.general && g.general.alive && !this.isTps()) {
-      const u = g.general, a2 = clamp(g.acc / CONFIG.TICK, 0, 1);
+      const u = g.general, a2 = (g.lerpA ? g.lerpA() : clamp(g.acc / CONFIG.TICK, 0, 1));
       if (cam.project(u.px + (u.x - u.px) * a2, 0.05, u.py + (u.y - u.py) * a2, v) && onScreen()) {
         const r = clamp(cpx * 0.8, 7, 20);
         ctx.lineWidth = 2.5; ctx.strokeStyle = '#ffd34d'; ctx.beginPath(); ctx.ellipse(v[0], v[1], r, r * 0.5, 0, 0, 7); ctx.stroke();
@@ -1601,7 +1601,7 @@ const App = {
     }
     // あなたの兵（と加勢中の仲間）の足元に白い輪
     if (g && cpx > 1.0 && !this.isTps()) {
-      const a = clamp(g.acc / CONFIG.TICK, 0, 1);
+      const a = (g.lerpA ? g.lerpA() : clamp(g.acc / CONFIG.TICK, 0, 1));
       let k = 0;
       ctx.lineWidth = 1.5;
       for (const u of g.units) {
@@ -1615,7 +1615,7 @@ const App = {
     }
     // 兵の残り体力（満タンでない兵だけ。攻撃されると出る）
     if (g && cpx > 0.8) {
-      const H = this.unitH(), a = clamp(g.acc / CONFIG.TICK, 0, 1);
+      const H = this.unitH(), a = (g.lerpA ? g.lerpA() : clamp(g.acc / CONFIG.TICK, 0, 1));
       let shown = 0;
       for (const u of g.units) {
         const mh = (UNITS[u.type] || UNITS.ashigaru).hp;
