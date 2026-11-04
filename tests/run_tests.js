@@ -231,6 +231,35 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     assert(s.ok && s.hp < 100, JSON.stringify(s));
   });
 
+  await test('核ミサイル基地：あなたが着弾地点を選んで発射、半径の中の兵・建物が全て消えて焦土になる', async () => {
+    await richPlayer();
+    const r = await ev(() => {
+      const g = window.__jinchi.game, m = g.map, me = g.me;
+      for (const r of ['wood', 'gold']) g.res[r][0] = 50000;
+      // 自県の中で建てられる所
+      let site = -1;
+      const cap = g.nodes.find((n) => n.owner === me && n.type === 'capital') || g.nodes.find((n) => n.owner === me);
+      for (let rr = 4; rr < 60 && site < 0; rr += 2) for (let a = 0; a < 6.28 && site < 0; a += 0.3) { const c = g.cellAt(cap.x + Math.cos(a) * rr, cap.y + Math.sin(a) * rr); if (c >= 0 && !g.canBuild('nuke', me, c, 0)) site = c; }
+      if (site < 0) return { err: 'nosite' };
+      const b = g.playerBuild('nuke', site).building;
+      // 敵の拠点に向けて
+      const foe = g.nodes.find((n) => n.owner !== me && n.owner > 0 && n.type !== 'capital') || g.nodes.find((n) => n.owner !== me);
+      const R = g.nukeRadius();
+      const inside = () => { let u = 0, bb = 0; for (const q of g.units) if (q.alive && !q.ghost && (q.x - foe.x) ** 2 + (q.y - foe.y) ** 2 < R * R * 0.9) u++; for (const q of g.buildings) if ((q.x - foe.x) ** 2 + (q.y - foe.y) ** 2 < R * R * 0.9) bb++; return [u, bb]; };
+      for (let k = 0; k < 6; k++) g.spawnUnit(foe.owner, foe.x, foe.y, 3, -1);
+      const before = inside();
+      const shot = g.launchNuke(0, b, foe.x, foe.y);
+      const again = g.launchNuke(0, b, foe.x, foe.y);   // すぐにもう一度は撃てない
+      const WASTE_ID = 48, w0 = g.counts[WASTE_ID];
+      for (let k = 0; k < 40; k++) g.step(0.25);
+      return { ok: shot.ok, again: again.ok, before, after: inside(), waste: g.counts[WASTE_ID] - w0, nodeAlive: g.nodes[foe.id].owner > 0 };
+    });
+    assert(!r.err, r.err);
+    assert(r.ok && !r.again, 'launch & cooldown ' + JSON.stringify(r));
+    assert(r.before[0] > 0 && r.after[0] === 0 && r.after[1] === 0, 'wiped out ' + JSON.stringify(r));
+    assert(r.waste > 100, 'scorched ' + JSON.stringify(r));
+  });
+
   await test('敵兵は守りのない建物を壊す', async () => {
     const s = await ev(() => {
       const g = window.__jinchi.game;

@@ -28,6 +28,7 @@ Object.assign(App, {
     const cam = this.cam, g = this.game;
     if (this.keys) this.keys.clear();
     this.joyV = [0, 0];
+    if (v === 'tps') this.cancelNuke && this.cancelNuke();
     if (v === 'map') {
       this.endBuild();
       if (this.setMode) this.setMode(null);
@@ -121,15 +122,175 @@ Object.assign(App, {
     this.ghostUpdate();
     this.genHud(gen);
   },
+  // ------------------------------------------------ 核ミサイル（あなたの核ミサイル基地から、地図で選んだ場所へ）
+  myNuke() {
+    const g = this.game;
+    if (this.clock < (this.nukeScanAt || 0) && (!this.nukeBase || !this.nukeBase.dead)) return this.nukeBase;
+    this.nukeScanAt = this.clock + 0.5;
+    let best = null;
+    for (const b of g.buildings) if (b.type === 'nuke' && b.wallet === 0 && !b.dead && (!best || g.nukeReady(b) < g.nukeReady(best))) best = b;
+    this.nukeBase = best;
+    return best;
+  },
+  updateNukeBtn() {
+    const g = this.game, el = $('t-nuke');
+    if (!el || !g || !g.nukeReady) return;
+    const b = this.myNuke();
+    el.classList.toggle('hidden', !b);
+    if (!b) return;
+    const left = g.nukeReady(b), lab = left > 0 ? `${Math.ceil(left)}秒` : '核';
+    if (lab !== this.nukeLab) { this.nukeLab = lab; el.querySelector('span').textContent = lab; el.classList.toggle('cool', left > 0); }
+  },
+  startNukeAim() {
+    const g = this.game, b = this.myNuke();
+    if (!b) { this.banner('核ミサイル基地がありません', 'ng', '「建築」の防衛から建てよう'); return; }
+    const left = g.nukeReady(b);
+    if (left > 0) { this.banner('核ミサイルはまだ撃てません', 'ng', `次の発射まであと${this.fmtDur(left)}`); return; }
+    const R = g.nukeRadius();
+    this.setView('map');
+    this.nukeAim = { b, x: null, z: null };
+    document.body.classList.add('nuking');
+    $('nukebar').classList.remove('hidden'); $('nb-fire').disabled = true;
+    $('nb-msg').textContent = '地図をタップして着弾地点を選ぶ';
+    this.cam.goal = null; this.cam.dist = Math.max(this.cam.dist, R * 9);
+    this.banner('☢ 着弾地点を選ぶ', 'ng', `赤い円（半径${CONFIG.NUKE_R * (this.map.scale || 1)}マス）の中の兵・建物は全て消える`);
+  },
+  cancelNuke() {
+    this.nukeAim = null;
+    document.body.classList.remove('nuking');
+    const bar = $('nukebar'); if (bar) bar.classList.add('hidden');
+  },
+  nukeTap(sx, sy) {
+    const p = this.cam.groundAt(sx, sy), A = this.nukeAim;
+    if (!p || !A) return;
+    const i = this.map.id(Math.floor(p.x), Math.floor(p.z));
+    if (i < 0) return;
+    A.x = p.x; A.z = p.z;
+    const o = this.game.owner[i], nm = o === this.me ? '自県の領土（味方も消えます）' : this.map.ownerName(o) + (o === WASTE ? '' : 'の領土');
+    $('nb-msg').textContent = `着弾地点：${this.map.isLand(i) ? nm : '海'}`;
+    $('nb-fire').disabled = false;
+  },
+  fireNuke() {
+    const A = this.nukeAim, g = this.game;
+    if (!A || A.x === null) return;
+    const r = g.launchNuke(0, A.b, A.x, A.z);
+    this.cancelNuke();
+    if (!r.ok) { this.banner('発射できません', 'ng', r.why === 'cd' ? 'まだ待ち時間があります' : ''); return; }
+    this.cam.flyTo(A.x, A.z, Math.max(this.cam.dist, g.nukeRadius() * 7), 0.5);
+  },
+  onNuke(e) {
+    const map = this.map;
+    (this.nukeFx || (this.nukeFx = [])).push({ ...e, t0: this.clock });
+    if (e.phase === 'launch') {
+      Sfx.alert();
+      const mine = e.w === 0;
+      this.banner(mine ? '☢ 核ミサイル発射！' : `☢ ${map.prefs[e.by].name}が核ミサイルを発射！`, 'ng', `着弾まで${Math.round(e.flight)}秒`);
+      this.log(`☢ ${mine ? 'あなたが' : map.prefs[e.by].name + 'が'}核ミサイルを発射しました`, mine ? 'good' : 'bad', map.id(Math.floor(e.x), Math.floor(e.y)));
+    } else {
+      Sfx.boom(1); setTimeout(() => Sfx.boom(1), 250); setTimeout(() => Sfx.boom(0.8), 700);
+      this.banner('☢ 着弾！ 全てが消えた', 'ng', `兵${fmt(e.killed)}人・建物${fmt(e.razed)}棟・${fmt(e.cells)}マスが焦土に`);
+      this.log(`☢ 核ミサイル着弾：兵${fmt(e.killed)}人・建物${fmt(e.razed)}棟が消え、${fmt(e.cells)}マスが焦土になりました`, 'bad', map.id(Math.floor(e.x), Math.floor(e.y)));
+      this.minimapDirty = true;
+    }
+  },
+  /** 地面の上の円（カメラの後ろの部分は描かない） */
+  groundCircle(ctx, x, z, r) {
+    const cam = this.cam, a = [0, 0], N = 72;
+    ctx.beginPath();
+    let pen = false, any = false;
+    for (let k = 0; k <= N; k++) {
+      const t = k / N * Math.PI * 2;
+      const ok = cam.project(x + Math.cos(t) * r, 0.05, z + Math.sin(t) * r, a) && a[0] > -this.w && a[0] < this.w * 2 && a[1] > -this.h && a[1] < this.h * 2;
+      if (ok) { if (pen) ctx.lineTo(a[0], a[1]); else { ctx.moveTo(a[0], a[1]); pen = true; } any = true; } else pen = false;
+    }
+    return any;
+  },
+  drawNukeFx(ctx) {
+    const g = this.game, cam = this.cam, v = [0, 0], w2 = [0, 0];
+    if (!g) return;
+    // 狙っている場所：赤い円
+    const A = this.nukeAim;
+    if (A && A.x !== null) {
+      const R = g.nukeRadius(), pulse = 0.5 + 0.5 * Math.sin(this.clock * 5);
+      ctx.save();
+      if (this.groundCircle(ctx, A.x, A.z, R)) { ctx.fillStyle = `rgba(220,30,20,${0.22 + 0.08 * pulse})`; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#ff5a3a'; ctx.stroke(); }
+      if (cam.project(A.x, 0, A.z, v)) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(v[0] - 14, v[1]); ctx.lineTo(v[0] + 14, v[1]); ctx.moveTo(v[0], v[1] - 14); ctx.lineTo(v[0], v[1] + 14); ctx.stroke(); }
+      ctx.restore();
+    }
+    if (!this.nukeFx || !this.nukeFx.length) return;
+    const keep = [];
+    for (const f of this.nukeFx) {
+      const age = this.clock - f.t0;
+      if (f.phase === 'launch') {
+        const t = age / f.flight;
+        if (t >= 1) continue;
+        keep.push(f);
+        const L = Math.hypot(f.x - f.ox, f.y - f.oy), H = Math.max(20, L * 0.35);
+        const at = (q) => [f.ox + (f.x - f.ox) * q, H * 4 * q * (1 - q), f.oy + (f.y - f.oy) * q];
+        // 煙の尾
+        ctx.save(); ctx.lineCap = 'round';
+        for (let k = 0; k < 24; k++) {
+          const q0 = Math.max(0, t - (k + 1) * 0.02), q1 = Math.max(0, t - k * 0.02);
+          const p0 = at(q0), p1 = at(q1);
+          if (!cam.project(p0[0], p0[1], p0[2], v) || !cam.project(p1[0], p1[1], p1[2], w2)) continue;
+          ctx.strokeStyle = `rgba(235,235,230,${0.55 * (1 - k / 24)})`; ctx.lineWidth = 6 - k * 0.18;
+          ctx.beginPath(); ctx.moveTo(v[0], v[1]); ctx.lineTo(w2[0], w2[1]); ctx.stroke();
+        }
+        const hp = at(t);
+        if (cam.project(hp[0], hp[1], hp[2], v)) {
+          const gl2 = ctx.createRadialGradient(v[0], v[1], 0, v[0], v[1], 16);
+          gl2.addColorStop(0, 'rgba(255,255,220,1)'); gl2.addColorStop(0.4, 'rgba(255,170,60,.8)'); gl2.addColorStop(1, 'rgba(255,80,20,0)');
+          ctx.fillStyle = gl2; ctx.beginPath(); ctx.arc(v[0], v[1], 16, 0, 7); ctx.fill();
+        }
+        ctx.restore();
+      } else {
+        const T = 7;
+        if (age >= T) continue;
+        keep.push(f);
+        const k = age / T;
+        ctx.save();
+        // 閃光（画面全体）
+        if (age < 0.9) { ctx.fillStyle = `rgba(255,252,235,${0.85 * (1 - age / 0.9) ** 1.5})`; ctx.fillRect(0, 0, this.w, this.h); }
+        // 衝撃波：地面を広がる白い輪
+        const sk = Math.min(1, age / 2.2);
+        if (sk < 1 && this.groundCircle(ctx, f.x, f.y, f.r * (0.15 + 0.95 * sk))) { ctx.lineWidth = 4; ctx.strokeStyle = `rgba(255,245,220,${0.9 * (1 - sk)})`; ctx.stroke(); }
+        // 焼けた円
+        if (this.groundCircle(ctx, f.x, f.y, f.r)) { ctx.fillStyle = `rgba(40,18,8,${0.35 * (1 - k)})`; ctx.fill(); }
+        // 火の玉ときのこ雲
+        if (cam.project(f.x, 0, f.y, v) && cam.project(f.x + f.r, 0, f.y, w2)) {
+          const rs = Math.min(this.h * 0.6, Math.hypot(w2[0] - v[0], w2[1] - v[1]));
+          const rise = Math.min(1, age / 3.5), top = [0, 0];
+          if (cam.project(f.x, f.r * 1.4 * rise, f.y, top)) {
+            ctx.fillStyle = `rgba(90,70,60,${0.75 * (1 - k)})`;   // 柱
+            ctx.fillRect(top[0] - rs * 0.12, top[1], rs * 0.24, Math.max(0, v[1] - top[1]));
+            for (let q = 0; q < 3; q++) {   // かさ
+              const cr = rs * (0.3 + 0.35 * rise) * (1 - q * 0.22);
+              ctx.fillStyle = q === 0 ? `rgba(110,80,60,${0.8 * (1 - k)})` : q === 1 ? `rgba(200,110,50,${0.7 * (1 - k)})` : `rgba(255,210,120,${0.75 * (1 - k)})`;
+              ctx.beginPath(); ctx.ellipse(top[0], top[1] - q * cr * 0.15, cr * 1.35, cr * 0.75, 0, 0, 7); ctx.fill();
+            }
+          }
+          const fb = rs * 0.55 * (0.4 + Math.min(1, age / 0.6) * 0.6) * (1 - k * 0.6);   // 火の玉
+          const gr = ctx.createRadialGradient(v[0], v[1] - fb * 0.3, 0, v[0], v[1] - fb * 0.3, fb);
+          gr.addColorStop(0, `rgba(255,255,230,${1 - k})`); gr.addColorStop(0.35, `rgba(255,170,60,${0.9 * (1 - k)})`); gr.addColorStop(1, 'rgba(160,40,10,0)');
+          ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(v[0], v[1] - fb * 0.3, fb, 0, 7); ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+    this.nukeFx = keep;
+  },
+
   /** 大将の体力・レベルと、今いる場所（自県／敵の領土） */
   genHud(gen) {
+    this.updateNukeBtn();
     const g = this.game, bar = $('gh-bar'), where = $('gh-where');
     void bar;   // 大将には体力がない（建てるだけ）
     let txt = '', cls = '';
     if (!gen) txt = '県庁で立て直し中';
     else {
       const own = g.owner[g.cellAt(gen.x, gen.y)], P = this.map.prefs[own];
-      if (own === this.me) txt = `<i style="background:${P.color}"></i>自県の領土`;
+      if (own === WASTE) txt = '<i style="background:#4a4038"></i>焦土（持ち主なし）';
+      else if (own === this.me) txt = `<i style="background:${P.color}"></i>自県の領土`;
       else if (P) { txt = `<i style="background:${P.color}"></i>${P.name}の領土（ここには建てられない）`; cls = 'enemy'; }
     }
     if (txt !== this.ghTxt) { this.ghTxt = txt; where.innerHTML = txt; where.className = cls; }
@@ -300,6 +461,9 @@ Object.assign(App, {
     joy.addEventListener('pointerup', up); joy.addEventListener('pointercancel', up);
     $('bc-rot').addEventListener('click', () => this.rotateBuild());
     $('bc-close').addEventListener('click', () => this.endBuild());
+    $('t-nuke').addEventListener('click', () => this.startNukeAim());
+    $('nb-cancel').addEventListener('click', () => { this.cancelNuke(); this.setView('tps'); });
+    $('nb-fire').addEventListener('click', () => this.fireNuke());
     for (const id of ['t-orient']) $(id).addEventListener('click', () => this.toggleOrient());
     // 下の帯の高さ（スティックと記録をその上に置く）
     const bb = $('bottombar'), setH = () => document.body.style.setProperty('--bbh', bb.offsetHeight + 'px');

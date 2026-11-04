@@ -80,6 +80,9 @@ const CONFIG = {
   // ---- 画面
   CAMERA_PITCH: 42, TOP_PITCH: 90, TITLE_PITCH: 75, FOV: 34,
   ZOOM_MIN: 6, ZOOM_MAX: 13500,
+  NUKE_R: 30,          // 核ミサイルの焼き尽くす半径（元の地図のマス。細かい地図ではその S 倍）
+  NUKE_CD: 900,        // 次の発射までの待ち時間（秒。試作版の早い試合では1/4）
+  NUKE_FLIGHT: 4.5,    // 発射から着弾まで（秒）
   FILL: 0.035, FILL_TOP: 0.7,     // 領土の塗りの濃さ（斜め／真上）。斜めは国境線が主役
   TREE_MAX: 3500,
   LOG_MAX: 3, BANNER_MS: 1800, MINIMAP_REFRESH: 1.0, MAX_DPR: 2, HUD_REFRESH: 0.25,
@@ -134,6 +137,7 @@ const BUILDINGS = {
   wall: { cat: 'def', name: '石垣', icon: '🪨', cost: { wood: 100 }, hp: 2000, desc: 'とても頑丈。周り6マスの敵兵の足が半分に', aura: { r: 6, enemySlow: 0.5 } },
   mines: { cat: 'def', name: '地雷原', icon: '💥', cost: { wood: 60, gold: 40 }, hp: 100, desc: '近くを通った敵兵に大きな被害（30秒で再装填）', mine: { r: 3, dmg: 60, every: 30 } },
   gasshelter: { cat: 'def', name: '防毒壕', icon: '😷', cost: { wood: 100, gold: 60 }, hp: 300, desc: '周り12マスの味方は毒ガスの被害が1/5', aura: { r: 12, gasRes: 0.2 } },
+  nuke: { cat: 'def', name: '核ミサイル基地', icon: '☢', cost: { wood: 3000, gold: 5000 }, hp: 1500, desc: '伝説の最強兵器。あなたが着弾地点を選んで発射：半径30マスの兵・建物・旗を全て消し去り、土地を焦土にする（次の発射まで待ち時間）', nuke: true },
   radar: { cat: 'def', name: 'レーダー', icon: '📡', cost: { wood: 150, gold: 200 }, hp: 300, desc: '周り25マスで忍者を見つける・高射砲の威力 +50%', aura: { r: 25, detect: true, aa: 1.5 } },
   trench: { cat: 'def', name: '塹壕', icon: '🪖', cost: { wood: 70 }, hp: 400, desc: '周り6マスの味方の受ける被害 −40%', aura: { r: 6, armor: 0.6 } },
   // ---- 支援
@@ -742,6 +746,11 @@ void main(){
     if (id > 0.5) {
       vec3 pc = texture2D(uPalette, vec2((id + 0.5) / 64.0, 0.25)).rgb;
       col = mix(col, pc, uFill * isLand);
+      // 焦土（核ミサイルで焼けた土地）：黒く焼け焦げた地面
+      if (abs(id - 48.0) < 0.5) {
+        float burn = noise(mod(vWorld, 512.0) * 0.35) * 0.6 + noise(mod(vWorld, 512.0) * 1.7) * 0.4;
+        col = mix(col, vec3(0.17, 0.13, 0.1) * (0.7 + 0.6 * burn) + vec3(0.12, 0.03, 0.0) * smoothstep(0.75, 0.95, burn), 0.85 * isLand);
+      }
       // 国境線：となりの持ち主が違えば、自分の側に自分の色の線を引く
       // 引いているときは画面上で2pxくらい、拡大すると0.35マスの帯
       float w = max(0.35, cpp * 1.7);

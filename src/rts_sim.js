@@ -1553,11 +1553,61 @@ class Sim {
     this.emit('ability', { w, kind, x, y });
     return { ok: true };
   }
+  // ---------------------------------------------------------- 核ミサイル
+  /** 発射できるまでの残り秒（0なら発射できる）。b は核ミサイル基地 */
+  nukeReady(b) { return Math.max(0, (b.nukeAt || 0) - this.time); }
+  nukeRadius() { return CONFIG.NUKE_R * this.S; }
+  /** 財布 w の人が自分の核ミサイル基地 b から (x,y) へ発射する */
+  launchNuke(w, b, x, y) {
+    if (!b || b.dead || b.type !== 'nuke' || b.wallet !== w) return { ok: false, why: 'no' };
+    if (this.nukeReady(b) > 0) return { ok: false, why: 'cd' };
+    const c = this.cellAt(x, y);
+    if (c < 0) return { ok: false, why: 'target' };
+    b.nukeAt = this.time + CONFIG.NUKE_CD * (CONFIG.ABILITY_CD_MULT || 1);
+    if (!this.pending) this.pending = [];
+    const flight = CONFIG.NUKE_FLIGHT;
+    this.pending.push({ at: this.time + flight, kind: 'nuke', x, y, P: b.owner, w, ox: b.x, oy: b.y });
+    this.emit('nuke', { phase: 'launch', x, y, ox: b.x, oy: b.y, by: b.owner, w, flight, r: this.nukeRadius() });
+    return { ok: true, flight };
+  }
+  /** 着弾：半径の中の兵・建物・旗を全て消し、土地を焦土（持ち主なし）にする */
+  detonate(p) {
+    const R = this.nukeRadius(), R2 = R * R, map = this.map;
+    let killed = 0, razed = 0;
+    for (const u of this.units) {
+      if (!u.alive || u.ghost) continue;
+      if ((u.x - p.x) ** 2 + (u.y - p.y) ** 2 <= R2) { u.alive = false; killed++; this.emit('death', u); }
+    }
+    this.detonating = true;
+    for (const b of this.buildings) {
+      if (b.dead || (b.x - p.x) ** 2 + (b.y - p.y) ** 2 > R2) continue;
+      this.removeBuilding(b, true); razed++;
+    }
+    this.detonating = false;
+    if (razed) { this.buildings = this.buildings.filter((b) => !b.dead); this.cat = null; }
+    if (this.flags) this.flags = this.flags.filter((f) => (f.x - p.x) ** 2 + (f.y - p.y) ** 2 > R2);
+    // 焦土：拠点のある場所だけは残す（拠点そのものは焼けても持ち主はそのまま）
+    const changed = [], keep = new Set(this.nodes.map((n) => n.cell));
+    for (let y = Math.floor(p.y - R); y <= p.y + R; y++) for (let x = Math.floor(p.x - R); x <= p.x + R; x++) {
+      if ((x + 0.5 - p.x) ** 2 + (y + 0.5 - p.y) ** 2 > R2) continue;
+      const i = map.id(x, y);
+      if (i < 0 || !map.initPref[i] || keep.has(i)) continue;
+      const o = this.owner[i];
+      if (o === WASTE) continue;
+      this.moveCell(i, o, WASTE); changed.push(i);
+    }
+    if (changed.length) this.emit('cells', changed);
+    (this.nukes || (this.nukes = [])).push({ x: p.x, y: p.y, r: R, t: this.time, by: p.P });
+    this.stats.nukes = (this.stats.nukes || 0) + 1;
+    this.emit('nuke', { phase: 'boom', x: p.x, y: p.y, r: R, by: p.P, w: p.w, killed, razed, cells: changed.length });
+    this.checkEnd();
+  }
   runPending() {
     if (!this.pending || !this.pending.length) return;
     const keep = [];
     for (const p of this.pending) {
       if (p.at > this.time) { keep.push(p); continue; }
+      if (p.kind === 'nuke') { this.detonate(p); continue; }
       if (p.kind === 'shell') this.boom(p.x, p.y, 2.5 * Math.max(1, this.S * 0.7), 95, p.P, 110, 0, p.ox, p.oy, { hw: p.w });
     }
     this.pending = keep;

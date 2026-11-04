@@ -465,3 +465,17 @@ body.land.v-tps.building .bcard small { font-size: 8.5px; }
 body.land.v-tps.building .bcard small .ico { width: 11px !important; height: 11px !important; }
 body.land.v-tps.building #joy { bottom: 18px; }
 body.land.v-tps.building #genhp { display: none; }
+
+/* ---------- 核ミサイル ---------- */
+.nuke-ico { font-style: normal; font-size: 26px; line-height: 1; color: #ffd84a; text-shadow: 0 0 6px rgba(255,80,40,.8), 0 1px 0 #000; }
+body.land.v-tps #tpsbar #t-nuke { order: 0; width: 58px; height: 58px; border-color: #ff8a5a; background: radial-gradient(circle at 40% 30%, #7a2a14, #2a0c04); }
+#t-nuke.cool { filter: grayscale(.8); opacity: .65; }
+#t-nuke span { font-size: 10px; }
+#nukebar { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(14px + var(--sab)); z-index: 6; display: flex; align-items: center; gap: 10px;
+  background: rgba(30,8,4,.88); border: 1px solid #ff8a5a; border-radius: 10px; padding: 8px 10px; box-shadow: 0 4px 16px rgba(0,0,0,.6); }
+#nukebar.hidden { display: none; }
+.nb-msg { font: 700 13px var(--serif); color: #ffd8c8; white-space: nowrap; }
+#nukebar button { border-radius: 8px; padding: 10px 14px; font: 800 14px var(--serif); border: 1px solid var(--gold-dk); background: rgba(0,0,0,.35); color: var(--parch); }
+#nb-fire { background: linear-gradient(#d23a1a, #7a1608) !important; border-color: #ffb08a !important; color: #fff1e6 !important; }
+#nb-fire:disabled { filter: grayscale(.9); opacity: .55; }
+body.nuking #mapbar { display: none !important; }

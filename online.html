@@ -472,6 +472,20 @@ body.land.v-tps.building .bcard small { font-size: 8.5px; }
 body.land.v-tps.building .bcard small .ico { width: 11px !important; height: 11px !important; }
 body.land.v-tps.building #joy { bottom: 18px; }
 body.land.v-tps.building #genhp { display: none; }
+
+/* ---------- 核ミサイル ---------- */
+.nuke-ico { font-style: normal; font-size: 26px; line-height: 1; color: #ffd84a; text-shadow: 0 0 6px rgba(255,80,40,.8), 0 1px 0 #000; }
+body.land.v-tps #tpsbar #t-nuke { order: 0; width: 58px; height: 58px; border-color: #ff8a5a; background: radial-gradient(circle at 40% 30%, #7a2a14, #2a0c04); }
+#t-nuke.cool { filter: grayscale(.8); opacity: .65; }
+#t-nuke span { font-size: 10px; }
+#nukebar { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(14px + var(--sab)); z-index: 6; display: flex; align-items: center; gap: 10px;
+  background: rgba(30,8,4,.88); border: 1px solid #ff8a5a; border-radius: 10px; padding: 8px 10px; box-shadow: 0 4px 16px rgba(0,0,0,.6); }
+#nukebar.hidden { display: none; }
+.nb-msg { font: 700 13px var(--serif); color: #ffd8c8; white-space: nowrap; }
+#nukebar button { border-radius: 8px; padding: 10px 14px; font: 800 14px var(--serif); border: 1px solid var(--gold-dk); background: rgba(0,0,0,.35); color: var(--parch); }
+#nb-fire { background: linear-gradient(#d23a1a, #7a1608) !important; border-color: #ffb08a !important; color: #fff1e6 !important; }
+#nb-fire:disabled { filter: grayscale(.9); opacity: .55; }
+body.nuking #mapbar { display: none !important; }
 </style>
 </head>
 <body>
@@ -559,6 +573,11 @@ body.land.v-tps.building #genhp { display: none; }
     </div>
     <div id="joy" class="tps-only" aria-label="移動"><i></i></div>
     <div id="genhp" aria-label="大将の居場所"><div class="gh-top"><b>大将</b><span>建築の指揮</span></div><s id="gh-bar" hidden></s><div id="gh-where"></div></div>
+    <div id="nukebar" class="hidden">
+      <div class="nb-msg" id="nb-msg">地図をタップして着弾地点を選ぶ</div>
+      <button id="nb-cancel">やめる</button>
+      <button id="nb-fire" disabled>☢ 発射</button>
+    </div>
     <div id="mapbar" class="map-only">
       <button id="mb-back" class="btn-primary"><i data-ico="general"></i><span>大将に戻る</span></button>
       <button id="mb-top"><i data-ico="top"></i><span>真上／斜め</span></button>
@@ -568,6 +587,7 @@ body.land.v-tps.building #genhp { display: none; }
       <div class="actrow" id="tpsbar">
         <button id="t-build" class="b-rally"><i data-ico="build"></i><span>建築</span></button>
         <button id="t-map" class="b-rally"><i data-ico="top"></i><span>地図</span></button>
+        <button id="t-nuke" class="b-rally hidden"><i class="nuke-ico">☢</i><span>核</span></button>
       </div>
       <div class="actrow" id="oldrow">
         <button id="btn-rally" class="b-rally"><i data-ico="attack"></i><span>攻撃目標</span></button>
@@ -683,6 +703,9 @@ const CONFIG = {
   // ---- 画面
   CAMERA_PITCH: 42, TOP_PITCH: 90, TITLE_PITCH: 75, FOV: 34,
   ZOOM_MIN: 6, ZOOM_MAX: 13500,
+  NUKE_R: 30,          // 核ミサイルの焼き尽くす半径（元の地図のマス。細かい地図ではその S 倍）
+  NUKE_CD: 900,        // 次の発射までの待ち時間（秒。試作版の早い試合では1/4）
+  NUKE_FLIGHT: 4.5,    // 発射から着弾まで（秒）
   FILL: 0.035, FILL_TOP: 0.7,     // 領土の塗りの濃さ（斜め／真上）。斜めは国境線が主役
   TREE_MAX: 3500,
   LOG_MAX: 3, BANNER_MS: 1800, MINIMAP_REFRESH: 1.0, MAX_DPR: 2, HUD_REFRESH: 0.25,
@@ -737,6 +760,7 @@ const BUILDINGS = {
   wall: { cat: 'def', name: '石垣', icon: '🪨', cost: { wood: 100 }, hp: 2000, desc: 'とても頑丈。周り6マスの敵兵の足が半分に', aura: { r: 6, enemySlow: 0.5 } },
   mines: { cat: 'def', name: '地雷原', icon: '💥', cost: { wood: 60, gold: 40 }, hp: 100, desc: '近くを通った敵兵に大きな被害（30秒で再装填）', mine: { r: 3, dmg: 60, every: 30 } },
   gasshelter: { cat: 'def', name: '防毒壕', icon: '😷', cost: { wood: 100, gold: 60 }, hp: 300, desc: '周り12マスの味方は毒ガスの被害が1/5', aura: { r: 12, gasRes: 0.2 } },
+  nuke: { cat: 'def', name: '核ミサイル基地', icon: '☢', cost: { wood: 3000, gold: 5000 }, hp: 1500, desc: '伝説の最強兵器。あなたが着弾地点を選んで発射：半径30マスの兵・建物・旗を全て消し去り、土地を焦土にする（次の発射まで待ち時間）', nuke: true },
   radar: { cat: 'def', name: 'レーダー', icon: '📡', cost: { wood: 150, gold: 200 }, hp: 300, desc: '周り25マスで忍者を見つける・高射砲の威力 +50%', aura: { r: 25, detect: true, aa: 1.5 } },
   trench: { cat: 'def', name: '塹壕', icon: '🪖', cost: { wood: 70 }, hp: 400, desc: '周り6マスの味方の受ける被害 −40%', aura: { r: 6, armor: 0.6 } },
   // ---- 支援
@@ -1345,6 +1369,11 @@ void main(){
     if (id > 0.5) {
       vec3 pc = texture2D(uPalette, vec2((id + 0.5) / 64.0, 0.25)).rgb;
       col = mix(col, pc, uFill * isLand);
+      // 焦土（核ミサイルで焼けた土地）：黒く焼け焦げた地面
+      if (abs(id - 48.0) < 0.5) {
+        float burn = noise(mod(vWorld, 512.0) * 0.35) * 0.6 + noise(mod(vWorld, 512.0) * 1.7) * 0.4;
+        col = mix(col, vec3(0.17, 0.13, 0.1) * (0.7 + 0.6 * burn) + vec3(0.12, 0.03, 0.0) * smoothstep(0.75, 0.95, burn), 0.85 * isLand);
+      }
       // 国境線：となりの持ち主が違えば、自分の側に自分の色の線を引く
       // 引いているときは画面上で2pxくらい、拡大すると0.35マスの帯
       float w = max(0.35, cpp * 1.7);
@@ -4138,11 +4167,61 @@ class Sim {
     this.emit('ability', { w, kind, x, y });
     return { ok: true };
   }
+  // ---------------------------------------------------------- 核ミサイル
+  /** 発射できるまでの残り秒（0なら発射できる）。b は核ミサイル基地 */
+  nukeReady(b) { return Math.max(0, (b.nukeAt || 0) - this.time); }
+  nukeRadius() { return CONFIG.NUKE_R * this.S; }
+  /** 財布 w の人が自分の核ミサイル基地 b から (x,y) へ発射する */
+  launchNuke(w, b, x, y) {
+    if (!b || b.dead || b.type !== 'nuke' || b.wallet !== w) return { ok: false, why: 'no' };
+    if (this.nukeReady(b) > 0) return { ok: false, why: 'cd' };
+    const c = this.cellAt(x, y);
+    if (c < 0) return { ok: false, why: 'target' };
+    b.nukeAt = this.time + CONFIG.NUKE_CD * (CONFIG.ABILITY_CD_MULT || 1);
+    if (!this.pending) this.pending = [];
+    const flight = CONFIG.NUKE_FLIGHT;
+    this.pending.push({ at: this.time + flight, kind: 'nuke', x, y, P: b.owner, w, ox: b.x, oy: b.y });
+    this.emit('nuke', { phase: 'launch', x, y, ox: b.x, oy: b.y, by: b.owner, w, flight, r: this.nukeRadius() });
+    return { ok: true, flight };
+  }
+  /** 着弾：半径の中の兵・建物・旗を全て消し、土地を焦土（持ち主なし）にする */
+  detonate(p) {
+    const R = this.nukeRadius(), R2 = R * R, map = this.map;
+    let killed = 0, razed = 0;
+    for (const u of this.units) {
+      if (!u.alive || u.ghost) continue;
+      if ((u.x - p.x) ** 2 + (u.y - p.y) ** 2 <= R2) { u.alive = false; killed++; this.emit('death', u); }
+    }
+    this.detonating = true;
+    for (const b of this.buildings) {
+      if (b.dead || (b.x - p.x) ** 2 + (b.y - p.y) ** 2 > R2) continue;
+      this.removeBuilding(b, true); razed++;
+    }
+    this.detonating = false;
+    if (razed) { this.buildings = this.buildings.filter((b) => !b.dead); this.cat = null; }
+    if (this.flags) this.flags = this.flags.filter((f) => (f.x - p.x) ** 2 + (f.y - p.y) ** 2 > R2);
+    // 焦土：拠点のある場所だけは残す（拠点そのものは焼けても持ち主はそのまま）
+    const changed = [], keep = new Set(this.nodes.map((n) => n.cell));
+    for (let y = Math.floor(p.y - R); y <= p.y + R; y++) for (let x = Math.floor(p.x - R); x <= p.x + R; x++) {
+      if ((x + 0.5 - p.x) ** 2 + (y + 0.5 - p.y) ** 2 > R2) continue;
+      const i = map.id(x, y);
+      if (i < 0 || !map.initPref[i] || keep.has(i)) continue;
+      const o = this.owner[i];
+      if (o === WASTE) continue;
+      this.moveCell(i, o, WASTE); changed.push(i);
+    }
+    if (changed.length) this.emit('cells', changed);
+    (this.nukes || (this.nukes = [])).push({ x: p.x, y: p.y, r: R, t: this.time, by: p.P });
+    this.stats.nukes = (this.stats.nukes || 0) + 1;
+    this.emit('nuke', { phase: 'boom', x: p.x, y: p.y, r: R, by: p.P, w: p.w, killed, razed, cells: changed.length });
+    this.checkEnd();
+  }
   runPending() {
     if (!this.pending || !this.pending.length) return;
     const keep = [];
     for (const p of this.pending) {
       if (p.at > this.time) { keep.push(p); continue; }
+      if (p.kind === 'nuke') { this.detonate(p); continue; }
       if (p.kind === 'shell') this.boom(p.x, p.y, 2.5 * Math.max(1, this.S * 0.7), 95, p.P, 110, 0, p.ox, p.oy, { hw: p.w });
     }
     this.pending = keep;
@@ -4849,7 +4928,10 @@ const App = {
       const s = this.anim && this.anim.get(u.id);
       if (this.corpses.length < 300) this.corpses.push({ x: u.x, z: u.y, yaw: s ? s.yaw : 0, kind: (u.id % 3 !== 0 ? 0 : 2), col: this.colCache ? this.colCache[u.pref] : [0.5, 0.5, 0.5], t: this.clock });
     });
-    g.on('destroyed', (b) => { if (b.owner === this.me && (b.wallet === 0 || b.wallet === undefined)) this.log(`🔥 ${BUILDINGS[b.type].name}が壊されました`, 'bad', b.cell); if (this.sel && this.sel.b === b) this.hidePanel(); });
+    g.on('nuke', (e) => this.onNuke(e));
+    g.on('destroyed', (b) => {
+      if (this.game && this.game.detonating) return;   // 核の着弾でまとめて消えた建物は1つずつ記録しない
+      if (b.owner === this.me && (b.wallet === 0 || b.wallet === undefined)) this.log(`🔥 ${BUILDINGS[b.type].name}が壊されました`, 'bad', b.cell); if (this.sel && this.sel.b === b) this.hidePanel(); });
     g.on('flipped', (e) => { if (e.from === this.me) this.log(`⚠ ${BUILDINGS[e.building.type].name}を${map.prefs[e.to].name}に奪われました`, 'bad', e.building.cell); });
     g.on('eliminated', (p) => { if (p !== this.me) this.log(`${map.prefs[p].name}が全ての拠点を失い、脱落しました`, 'bad', -1); });
     g.on('flag', (e) => {
@@ -4953,7 +5035,7 @@ const App = {
     }, { signal });
     $('minimap').addEventListener('pointerdown', (e) => this.onMinimap(e), { signal });
     signal.addEventListener('abort', () => {
-      this.hidePanel(); this.setMode(null); this.endBuild();
+      this.hidePanel(); this.setMode(null); this.endBuild(); this.cancelNuke(); this.nukeFx = [];
       this.view = null; document.body.classList.remove('v-tps', 'v-map', 'building');
       Object.assign(this.cam, { yaw: 0, ty: 0, fovY: CONFIG.FOV * Math.PI / 180, minDist: 0, nearMin: 0, pitchGoal: CONFIG.CAMERA_PITCH });
     });
@@ -4981,7 +5063,7 @@ const App = {
     let html = '';
     for (const k of BUILD_ORDER) {
       const d = BUILDINGS[k];
-      if (d.cat !== cat) continue;
+      if (d.cat !== cat || (d.nuke && ONLINE)) continue;   // 核ミサイルは1人用だけ
       const cost = RES_KEYS.filter((r) => d.cost[r]).map((r) => `<span data-r="${r}">${seal(r, 'mini r-' + r)}${d.cost[r]}</span>`).join('');
       html += `<button class="bcard" data-b="${k}" title="${escapeHtml(d.desc)}">${seal(k, 'big c-' + d.cat)}<b>${d.name}</b><small>${cost}</small></button>`;
     }
@@ -5622,6 +5704,24 @@ const App = {
             pad(0, 0, 1.4, 1.4, C.stone); shadow(0.7, 0.7);
             P('cylW', 0, 0, 0, 0.35, 2.2, 0.35, [0.95, 0.95, 0.92]); P('box', 0, 2.2, 0, 0.45, 0.3, 0.45, C.lantern); P('coneT', 0, 2.5, 0, 0.4, 0.3, 0.4, C.red);
             break;
+          case 'nuke': {   // 核ミサイル基地：コンクリートの台・発射台に立つ白いミサイル（赤い先端）・黄色と黒の警告の帯・格納庫
+            const conc = [0.62, 0.62, 0.6], concDk = [0.42, 0.42, 0.42], yel = [0.95, 0.78, 0.15], blk = [0.12, 0.12, 0.12];
+            pad(0, 0, 3.4, 3.0, conc); shadow(2.0, 1.8);
+            P('box', 0, 0, 0, 3.0, 0.12, 2.6, concDk);
+            for (let k = 0; k < 6; k++) P('box', -1.25 + k * 0.5, 0.12, 1.25, 0.25, 0.02, 0.12, k % 2 ? blk : yel);   // 警告の帯
+            P('box', -0.9, 0.12, -0.6, 1.0, 0.5, 1.0, conc); P('roof', -0.9, 0.62, -0.6, 1.1, 0.3, 1.1, concDk);   // 格納庫
+            P('box', 0.55, 0.12, 0.1, 0.18, 2.6, 0.18, [0.5, 0.52, 0.55]);                                         // 発射台の柱
+            for (let k = 0; k < 3; k++) P('box', 0.38, 0.6 + k * 0.7, 0.1, 0.18, 0.05, 0.3, [0.5, 0.52, 0.55]);
+            const ready = !b.ghost && this.game && this.game.nukeReady && this.game.nukeReady(b) <= 0;
+            if (ready || b.ghost || this.iconStub) {   // 発射の準備ができていればミサイルが立っている
+              P('cylW', 0.2, 0.25, 0.1, 0.32, 2.2, 0.32, [0.94, 0.94, 0.92]);
+              P('coneT', 0.2, 2.45, 0.1, 0.32, 0.55, 0.32, C.red);
+              P('box', 0.2, 1.4, 0.1, 0.33, 0.14, 0.33, blk);
+              for (const [fx, fz] of [[0.2, 0.0], [0.0, 0.2]]) P('box', 0.2, 0.25, 0.1, 0.62 * (fx ? 1 : 0.06) + 0.02, 0.45, 0.62 * (fz ? 1 : 0.06) + 0.02, C.red);
+            } else P('cylW', 0.2, 0.12, 0.1, 0.5, 0.08, 0.5, blk);   // 空の発射口
+            P('box', 1.3, 0.12, -0.9, 0.35, 0.35, 0.02, yel); P('sphere', 1.3, 0.24, -0.88, 0.12, 0.12, 0.02, blk);   // 放射能の印
+            break;
+          }
           default:
             pad(0, 0, 2.0, 2.0); shadow(1.4, 1.4); minka(0, 0, 1.2, 0.9, 0.6, C.kawara, 0); flag(0.9, 0.7, 1.5, c);
         }
@@ -5832,6 +5932,7 @@ const App = {
   /** 森のマスに木を並べる（場所から決まる乱数。高いところ・北は針葉樹、低いところは広葉樹） */
   addTrees(I, cpx) {
     const map = this.map, cam = this.cam, W = map.W, t = map.terrain, ew = map.elevW, ev = map.elev;
+    const g0 = this.game;
     const tps = this.isTps();
     const vb = tps ? [cam.tx - 55, cam.tz - 55, cam.tx + 55, cam.tz + 55] : this.viewBox(0);
     if (!vb) return;
@@ -5851,6 +5952,7 @@ const App = {
         if (i < 0) continue;
         const k = t[i] & 7;
         if (k !== 2 && k !== 1) continue;
+        if (g0 && g0.owner[i] === WASTE) continue;   // 焦土には木はない
         const hk = ((x * 73856093) ^ (y * 19349663)) >>> 0;   // 場所から決まる乱数（細かい地図でも木がそろわないよう座標から）
         const h = ((hk * 2654435761) >>> 0) / 4294967296;
         if (k === 1 ? h > (tps ? 0.012 : 0.004) : h > 0.18) continue;   // 木は控えめに（兵や建物が隠れないように）
@@ -6355,6 +6457,7 @@ const App = {
       }
     }
     this.drawGhostOverlay(ctx);
+    this.drawNukeFx(ctx);
     this.drawGeneralTag(ctx);
   },
   onTap(sx, sy) {
@@ -6366,6 +6469,7 @@ const App = {
       return;
     }
     if (this.state === STATE.PLAYING && this.isTps() && this.build && !this.paused) { this.placeBuild(); return; }
+    if (this.state === STATE.PLAYING && this.nukeAim) { this.nukeTap(sx, sy); return; }   // 核ミサイルの着弾地点を選ぶ
     if (this.state !== STATE.PLAYING || this.paused || i < 0) return;
     const g = this.game, p = this.cam.groundAt(sx, sy);
     if (!p) return;
@@ -6717,6 +6821,7 @@ const App = {
     else if (k === 'Escape') {
       // モーダルは「既定のボタン」と同じ動きにする（日報なら翌日へ進む）
       if (!$('modal').classList.contains('hidden')) { if (this.state === STATE.PLAYING && this.modalEsc) this.modalEsc(); }
+      else if (this.nukeAim) this.cancelNuke();
       else if (this.build) this.endBuild();
       else if (this.mode) this.setMode(null);
       else this.hidePanel();
@@ -6871,6 +6976,7 @@ Object.assign(App, {
     const cam = this.cam, g = this.game;
     if (this.keys) this.keys.clear();
     this.joyV = [0, 0];
+    if (v === 'tps') this.cancelNuke && this.cancelNuke();
     if (v === 'map') {
       this.endBuild();
       if (this.setMode) this.setMode(null);
@@ -6964,15 +7070,175 @@ Object.assign(App, {
     this.ghostUpdate();
     this.genHud(gen);
   },
+  // ------------------------------------------------ 核ミサイル（あなたの核ミサイル基地から、地図で選んだ場所へ）
+  myNuke() {
+    const g = this.game;
+    if (this.clock < (this.nukeScanAt || 0) && (!this.nukeBase || !this.nukeBase.dead)) return this.nukeBase;
+    this.nukeScanAt = this.clock + 0.5;
+    let best = null;
+    for (const b of g.buildings) if (b.type === 'nuke' && b.wallet === 0 && !b.dead && (!best || g.nukeReady(b) < g.nukeReady(best))) best = b;
+    this.nukeBase = best;
+    return best;
+  },
+  updateNukeBtn() {
+    const g = this.game, el = $('t-nuke');
+    if (!el || !g || !g.nukeReady) return;
+    const b = this.myNuke();
+    el.classList.toggle('hidden', !b);
+    if (!b) return;
+    const left = g.nukeReady(b), lab = left > 0 ? `${Math.ceil(left)}秒` : '核';
+    if (lab !== this.nukeLab) { this.nukeLab = lab; el.querySelector('span').textContent = lab; el.classList.toggle('cool', left > 0); }
+  },
+  startNukeAim() {
+    const g = this.game, b = this.myNuke();
+    if (!b) { this.banner('核ミサイル基地がありません', 'ng', '「建築」の防衛から建てよう'); return; }
+    const left = g.nukeReady(b);
+    if (left > 0) { this.banner('核ミサイルはまだ撃てません', 'ng', `次の発射まであと${this.fmtDur(left)}`); return; }
+    const R = g.nukeRadius();
+    this.setView('map');
+    this.nukeAim = { b, x: null, z: null };
+    document.body.classList.add('nuking');
+    $('nukebar').classList.remove('hidden'); $('nb-fire').disabled = true;
+    $('nb-msg').textContent = '地図をタップして着弾地点を選ぶ';
+    this.cam.goal = null; this.cam.dist = Math.max(this.cam.dist, R * 9);
+    this.banner('☢ 着弾地点を選ぶ', 'ng', `赤い円（半径${CONFIG.NUKE_R * (this.map.scale || 1)}マス）の中の兵・建物は全て消える`);
+  },
+  cancelNuke() {
+    this.nukeAim = null;
+    document.body.classList.remove('nuking');
+    const bar = $('nukebar'); if (bar) bar.classList.add('hidden');
+  },
+  nukeTap(sx, sy) {
+    const p = this.cam.groundAt(sx, sy), A = this.nukeAim;
+    if (!p || !A) return;
+    const i = this.map.id(Math.floor(p.x), Math.floor(p.z));
+    if (i < 0) return;
+    A.x = p.x; A.z = p.z;
+    const o = this.game.owner[i], nm = o === this.me ? '自県の領土（味方も消えます）' : this.map.ownerName(o) + (o === WASTE ? '' : 'の領土');
+    $('nb-msg').textContent = `着弾地点：${this.map.isLand(i) ? nm : '海'}`;
+    $('nb-fire').disabled = false;
+  },
+  fireNuke() {
+    const A = this.nukeAim, g = this.game;
+    if (!A || A.x === null) return;
+    const r = g.launchNuke(0, A.b, A.x, A.z);
+    this.cancelNuke();
+    if (!r.ok) { this.banner('発射できません', 'ng', r.why === 'cd' ? 'まだ待ち時間があります' : ''); return; }
+    this.cam.flyTo(A.x, A.z, Math.max(this.cam.dist, g.nukeRadius() * 7), 0.5);
+  },
+  onNuke(e) {
+    const map = this.map;
+    (this.nukeFx || (this.nukeFx = [])).push({ ...e, t0: this.clock });
+    if (e.phase === 'launch') {
+      Sfx.alert();
+      const mine = e.w === 0;
+      this.banner(mine ? '☢ 核ミサイル発射！' : `☢ ${map.prefs[e.by].name}が核ミサイルを発射！`, 'ng', `着弾まで${Math.round(e.flight)}秒`);
+      this.log(`☢ ${mine ? 'あなたが' : map.prefs[e.by].name + 'が'}核ミサイルを発射しました`, mine ? 'good' : 'bad', map.id(Math.floor(e.x), Math.floor(e.y)));
+    } else {
+      Sfx.boom(1); setTimeout(() => Sfx.boom(1), 250); setTimeout(() => Sfx.boom(0.8), 700);
+      this.banner('☢ 着弾！ 全てが消えた', 'ng', `兵${fmt(e.killed)}人・建物${fmt(e.razed)}棟・${fmt(e.cells)}マスが焦土に`);
+      this.log(`☢ 核ミサイル着弾：兵${fmt(e.killed)}人・建物${fmt(e.razed)}棟が消え、${fmt(e.cells)}マスが焦土になりました`, 'bad', map.id(Math.floor(e.x), Math.floor(e.y)));
+      this.minimapDirty = true;
+    }
+  },
+  /** 地面の上の円（カメラの後ろの部分は描かない） */
+  groundCircle(ctx, x, z, r) {
+    const cam = this.cam, a = [0, 0], N = 72;
+    ctx.beginPath();
+    let pen = false, any = false;
+    for (let k = 0; k <= N; k++) {
+      const t = k / N * Math.PI * 2;
+      const ok = cam.project(x + Math.cos(t) * r, 0.05, z + Math.sin(t) * r, a) && a[0] > -this.w && a[0] < this.w * 2 && a[1] > -this.h && a[1] < this.h * 2;
+      if (ok) { if (pen) ctx.lineTo(a[0], a[1]); else { ctx.moveTo(a[0], a[1]); pen = true; } any = true; } else pen = false;
+    }
+    return any;
+  },
+  drawNukeFx(ctx) {
+    const g = this.game, cam = this.cam, v = [0, 0], w2 = [0, 0];
+    if (!g) return;
+    // 狙っている場所：赤い円
+    const A = this.nukeAim;
+    if (A && A.x !== null) {
+      const R = g.nukeRadius(), pulse = 0.5 + 0.5 * Math.sin(this.clock * 5);
+      ctx.save();
+      if (this.groundCircle(ctx, A.x, A.z, R)) { ctx.fillStyle = `rgba(220,30,20,${0.22 + 0.08 * pulse})`; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#ff5a3a'; ctx.stroke(); }
+      if (cam.project(A.x, 0, A.z, v)) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(v[0] - 14, v[1]); ctx.lineTo(v[0] + 14, v[1]); ctx.moveTo(v[0], v[1] - 14); ctx.lineTo(v[0], v[1] + 14); ctx.stroke(); }
+      ctx.restore();
+    }
+    if (!this.nukeFx || !this.nukeFx.length) return;
+    const keep = [];
+    for (const f of this.nukeFx) {
+      const age = this.clock - f.t0;
+      if (f.phase === 'launch') {
+        const t = age / f.flight;
+        if (t >= 1) continue;
+        keep.push(f);
+        const L = Math.hypot(f.x - f.ox, f.y - f.oy), H = Math.max(20, L * 0.35);
+        const at = (q) => [f.ox + (f.x - f.ox) * q, H * 4 * q * (1 - q), f.oy + (f.y - f.oy) * q];
+        // 煙の尾
+        ctx.save(); ctx.lineCap = 'round';
+        for (let k = 0; k < 24; k++) {
+          const q0 = Math.max(0, t - (k + 1) * 0.02), q1 = Math.max(0, t - k * 0.02);
+          const p0 = at(q0), p1 = at(q1);
+          if (!cam.project(p0[0], p0[1], p0[2], v) || !cam.project(p1[0], p1[1], p1[2], w2)) continue;
+          ctx.strokeStyle = `rgba(235,235,230,${0.55 * (1 - k / 24)})`; ctx.lineWidth = 6 - k * 0.18;
+          ctx.beginPath(); ctx.moveTo(v[0], v[1]); ctx.lineTo(w2[0], w2[1]); ctx.stroke();
+        }
+        const hp = at(t);
+        if (cam.project(hp[0], hp[1], hp[2], v)) {
+          const gl2 = ctx.createRadialGradient(v[0], v[1], 0, v[0], v[1], 16);
+          gl2.addColorStop(0, 'rgba(255,255,220,1)'); gl2.addColorStop(0.4, 'rgba(255,170,60,.8)'); gl2.addColorStop(1, 'rgba(255,80,20,0)');
+          ctx.fillStyle = gl2; ctx.beginPath(); ctx.arc(v[0], v[1], 16, 0, 7); ctx.fill();
+        }
+        ctx.restore();
+      } else {
+        const T = 7;
+        if (age >= T) continue;
+        keep.push(f);
+        const k = age / T;
+        ctx.save();
+        // 閃光（画面全体）
+        if (age < 0.9) { ctx.fillStyle = `rgba(255,252,235,${0.85 * (1 - age / 0.9) ** 1.5})`; ctx.fillRect(0, 0, this.w, this.h); }
+        // 衝撃波：地面を広がる白い輪
+        const sk = Math.min(1, age / 2.2);
+        if (sk < 1 && this.groundCircle(ctx, f.x, f.y, f.r * (0.15 + 0.95 * sk))) { ctx.lineWidth = 4; ctx.strokeStyle = `rgba(255,245,220,${0.9 * (1 - sk)})`; ctx.stroke(); }
+        // 焼けた円
+        if (this.groundCircle(ctx, f.x, f.y, f.r)) { ctx.fillStyle = `rgba(40,18,8,${0.35 * (1 - k)})`; ctx.fill(); }
+        // 火の玉ときのこ雲
+        if (cam.project(f.x, 0, f.y, v) && cam.project(f.x + f.r, 0, f.y, w2)) {
+          const rs = Math.min(this.h * 0.6, Math.hypot(w2[0] - v[0], w2[1] - v[1]));
+          const rise = Math.min(1, age / 3.5), top = [0, 0];
+          if (cam.project(f.x, f.r * 1.4 * rise, f.y, top)) {
+            ctx.fillStyle = `rgba(90,70,60,${0.75 * (1 - k)})`;   // 柱
+            ctx.fillRect(top[0] - rs * 0.12, top[1], rs * 0.24, Math.max(0, v[1] - top[1]));
+            for (let q = 0; q < 3; q++) {   // かさ
+              const cr = rs * (0.3 + 0.35 * rise) * (1 - q * 0.22);
+              ctx.fillStyle = q === 0 ? `rgba(110,80,60,${0.8 * (1 - k)})` : q === 1 ? `rgba(200,110,50,${0.7 * (1 - k)})` : `rgba(255,210,120,${0.75 * (1 - k)})`;
+              ctx.beginPath(); ctx.ellipse(top[0], top[1] - q * cr * 0.15, cr * 1.35, cr * 0.75, 0, 0, 7); ctx.fill();
+            }
+          }
+          const fb = rs * 0.55 * (0.4 + Math.min(1, age / 0.6) * 0.6) * (1 - k * 0.6);   // 火の玉
+          const gr = ctx.createRadialGradient(v[0], v[1] - fb * 0.3, 0, v[0], v[1] - fb * 0.3, fb);
+          gr.addColorStop(0, `rgba(255,255,230,${1 - k})`); gr.addColorStop(0.35, `rgba(255,170,60,${0.9 * (1 - k)})`); gr.addColorStop(1, 'rgba(160,40,10,0)');
+          ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(v[0], v[1] - fb * 0.3, fb, 0, 7); ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+    this.nukeFx = keep;
+  },
+
   /** 大将の体力・レベルと、今いる場所（自県／敵の領土） */
   genHud(gen) {
+    this.updateNukeBtn();
     const g = this.game, bar = $('gh-bar'), where = $('gh-where');
     void bar;   // 大将には体力がない（建てるだけ）
     let txt = '', cls = '';
     if (!gen) txt = '県庁で立て直し中';
     else {
       const own = g.owner[g.cellAt(gen.x, gen.y)], P = this.map.prefs[own];
-      if (own === this.me) txt = `<i style="background:${P.color}"></i>自県の領土`;
+      if (own === WASTE) txt = '<i style="background:#4a4038"></i>焦土（持ち主なし）';
+      else if (own === this.me) txt = `<i style="background:${P.color}"></i>自県の領土`;
       else if (P) { txt = `<i style="background:${P.color}"></i>${P.name}の領土（ここには建てられない）`; cls = 'enemy'; }
     }
     if (txt !== this.ghTxt) { this.ghTxt = txt; where.innerHTML = txt; where.className = cls; }
@@ -7143,6 +7409,9 @@ Object.assign(App, {
     joy.addEventListener('pointerup', up); joy.addEventListener('pointercancel', up);
     $('bc-rot').addEventListener('click', () => this.rotateBuild());
     $('bc-close').addEventListener('click', () => this.endBuild());
+    $('t-nuke').addEventListener('click', () => this.startNukeAim());
+    $('nb-cancel').addEventListener('click', () => { this.cancelNuke(); this.setView('tps'); });
+    $('nb-fire').addEventListener('click', () => this.fireNuke());
     for (const id of ['t-orient']) $(id).addEventListener('click', () => this.toggleOrient());
     // 下の帯の高さ（スティックと記録をその上に置く）
     const bb = $('bottombar'), setH = () => document.body.style.setProperty('--bbh', bb.offsetHeight + 'px');
