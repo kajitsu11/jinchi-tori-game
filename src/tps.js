@@ -394,6 +394,41 @@ Object.assign(App, {
     return { x: gen.x - Math.sin(T.yaw) * d, z: gen.y - Math.cos(T.yaw) * d };
   },
 
+  /** 横に長い帯を、なぞって左右に動かす。少しでも動かしたら、その指を離したときのタップ（カードを選ぶ）は無効にする */
+  dragScroll(el) {
+    let id = null, last = null, moved = 0, vel = 0, lastT = 0, raf = 0;
+    el.style.touchAction = 'none';
+    el.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      id = e.pointerId; last = this.toApp(e.clientX, e.clientY); moved = 0; vel = 0; lastT = performance.now();
+      cancelAnimationFrame(raf);
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== id) return;
+      const p = this.toApp(e.clientX, e.clientY), dx = p[0] - last[0];
+      last = p; moved += Math.abs(dx);
+      if (moved > 6) {
+        if (!el.hasPointerCapture(e.pointerId)) el.setPointerCapture(e.pointerId);
+        el.scrollLeft -= dx;
+        const now = performance.now(); vel = dx / Math.max(1, now - lastT); lastT = now;
+      }
+    });
+    const end = (e) => {
+      if (e.pointerId !== id) return;
+      id = null;
+      if (moved > 6) {
+        // 指を離したあとも少し滑る
+        let v = vel * 16;
+        const glide = () => { if (Math.abs(v) < 0.5) return; el.scrollLeft -= v; v *= 0.92; raf = requestAnimationFrame(glide); };
+        raf = requestAnimationFrame(glide);
+      }
+    };
+    el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+    // なぞった後のタップは無視（カードを誤って選ばないように）
+    el.addEventListener('click', (e) => { if (moved > 6) { e.stopPropagation(); e.preventDefault(); moved = 0; } }, true);
+    // PC：ホイールで左右に
+    el.addEventListener('wheel', (e) => { el.scrollLeft += (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY); e.preventDefault(); }, { passive: false });
+  },
   // ------------------------------------------------ 画面の向き
   // 基本は横画面。縦に持っているときは画面全体を90度回して横で表示する（縦画面に切り替えることもできる）
   orientPref() {
@@ -462,6 +497,8 @@ Object.assign(App, {
     $('bc-rot').addEventListener('click', () => this.rotateBuild());
     $('bc-close').addEventListener('click', () => this.endBuild());
     $('t-nuke').addEventListener('click', () => this.startNukeAim());
+    // 建物のカードと分類の帯は、指でなぞって左右に動かす（画面を回しているときもゲーム画面の向きで。ブラウザ任せだと回した画面では動かない）
+    for (const el of [$('buildmenu'), $('bcats')]) this.dragScroll(el);
     $('nb-cancel').addEventListener('click', () => { this.cancelNuke(); this.setView('tps'); });
     $('nb-fire').addEventListener('click', () => this.fireNuke());
     for (const id of ['t-orient']) $(id).addEventListener('click', () => this.toggleOrient());
