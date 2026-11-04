@@ -454,7 +454,7 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
       let sum = g.counts[48]; for (let p = 1; p <= 47; p++) sum += g.counts[p];   // 48 = 焦土（核ミサイルで焼けた土地）
       const cnt = new Int32Array(49), nc = new Int32Array(49);
       let badOwner = 0, badPos = 0, badB = 0, badRes = 0;
-      for (const i of g.landIdx) { cnt[g.owner[i]]++; if (g.owner[i] !== g.nodes[g.nodeOf[i]].owner) badOwner++; }
+      for (const i of g.landIdx) { cnt[g.owner[i]]++; if (g.owner[i] !== 48 && g.owner[i] !== g.nodes[g.nodeOf[i]].owner) badOwner++;   // 焦土は拠点の持ち主と違ってよい }
       for (const n of g.nodes) nc[n.owner]++;
       let badCnt = 0; for (let p = 1; p <= 47; p++) { if (cnt[p] !== g.counts[p]) badCnt++; if (nc[p] !== g.nodeCount[p]) badCnt++; }
       for (const u of g.units) if (!Number.isFinite(u.x) || !Number.isFinite(u.y) || u.x < 0 || u.y < 0 || u.x > m.W || u.y > m.H) badPos++;
