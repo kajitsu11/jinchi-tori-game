@@ -479,3 +479,12 @@ body.land.v-tps #tpsbar #t-nuke { order: 0; width: 58px; height: 58px; border-co
 #nb-fire { background: linear-gradient(#d23a1a, #7a1608) !important; border-color: #ffb08a !important; color: #fff1e6 !important; }
 #nb-fire:disabled { filter: grayscale(.9); opacity: .55; }
 body.nuking #mapbar { display: none !important; }
+
+#superpick { position: absolute; right: calc(14px + env(safe-area-inset-right, 0px)); bottom: calc(var(--bbh, 130px) + 26px); z-index: 6; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: 70%;
+  background: rgba(30,8,4,.82); border: 1px solid #ff8a5a; border-radius: 10px; padding: 6px; }
+#superpick.hidden { display: none; }
+#superpick button { width: 82px; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 6px 2px; border-radius: 8px; border: 1px solid var(--gold-dk); background: linear-gradient(#5a2a14, #2a0c04); color: var(--parch); }
+#superpick button i { font-style: normal; font-size: 24px; line-height: 1.1; }
+#superpick button b { font: 700 11px var(--serif); white-space: nowrap; }
+#superpick button small { font-size: 9.5px; color: #ffd8c8; }
+#superpick button.cool { opacity: .5; filter: grayscale(.7); }

@@ -486,6 +486,15 @@ body.land.v-tps #tpsbar #t-nuke { order: 0; width: 58px; height: 58px; border-co
 #nb-fire { background: linear-gradient(#d23a1a, #7a1608) !important; border-color: #ffb08a !important; color: #fff1e6 !important; }
 #nb-fire:disabled { filter: grayscale(.9); opacity: .55; }
 body.nuking #mapbar { display: none !important; }
+
+#superpick { position: absolute; right: calc(14px + env(safe-area-inset-right, 0px)); bottom: calc(var(--bbh, 130px) + 26px); z-index: 6; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: 70%;
+  background: rgba(30,8,4,.82); border: 1px solid #ff8a5a; border-radius: 10px; padding: 6px; }
+#superpick.hidden { display: none; }
+#superpick button { width: 82px; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 6px 2px; border-radius: 8px; border: 1px solid var(--gold-dk); background: linear-gradient(#5a2a14, #2a0c04); color: var(--parch); }
+#superpick button i { font-style: normal; font-size: 24px; line-height: 1.1; }
+#superpick button b { font: 700 11px var(--serif); white-space: nowrap; }
+#superpick button small { font-size: 9.5px; color: #ffd8c8; }
+#superpick button.cool { opacity: .5; filter: grayscale(.7); }
 </style>
 </head>
 <body>
@@ -573,6 +582,7 @@ body.nuking #mapbar { display: none !important; }
     </div>
     <div id="joy" class="tps-only" aria-label="移動"><i></i></div>
     <div id="genhp" aria-label="大将の居場所"><div class="gh-top"><b>大将</b><span>建築の指揮</span></div><s id="gh-bar" hidden></s><div id="gh-where"></div></div>
+    <div id="superpick" class="hidden"></div>
     <div id="nukebar" class="hidden">
       <div class="nb-msg" id="nb-msg">地図をタップして着弾地点を選ぶ</div>
       <button id="nb-cancel">やめる</button>
@@ -587,7 +597,7 @@ body.nuking #mapbar { display: none !important; }
       <div class="actrow" id="tpsbar">
         <button id="t-build" class="b-rally"><i data-ico="build"></i><span>建築</span></button>
         <button id="t-map" class="b-rally"><i data-ico="top"></i><span>地図</span></button>
-        <button id="t-nuke" class="b-rally hidden"><i class="nuke-ico">☢</i><span>核</span></button>
+        <button id="t-nuke" class="b-rally hidden"><i class="nuke-ico">⚔</i><span>兵器</span></button>
       </div>
       <div class="actrow" id="oldrow">
         <button id="btn-rally" class="b-rally"><i data-ico="attack"></i><span>攻撃目標</span></button>
@@ -705,6 +715,15 @@ const CONFIG = {
   NUKE_R: 30,          // 核ミサイルの焼き尽くす半径（元の地図のマス。細かい地図ではその S 倍）
   NUKE_CD: 900,        // 次の発射までの待ち時間（秒。試作版の早い試合では1/4）
   NUKE_FLIGHT: 4.5,    // 発射から着弾まで（秒）
+  // 最強兵器（長さは元の地図のマス。細かい地図ではその S 倍。待ち時間は試作版の早い試合では1/4）
+  SUPER: {
+    nuke: { name: '核ミサイル', cd: 900 },
+    bell: { name: '調略の大鐘', cd: 900, r: 30, stun: 30 },
+    rift: { name: '大鯰の地割れ', cd: 900, len: 180, hw: 5, life: 150 },
+    storm: { name: '神風の大嵐', cd: 900, life: 120 },
+    plague: { name: '黒死の壺', cd: 900, r: 8, life: 240, spread: 3.5, dmg: 0.022 },
+    sky: { name: '天空城', cd: 1200, life: 300, hp: 5000, spd: 3, bomb: 0.4 },
+  },
   FILL: 0.035, FILL_TOP: 0.7,     // 領土の塗りの濃さ（斜め／真上）。斜めは国境線が主役
   TREE_MAX: 3500,
   LOG_MAX: 3, BANNER_MS: 1800, MINIMAP_REFRESH: 1.0, MAX_DPR: 2, HUD_REFRESH: 0.25,
@@ -759,7 +778,6 @@ const BUILDINGS = {
   wall: { cat: 'def', name: '石垣', icon: '🪨', cost: { wood: 100 }, hp: 2000, desc: 'とても頑丈。周り6マスの敵兵の足が半分に', aura: { r: 6, enemySlow: 0.5 } },
   mines: { cat: 'def', name: '地雷原', icon: '💥', cost: { wood: 60, gold: 40 }, hp: 100, desc: '近くを通った敵兵に大きな被害（30秒で再装填）', mine: { r: 3, dmg: 60, every: 30 } },
   gasshelter: { cat: 'def', name: '防毒壕', icon: '😷', cost: { wood: 100, gold: 60 }, hp: 300, desc: '周り12マスの味方は毒ガスの被害が1/5', aura: { r: 12, gasRes: 0.2 } },
-  nuke: { cat: 'def', name: '核ミサイル基地', icon: '☢', cost: { wood: 3000, gold: 5000 }, hp: 1500, desc: '伝説の最強兵器。あなたが着弾地点を選んで発射：半径30マスの兵・建物・旗を全て消し去り、土地を焦土にする（次の発射まで待ち時間）', nuke: true },
   radar: { cat: 'def', name: 'レーダー', icon: '📡', cost: { wood: 150, gold: 200 }, hp: 300, desc: '周り25マスで忍者を見つける・高射砲の威力 +50%', aura: { r: 25, detect: true, aa: 1.5 } },
   trench: { cat: 'def', name: '塹壕', icon: '🪖', cost: { wood: 70 }, hp: 400, desc: '周り6マスの味方の受ける被害 −40%', aura: { r: 6, armor: 0.6 } },
   // ---- 支援
@@ -770,12 +788,18 @@ const BUILDINGS = {
   temple: { cat: 'sup', name: '寺', icon: '🛕', cost: { wood: 150, gold: 80 }, hp: 350, desc: '周り20マスの味方の拠点は占領されにくい（1.5倍）', aura: { r: 20, hold: 1.5 } },
   lighthouse: { cat: 'sup', name: '灯台', icon: '🗼', cost: { wood: 100, gold: 50 }, hp: 250, desc: '周り25マスの味方の軍艦の攻撃 +40%（海の近くだけ）', aura: { r: 25, navy: 1.4 }, need: 'coast' },
   // ---- 拠点
+  nuke: { cat: 'super', name: '核ミサイル基地', icon: '☢', cost: { wood: 3000, gold: 5000 }, hp: 1500, desc: '伝説の最強兵器。あなたが着弾地点を選んで発射：半径30マスの兵・建物・旗を全て消し去り、土地を焦土にする', nuke: true, super: 'nuke' },
+  bell: { cat: 'super', name: '調略の大鐘', icon: '🔔', cost: { wood: 3000, gold: 5000 }, hp: 1500, desc: '鳴らした場所の周り（半径30マス）の敵の兵・建物・土地・拠点（県庁以外）を全て寝返らせる。寝返った兵は30秒動けない', super: 'bell' },
+  rift: { cat: 'super', name: '大鯰の祠', icon: '🌋', cost: { wood: 3000, gold: 5000 }, hp: 1500, desc: '2か所を選ぶと、その間に長い地割れが走る：帯の上の兵・建物は全滅し、地割れはしばらく渡れない', super: 'rift' },
+  storm: { cat: 'super', name: '神風の祭壇', icon: '🌀', cost: { wood: 3000, gold: 5000 }, hp: 1500, desc: '選んだ県全体を大嵐に：飛行機は墜落・軍艦は沈み、兵の足は1/3、訓練と旗が止まる（2分）', super: 'storm' },
+  plague: { cat: 'super', name: '黒死の壺蔵', icon: '⚱', cost: { wood: 3000, gold: 5000 }, hp: 1500, desc: '投げ込んだ所から疫病が敵の兵へうつって広がる。かかった兵は体力が減って倒れる（診療所の近くで治る）', super: 'plague' },
+  sky: { cat: 'super', name: '天空城の礎', icon: '🏯', cost: { wood: 3000, gold: 5000 }, hp: 1500, desc: '巨大な城を空に浮かべ、選んだ場所へ飛ばす。真下を砲撃し続ける（高射砲で削られ、耐久が尽きると落ちる）', super: 'sky' },
   town: { cat: 'node', name: '町', icon: '🏘️', cost: { wood: 250, gold: 150 }, desc: '国境を広げる・金 +43/時', node: true, make: { gold: 0.012 } },
   fort: { cat: 'node', name: '砦', icon: '🏰', cost: { wood: 150, gold: 300 }, desc: '国境を広げ、近くの敵兵を撃つ', node: true, range: 13, dps: 2.9, hits: 'land' },
   castle: { cat: 'node', name: '城', icon: '🏯', cost: { wood: 400, gold: 600 }, desc: '広い国境（1.4倍）と強い守り。飛行機も撃つ', node: true, range: 15, dps: 3.5, hits: 'land,sea,air', radius: 1.4 },
 };
 const BUILD_ORDER = Object.keys(BUILDINGS);
-const BUILD_CATS = [['eco', '経済'], ['mil', '兵の生産'], ['def', '防衛'], ['sup', '支援'], ['node', '拠点']];
+const BUILD_CATS = [['eco', '経済'], ['mil', '兵の生産'], ['def', '防衛'], ['sup', '支援'], ['node', '拠点'], ['super', '最強兵器']];
 /**
  * 兵種。dom: land=陸 sea=海 air=空。hits: 撃てる相手。vsB: 建物への攻撃の倍率。splash: 範囲攻撃の半径。
  * fuel: 飛行機が飛べる秒数（切れると基地へ帰る＝いなくなる）。stealth: 塔などに狙われない（レーダーの近くは別）
@@ -3024,6 +3048,7 @@ class Sim {
     this.runPending();
     this.updateGeneral();
     this.updateEvents();
+    this.updateStormSet();
     this.buildHash();
     this.planAll();
     this.aiBuildAll();
@@ -3037,6 +3062,9 @@ class Sim {
     this.combat(dt);
   }
   stepD(dt) {
+    if (this.skyForts && this.skyForts.length) this.updateSky(dt);
+    if (this.plagueOn) this.updatePlague(dt);
+    if (this.rifts && this.rifts.length) this.rifts = this.rifts.filter((r) => r.until > this.time);
     this.moveAll(dt);
     this.updateNodes(dt);
     if (CONFIG.FLAG_MODE) this.updateFlags(dt);
@@ -3385,7 +3413,7 @@ class Sim {
     const capOf = (P) => { let v = cap.get(P); if (v === undefined) cap.set(P, v = this.unitCap(P)); return v; };
     for (let i = slot4; i < tr.length; i += 4) {
       const b = tr[i];
-      if (b.dead) continue;
+      if (b.dead || (this.stormSet && this.stormSet.has(b.owner))) continue;   // 大嵐の県は訓練が止まる
       const def = BUILDINGS[b.type];
       b.t += dt * 4;
       const need = def.train * (CONFIG.TRAIN_MULT || 1);
@@ -3637,6 +3665,7 @@ class Sim {
     const def = UNITS[u.type], S = this.S;
     // 三人称視点であなたが直接動かしている大将は、勝手に歩かない（射程に入った敵とは自動で戦う）
     if (u.isGeneral && this.genManual) { u.chase = -1; u.dest = null; u.path = null; u.goalNode = -1; return; }
+    if (u.stunUntil > this.time) { u.dest = null; u.path = null; u.thinkAt = u.stunUntil; return; }
     // 通常の兵士（足軽）は、敵の領土に入ったら旗を立てる
     if (CONFIG.FLAG_MODE && u.type === 'ashigaru' && u.engaged < 0 && (u.role === 'atk' || u.fromPlayer) && u.goalNode !== -2 && u.follow === undefined && this.rng() < 0.5) {
       const gn = this.nodes[u.goalNode];   // 攻め先の拠点の近くで立てる（途中で立てても守れないので）
@@ -3761,6 +3790,13 @@ class Sim {
     if (hitB) this.buildingsNear(x, y, r, (b) => { if (b.owner !== P) { b.hp -= hitB; b.hitAt = this.time; this.hurtB.push(b); } });
     if (this.booms.length < 200) this.booms.push([x, y, r, this.time, kind || 0, ox === undefined ? x : ox, oy === undefined ? y : oy]);
   }
+  /** 戦闘の計算の外で起きる爆発（砲撃・天空城など）：体力を直接減らす（倒れるのは次の戦闘の計算で） */
+  boomDirect(x, y, r, dmg, P, hitB, kind, ox, oy) {
+    this.forUnitsNear(x, y, r, (v) => { if (v.pref !== P && v.bit !== 4 && !v.ghost && v.alive) v.hp -= dmg * (v.buff ? v.buff.armor : 1); });
+    if (hitB) this.buildingsNear(x, y, r, (b) => { if (b.owner !== P) { b.hp -= hitB; b.hitAt = this.time; (this.hurtB || (this.hurtB = [])).push(b); } });
+    if (!this.booms) this.booms = [];
+    if (this.booms.length < 200) this.booms.push([x, y, r, this.time, kind || 0, ox === undefined ? x : ox, oy === undefined ? y : oy]);
+  }
   /** by：撃った兵（あなたの部隊の撃破を数えるため） */
   hitUnit(v, a, by) {
     if (v.isGeneral) a /= 1 + 0.1 * ((this.genLv || 1) - 1);   // 大将はレベルが上がるほど被害が少ない
@@ -3780,7 +3816,7 @@ class Sim {
     // 兵が多いときは、兵の攻撃を2組に分けて1刻みおきに計算する（そのぶん2刻み分の被害を与える）
     const half = U.length > 1500, parity = (this.tickNo || 0) & 1;
     for (const u of U) {
-      if (!u.alive || u.ghost) continue;   // 幽霊の大将は戦わない
+      if (!u.alive || u.ghost || u.stunUntil > this.time) continue;   // 幽霊の大将・寝返ったばかりの兵は戦わない
       if (half && (u.id & 1) !== parity) continue;
       const udt = half ? dt * 2 : dt;
       const def = UNITS[u.type], buff = u.buff || {};
@@ -3904,7 +3940,8 @@ class Sim {
     for (const u of this.units) {
       u.px = u.x; u.py = u.y;
       if (u.engaged >= 0 || u.hitB) continue;
-      let sp = base * UNITS[u.type].spd * (u.buff ? u.buff.spd : 1) * (u.boostUntil > this.time ? 1.3 : 1);
+      if (u.stunUntil > this.time) continue;   // 寝返ったばかりの兵は動けない
+      let sp = (this.stormSet && this.stormSet.has(u.pref) ? 0.33 : 1) * base * UNITS[u.type].spd * (u.buff ? u.buff.spd : 1) * (u.boostUntil > this.time ? 1.3 : 1);
       const def = UNITS[u.type];
       if (u.bit === 1 && this.rains) for (const r of this.rains) if (r.until > this.time && Math.abs(u.x - r.x) < r.r && Math.abs(u.y - r.y) < r.r) { sp *= 0.55; break; }   // 大雨で足が遅い
       let tx, ty, stopAt = 0;
@@ -3922,6 +3959,11 @@ class Sim {
       const dx = tx - u.x, dy = ty - u.y, d = Math.hypot(dx, dy);
       if (d <= stopAt) continue;
       if (u.bit === 2) { this.sail(u, dx / d, dy / d, Math.min(sp, d - stopAt)); if (d - stopAt <= sp) { u.dest = null; } continue; }
+      // 地割れは渡れない（陸の兵）
+      if (this.rifts && this.rifts.length && u.bit === 1) {
+        const nx = d - stopAt <= sp ? tx : u.x + dx / d * sp, ny = d - stopAt <= sp ? ty : u.y + dy / d * sp;
+        if (this.inRift(nx, ny) && !this.inRift(u.x, u.y)) { if (++u.stuck > 12) { u.dest = null; u.path = null; u.goalNode = -1; u.chase = -1; u.thinkAt = this.time + 3; u.stuck = 0; } continue; }
+      }
       if (d - stopAt <= sp) {
         u.x = tx - (stopAt ? dx / d * stopAt : 0); u.y = ty - (stopAt ? dy / d * stopAt : 0);
         if (u.chase < 0) { if (u.path && u.pi < u.path.length) u.pi++; else { u.dest = null; u.path = null; } }
@@ -3996,7 +4038,7 @@ class Sim {
         keep.push(f); continue;
       }
       f.hp = Math.min(100, f.hp + CONFIG.FLAG_DECAY * 0.5 * dt);
-      if (own >= en) f.prog += dt * rate;   // 敵の兵のほうが多いあいだは進まない（決戦中は速い）
+      if (own >= en && !(this.stormSet && this.stormSet.has(f.pref))) f.prog += dt * rate;   // 大嵐の県の旗は進まない   // 敵の兵のほうが多いあいだは進まない（決戦中は速い）
       if (f.prog >= CONFIG.FLAG_HOLD) { this.completeFlag(f); continue; }
       keep.push(f);
     }
@@ -4165,6 +4207,178 @@ class Sim {
     h.abil[kind] = this.time + def.cd * (CONFIG.ABILITY_CD_MULT || 1);
     this.emit('ability', { w, kind, x, y });
     return { ok: true };
+  }
+  // ---------------------------------------------------------- 最強兵器（核ミサイル・調略の大鐘・大鯰の地割れ・神風の大嵐・黒死の壺・天空城）
+  superReady(b) { return b.type === 'nuke' ? this.nukeReady(b) : Math.max(0, (b.superAt || 0) - this.time); }
+  superR(kind) { const d = CONFIG.SUPER[kind] || {}; return (d.r || CONFIG.NUKE_R) * this.S; }
+  /** 財布 w の人が自分の兵器 b を使う。t = { x, y, x2, y2 } */
+  fireSuper(w, b, t) {
+    if (!b || b.dead || b.wallet !== w || !BUILDINGS[b.type].super) return { ok: false, why: 'no' };
+    const kind = BUILDINGS[b.type].super;
+    if (kind === 'nuke') return this.launchNuke(w, b, t.x, t.y);
+    if (this.superReady(b) > 0) return { ok: false, why: 'cd' };
+    const D = CONFIG.SUPER[kind], P = b.owner, S = this.S;
+    let r;
+    if (kind === 'bell') r = this.superBell(P, w, t.x, t.y, D);
+    else if (kind === 'rift') r = this.superRift(P, w, t.x, t.y, t.x2, t.y2, D);
+    else if (kind === 'storm') r = this.superStorm(P, w, t.x, t.y, D);
+    else if (kind === 'plague') r = this.superPlague(P, w, t.x, t.y, D);
+    else if (kind === 'sky') r = this.superSky(P, w, b, t.x, t.y, D);
+    if (!r || !r.ok) return r || { ok: false };
+    b.superAt = this.time + D.cd * (CONFIG.ABILITY_CD_MULT || 1);
+    this.stats.supers = (this.stats.supers || 0) + 1;
+    this.emit('super', Object.assign({ kind, by: P, w, S }, r));
+    void S;
+    return r;
+  }
+  /** 取った土地を、いちばん近い自分の拠点の領土にする */
+  homeCells(P, x, y, changed) {
+    let home = null, hd = 1e18;
+    for (const n of this.nodes) if (n.owner === P) { const d = (n.x - x) ** 2 + (n.y - y) ** 2; if (d < hd) { hd = d; home = n; } }
+    if (!home || !changed.length) return;
+    const dist = this.nodeDist, cap = Math.min(255, Math.round(Math.sqrt(hd)));
+    for (const i of changed) { this.nodeOf[i] = home.id; dist[i] = cap; }
+    const old = this.nodeCells[home.id], add = new Int32Array(old.length + changed.length);
+    add.set(old); add.set(changed, old.length);
+    this.nodeCells[home.id] = add;
+  }
+  /** 調略の大鐘：半径の中の敵の兵・建物・土地・拠点（県庁以外）を寝返らせる */
+  superBell(P, w, x, y, D) {
+    const R = D.r * this.S, R2 = R * R, map = this.map;
+    const c = this.cellAt(x, y);
+    if (c < 0 || !map.initPref[c]) return { ok: false, why: 'target' };
+    let units = 0, nodes = 0;
+    for (const u of this.units) {
+      if (!u.alive || u.ghost || u.pref === P || (u.x - x) ** 2 + (u.y - y) ** 2 > R2) continue;
+      u.pref = P; u.fromPlayer = false; u.hw = -1; delete u.follow; u.role = 'atk'; u.stunUntil = this.time + D.stun;
+      u.chase = -1; u.engaged = -1; u.dest = null; u.path = null; u.goalNode = -1; u.tgt = -1; u.sick = 0;
+      units++;
+    }
+    for (const n of this.nodes) if (n.owner !== P && n.type !== 'capital' && (n.x - x) ** 2 + (n.y - y) ** 2 <= R2) { this.capture(n, P); nodes++; }
+    const changed = [];
+    for (let yy = Math.floor(y - R); yy <= y + R; yy++) for (let xx = Math.floor(x - R); xx <= x + R; xx++) {
+      if ((xx + 0.5 - x) ** 2 + (yy + 0.5 - y) ** 2 > R2) continue;
+      const i = map.id(xx, yy);
+      if (i < 0 || !map.initPref[i]) continue;
+      const o = this.owner[i];
+      if (o !== P && !(this.nodes[this.nodeOf[i]] && this.nodes[this.nodeOf[i]].cell === i && this.nodes[this.nodeOf[i]].type === 'capital')) { this.moveCell(i, o, P); changed.push(i); }
+    }
+    this.homeCells(P, x, y, changed);
+    this.flipBuildings(changed, P);
+    let blds = 0;
+    for (const b of this.buildings) if (!b.dead && b.owner === P && b.wallet === P && (b.x - x) ** 2 + (b.y - y) ** 2 <= R2 && changed.length) { if (w >= 0 && this.isHuman(w)) { b.wallet = w; b.byPlayer = true; } blds++; }
+    this.cat = null;
+    if (changed.length) this.emit('cells', changed);
+    for (let p = 1; p <= 47; p++) if (this.counts[p] === 0 && this.nodeCount[p] === 0) this.eliminate(p);
+    this.checkEnd();
+    return { ok: true, x, y, r: R, units, nodes, blds, cells: changed.length };
+  }
+  /** 大鯰の地割れ：(x,y)→(x2,y2) の帯の上を全滅させ、しばらく渡れなくする */
+  superRift(P, w, x, y, x2, y2, D) {
+    if (x2 === undefined) return { ok: false, why: 'target' };
+    const S = this.S, maxL = D.len * S;
+    let L = Math.hypot(x2 - x, y2 - y);
+    if (L < 4) return { ok: false, why: 'short' };
+    if (L > maxL) { x2 = x + (x2 - x) / L * maxL; y2 = y + (y2 - y) / L * maxL; L = maxL; }
+    const hw = D.hw * S, seg = { x1: x, y1: y, x2, y2, hw, until: this.time + D.life, L };
+    let units = 0, blds = 0;
+    for (const u of this.units) if (u.alive && !u.ghost && u.bit !== 4 && this.segDist(seg, u.x, u.y) <= hw) { u.alive = false; units++; this.emit('death', u); }
+    this.detonating = true;
+    for (const b of this.buildings) if (!b.dead && this.segDist(seg, b.x, b.y) <= hw) { this.removeBuilding(b, true); blds++; }
+    this.detonating = false;
+    if (blds) { this.buildings = this.buildings.filter((b) => !b.dead); this.cat = null; }
+    if (this.flags) this.flags = this.flags.filter((f) => this.segDist(seg, f.x, f.y) > hw);
+    (this.rifts || (this.rifts = [])).push(seg);
+    return { ok: true, x, y, x2, y2, hw, units, blds, life: D.life };
+  }
+  segDist(s, px, py) {
+    const vx = s.x2 - s.x1, vy = s.y2 - s.y1, l2 = vx * vx + vy * vy || 1;
+    const t = Math.max(0, Math.min(1, ((px - s.x1) * vx + (py - s.y1) * vy) / l2));
+    return Math.hypot(px - s.x1 - vx * t, py - s.y1 - vy * t);
+  }
+  inRift(x, y) { for (const r of this.rifts) if (r.until > this.time && this.segDist(r, x, y) <= r.hw) return true; return false; }
+  /** 神風の大嵐：(x,y) の土地の県全体 */
+  superStorm(P, w, x, y, D) {
+    const c = this.cellAt(x, y), Q = c >= 0 ? this.owner[c] : 0;
+    if (!Q || Q === P || Q > 47) return { ok: false, why: 'target' };
+    let units = 0;
+    for (const u of this.units) if (u.alive && u.pref === Q && (u.bit === 4 || u.bit === 2)) { u.alive = false; units++; this.emit('death', u); }   // 飛行機は墜落・軍艦は沈む
+    (this.storms || (this.storms = [])).push({ pref: Q, until: this.time + D.life, by: P });
+    this.updateStormSet();
+    return { ok: true, x, y, pref: Q, units, life: D.life };
+  }
+  updateStormSet() {
+    if (!this.storms || !this.storms.length) { this.stormSet = null; return; }
+    this.storms = this.storms.filter((s) => s.until > this.time);
+    this.stormSet = this.storms.length ? new Set(this.storms.map((s) => s.pref)) : null;
+  }
+  /** 黒死の壺：疫病の始まり */
+  superPlague(P, w, x, y, D) {
+    const R = D.r * this.S, R2 = R * R;
+    if (this.cellAt(x, y) < 0) return { ok: false, why: 'target' };
+    let n = 0;
+    for (const u of this.units) if (u.alive && !u.ghost && u.pref !== P && (u.x - x) ** 2 + (u.y - y) ** 2 <= R2) { u.sick = P; n++; }
+    this.plagueOn = true;
+    (this.plagues || (this.plagues = [])).push({ P, until: this.time + D.life });
+    return { ok: true, x, y, r: R, units: n, life: D.life };
+  }
+  updatePlague(dt) {
+    const D = CONFIG.SUPER.plague, S = this.S, hp = (u) => (UNITS[u.type] || UNITS.ashigaru).hp;
+    const active = new Set((this.plagues || []).filter((q) => q.until > this.time).map((q) => q.P));
+    const spreadNow = (this.tickNo & 3) === 0, r = D.spread * S;
+    let sick = 0, newly = 0;
+    for (const u of this.units) {
+      if (!u.alive || !u.sick) continue;
+      sick++;
+      u.hp -= hp(u) * D.dmg * dt;   // 体力がじわじわ減る（倒れるのは次の戦闘の計算で）
+      if (spreadNow) {
+        // 診療所の近くで治る
+        let cured = false;
+        this.auraNear(u.x, u.y, 12, (b, d) => { if (!cured && b.type === 'hospital' && b.owner === u.pref && d < 10) cured = true; });
+        if (cured) { u.sick = 0; continue; }
+        if (active.has(u.sick) && newly < 300) this.forUnitsNear(u.x, u.y, r, (v) => {
+          if (!v.alive || v.sick || v.ghost || newly >= 300) return;
+          if (v.pref !== u.sick || this.rng() < 0.03) { v.sick = u.sick; newly++; }   // まれに味方にもうつる
+        });
+      }
+    }
+    if (!sick && !active.size) this.plagueOn = false;
+  }
+  /** 天空城：兵器の場所から浮かび上がり、(x,y) へ飛んで真下を砲撃し続ける */
+  superSky(P, w, b, x, y, D) {
+    if (this.cellAt(x, y) < 0 && !this.map.isLand(this.cellAt(x, y))) return { ok: false, why: 'target' };
+    const f = { id: (this.skySeq = (this.skySeq || 0) + 1), x: b.x, y: b.y, px: b.x, py: b.y, tx: x, ty: y, P, w, hp: D.hp, maxHp: D.hp, until: this.time + D.life, t0: this.time, cd: 1 };
+    (this.skyForts || (this.skyForts = [])).push(f);
+    return { ok: true, x, y, ox: b.x, oy: b.y, id: f.id, life: D.life };
+  }
+  updateSky(dt) {
+    const D = CONFIG.SUPER.sky, S = this.S, keep = [];
+    for (const f of this.skyForts) {
+      f.px = f.x; f.py = f.y;
+      const dx = f.tx - f.x, dy = f.ty - f.y, d = Math.hypot(dx, dy), sp = D.spd * S * dt;
+      if (d > sp) { f.x += dx / d * sp; f.y += dy / d * sp; } else { f.x = f.tx; f.y = f.ty; }
+      // 真下を砲撃
+      f.cd -= dt;
+      if (f.cd <= 0) {
+        f.cd = D.bomb;
+        const a = this.rng() * 6.28, rr = this.rng() * 5 * S;
+        this.boomDirect(f.x + Math.cos(a) * rr, f.y + Math.sin(a) * rr, 2.5 * S, 70, f.P, 140, 1, f.x, f.y);
+      }
+      // 敵の高射砲・城・戦闘機に削られる
+      this.buildingsNear(f.x, f.y, 14 * S, (b, bd) => {
+        if (b.owner === f.P) return;
+        const bdf = BUILDINGS[b.type];
+        if (bdf.hits && bdf.hits.includes('air') && bd <= (bdf.range || 10) * 1.5) f.hp -= (bdf.dps || 2) * dt * 8;
+      });
+      this.forUnitsNear(f.x, f.y, 8 * S, (v) => { if (v.pref !== f.P && v.bit === 4 && v.alive) f.hp -= 3 * dt * 4; });
+      if (f.hp <= 0 || this.time >= f.until) {   // 落ちる
+        this.boomDirect(f.x, f.y, 6 * S, 160, -1, 300, 1, f.x, f.y);
+        this.emit('super', { kind: 'skyfall', x: f.x, y: f.y, id: f.id, by: f.P, shot: f.hp <= 0 });
+        continue;
+      }
+      keep.push(f);
+    }
+    this.skyForts = keep;
   }
   // ---------------------------------------------------------- 核ミサイル
   /** 発射できるまでの残り秒（0なら発射できる）。b は核ミサイル基地 */
@@ -4928,6 +5142,7 @@ const App = {
       if (this.corpses.length < 300) this.corpses.push({ x: u.x, z: u.y, yaw: s ? s.yaw : 0, kind: (u.id % 3 !== 0 ? 0 : 2), col: this.colCache ? this.colCache[u.pref] : [0.5, 0.5, 0.5], t: this.clock });
     });
     g.on('nuke', (e) => this.onNuke(e));
+    g.on('super', (e) => this.onSuper(e));
     g.on('destroyed', (b) => {
       if (this.game && this.game.detonating) return;   // 核の着弾でまとめて消えた建物は1つずつ記録しない
       if (b.owner === this.me && (b.wallet === 0 || b.wallet === undefined)) this.log(`🔥 ${BUILDINGS[b.type].name}が壊されました`, 'bad', b.cell); if (this.sel && this.sel.b === b) this.hidePanel(); });
@@ -5034,7 +5249,7 @@ const App = {
     }, { signal });
     $('minimap').addEventListener('pointerdown', (e) => this.onMinimap(e), { signal });
     signal.addEventListener('abort', () => {
-      this.hidePanel(); this.setMode(null); this.endBuild(); this.cancelNuke(); this.nukeFx = [];
+      this.hidePanel(); this.setMode(null); this.endBuild(); this.cancelNuke(); this.nukeFx = []; this.superFx = [];
       this.view = null; document.body.classList.remove('v-tps', 'v-map', 'building');
       Object.assign(this.cam, { yaw: 0, ty: 0, fovY: CONFIG.FOV * Math.PI / 180, minDist: 0, nearMin: 0, pitchGoal: CONFIG.CAMERA_PITCH });
     });
@@ -5058,11 +5273,11 @@ const App = {
   /** 下の建築メニュー（カード） */
   buildMenu() {
     const cat = this.bcat || 'eco';
-    $('bcats').innerHTML = BUILD_CATS.map(([k, name]) => `<button data-cat="${k}" class="${k === cat && !this.menuHidden ? 'on' : ''}">${name}${k === cat ? (this.menuHidden ? ' ▲' : ' ▼') : ''}</button>`).join('');
+    $('bcats').innerHTML = BUILD_CATS.filter(([k]) => !(ONLINE && k === 'super')).map(([k, name]) => `<button data-cat="${k}" class="${k === cat && !this.menuHidden ? 'on' : ''}">${name}${k === cat ? (this.menuHidden ? ' ▲' : ' ▼') : ''}</button>`).join('');
     let html = '';
     for (const k of BUILD_ORDER) {
       const d = BUILDINGS[k];
-      if (d.cat !== cat || (d.nuke && ONLINE)) continue;   // 核ミサイルは1人用だけ
+      if (d.cat !== cat || (d.super && ONLINE)) continue;   // 最強兵器は1人用だけ
       const cost = RES_KEYS.filter((r) => d.cost[r]).map((r) => `<span data-r="${r}">${seal(r, 'mini r-' + r)}${d.cost[r]}</span>`).join('');
       html += `<button class="bcard" data-b="${k}" title="${escapeHtml(d.desc)}">${seal(k, 'big c-' + d.cat)}<b>${d.name}</b><small>${cost}</small></button>`;
     }
@@ -5344,13 +5559,14 @@ const App = {
       red: [0.72, 0.2, 0.15], green: [0.3, 0.55, 0.2],
     };
     let cx = 0, cz = 0, rot = 0, cs = 1, sn = 0, S = 1, OC = C.red;
+    let YO = 0;      // 高さの持ち上げ（空に浮かぶ天空城など）
     let GH = null;   // 設計図の色（置ける=緑・置けない=赤）
     let TK = 1;   // 建物ごとの色のむら（場所から決まる。古い・新しい・日焼けの違いのように見せる）
     const at = (x, z, r, s, oc) => { cx = x; cz = z; rot = r; cs = Math.cos(r); sn = Math.sin(r); S = s; OC = oc || C.red; TK = 0.84 + (((x * 12.9898 + z * 78.233) * 43758.5453) % 1 + 1) % 1 * 0.3; };
     const P = (mesh, lx, ly, lz, sx, sy, sz, c, r2, tilt) => {
       const wx = cx + (lx * cs - lz * sn) * S, wz = cz + (lx * sn + lz * cs) * S;
       if (GH) c = [c[0] * 0.4 + GH[0] * 0.6, c[1] * 0.4 + GH[1] * 0.6, c[2] * 0.4 + GH[2] * 0.6];
-      I[mesh].push(wx, ly * S, wz, sx * S, sy * S, sz * S, c, rot + (r2 || 0), tilt || 0, c === OC || GH ? 1 : TK);
+      I[mesh].push(wx, ly * S + YO, wz, sx * S, sy * S, sz * S, c, rot + (r2 || 0), tilt || 0, c === OC || GH ? 1 : TK);
     };
     const pad = (lx, lz, w, d, c) => P('pad', lx, 0.015, lz, w, 0.01, d, c || C.dirt);
     const shadow = (w, d) => I.shadow.push(cx + 0.35 * S, 0.02, cz - 0.4 * S, w * 1.25 * S, 0.01, d * 1.25 * S, [0, 0, 0], rot);   // 影は奥・右へ
@@ -5703,6 +5919,54 @@ const App = {
             pad(0, 0, 1.4, 1.4, C.stone); shadow(0.7, 0.7);
             P('cylW', 0, 0, 0, 0.35, 2.2, 0.35, [0.95, 0.95, 0.92]); P('box', 0, 2.2, 0, 0.45, 0.3, 0.45, C.lantern); P('coneT', 0, 2.5, 0, 0.4, 0.3, 0.4, C.red);
             break;
+          case 'bell': {   // 調略の大鐘：石垣の上の鐘楼（金の大鐘・朱の柱・瓦屋根）
+            pad(0, 0, 2.8, 2.8, C.stone); shadow(1.8, 1.8);
+            P('box', 0, 0, 0, 2.2, 0.35, 2.2, C.stoneDk);
+            for (const [a2, b2] of [[-0.8, -0.8], [0.8, -0.8], [-0.8, 0.8], [0.8, 0.8]]) P('cylW', a2, 0.35, b2, 0.14, 1.9, 0.14, [0.66, 0.2, 0.14]);
+            P('roofT', 0, 2.2, 0, 2.4, 0.9, 2.4, C.kawara);
+            const sw = Math.sin(this.clock * 1.5 + b.id) * 0.06;
+            P('sphere', 0, 0.85, 0, 1.0, 1.25, 1.0, [0.85, 0.65, 0.22], 0, sw);   // 大鐘
+            P('cylW', 0, 0.75, 0, 1.06, 0.12, 1.06, [0.7, 0.52, 0.18]);
+            P('cylW', 1.2, 1.3, 0, 0.16, 0.16, 1.2, C.wood, Math.PI / 2, 0);   // 撞木
+            break;
+          }
+          case 'rift': {   // 大鯰の祠：苔むした石の祠と、大きな鯰の石像・しめ縄・裂けた地面
+            pad(0, 0, 3.0, 2.6, [0.38, 0.33, 0.28]); shadow(1.6, 1.4);
+            P('box', -0.7, 0, -0.5, 1.1, 0.9, 0.9, C.stone); P('roofT', -0.7, 0.9, -0.5, 1.4, 0.6, 1.2, [0.3, 0.42, 0.28]);
+            P('sphere', 0.6, 0, 0.4, 1.4, 0.7, 0.9, [0.3, 0.3, 0.32]);                 // 鯰の胴
+            P('sphere', 1.2, 0.15, 0.4, 0.6, 0.45, 0.7, [0.32, 0.32, 0.34]);           // 頭
+            for (const sd of [-1, 1]) P('cylW', 1.45, 0.35, 0.4 + sd * 0.25, 0.04, 0.6, 0.04, [0.2, 0.2, 0.2], 0, sd * 1.2);   // ひげ
+            P('cylW', 0.6, 0.62, 0.4, 1.2, 0.08, 0.6, [0.92, 0.88, 0.7]);              // しめ縄
+            P('box', 0.2, 0.02, 1.15, 2.2, 0.03, 0.12, [0.12, 0.08, 0.06], 0.3);      // 地面の裂け目
+            break;
+          }
+          case 'storm': {   // 神風の祭壇：白い石段・朱の鳥居・風車のように回る幣（ぬさ）
+            pad(0, 0, 2.8, 2.8, C.stone); shadow(1.6, 1.6);
+            for (let k = 0; k < 3; k++) P('box', 0, k * 0.2, 0, 2.2 - k * 0.5, 0.2, 2.2 - k * 0.5, [0.9 - k * 0.04, 0.9 - k * 0.04, 0.86]);
+            for (const sd of [-1, 1]) P('cylW', sd * 0.55, 0.6, 0, 0.1, 1.4, 0.1, C.red);
+            P('box', 0, 1.95, 0, 1.6, 0.1, 0.14, C.red); P('box', 0, 1.7, 0, 1.3, 0.07, 0.1, C.red);
+            const sp = this.clock * 3 + b.id;
+            for (let k = 0; k < 4; k++) P('box', 0, 1.15, 0, 0.9, 0.14, 0.02, [0.95, 0.95, 0.95], sp + k * Math.PI / 4);   // 回る幣
+            P('sphere', 0, 2.1, 0, 0.5, 0.35, 0.5, [0.35, 0.4, 0.55]);                 // 小さな雲
+            break;
+          }
+          case 'plague': {   // 黒死の壺蔵：黒い土蔵と、紫の煙がもれる大きな壺
+            pad(0, 0, 2.6, 2.4, [0.28, 0.24, 0.22]); shadow(1.6, 1.4);
+            P('boxW', -0.5, 0, -0.4, 1.2, 0.9, 1.0, [0.18, 0.16, 0.16]); P('roofT', -0.5, 0.9, -0.4, 1.5, 0.6, 1.3, C.kawara);
+            P('sphere', 0.7, 0, 0.5, 0.9, 1.1, 0.9, [0.22, 0.18, 0.2]);               // 壺
+            P('cylW', 0.7, 1.0, 0.5, 0.45, 0.2, 0.45, [0.22, 0.18, 0.2]);
+            P('sphere', 0.7, 1.15 + Math.sin(this.clock * 2 + b.id) * 0.08, 0.5, 0.6, 0.4, 0.6, [0.45, 0.22, 0.55]);   // 紫の煙
+            for (let k = 0; k < 3; k++) P('box', 0.2 + k * 0.4, 0.02, 1.1, 0.25, 0.25, 0.02, [0.85, 0.82, 0.7]);   // 封じの札
+            break;
+          }
+          case 'sky': {   // 天空城の礎：岩の台座と、出撃中でなければ小さな天守が浮かぶ
+            pad(0, 0, 3.0, 3.0, C.stone); shadow(1.8, 1.8);
+            P('coneT', 0, 0, 0, 2.2, 0.6, 2.2, C.stoneDk);
+            for (let k = 0; k < 4; k++) { const a2 = k * Math.PI / 2 + this.clock * 0.5; P('sphere', Math.cos(a2) * 1.1, 0.7 + Math.sin(this.clock * 2 + k) * 0.1, Math.sin(a2) * 1.1, 0.25, 0.25, 0.25, [0.5, 0.75, 1.0]); }   // 光る石
+            const out = this.game && this.game.skyForts && this.game.skyForts.some((f) => f.P === b.owner && Math.hypot(f.x - b.x, f.y - b.y) < 3);
+            if (!out) { YO = 1.0 * S; P('coneT', 0, 0, 0, 1.2, -0.7, 1.2, C.stone); tenshu(0, 0, 0.45); YO = 0; }
+            break;
+          }
           case 'nuke': {   // 核ミサイル基地：コンクリートの台・発射台に立つ白いミサイル（赤い先端）・黄色と黒の警告の帯・格納庫
             const conc = [0.62, 0.62, 0.6], concDk = [0.42, 0.42, 0.42], yel = [0.95, 0.78, 0.15], blk = [0.12, 0.12, 0.12];
             pad(0, 0, 3.4, 3.0, conc); shadow(2.0, 1.8);
@@ -5724,6 +5988,24 @@ const App = {
           default:
             pad(0, 0, 2.0, 2.0); shadow(1.4, 1.4); minka(0, 0, 1.2, 0.9, 0.6, C.kawara, 0); flag(0.9, 0.7, 1.5, c);
         }
+      }
+      // ---- 天空城：岩の土台ごと空に浮かぶ天守閣（下に影、下から砲煙）
+      for (const f of g.skyForts || []) {
+        const a3 = g.lerpA ? g.lerpA() : 1, fx = f.px + (f.x - f.px) * a3, fz = f.py + (f.y - f.py) * a3;
+        if (!visible(fx, fz) && !visible(fx, fz + 8)) continue;
+        const sc = this.skyScale(), alt = this.skyAlt() / sc + Math.sin(this.clock * 0.8 + f.id) * 0.3;
+        at(fx, fz, Math.sin(this.clock * 0.2) * 0.1, sc, col[f.P]);
+        I.shadow.push(fx, 0.03, fz, 6 * sc, 0.01, 6 * sc, [0, 0, 0], 0);
+        YO = alt * sc;
+        for (let k = 0; k < 3; k++) { const a2 = this.clock * 2 + k * 2.1; P('sphere', Math.cos(a2) * 1.5, -3.6 - (this.clock * 3 + k) % 3, Math.sin(a2) * 1.5, 0.6, 0.6, 0.6, [0.75, 0.73, 0.7]); }   // 砲煙（城の下）
+        P('coneT', 0, 0, 0, 5.5, -3.2, 5.5, [0.42, 0.38, 0.33]);        // 逆さの岩山（土台）
+        P('coneT', 0.8, -2.6, 0.6, 2.2, -1.6, 2.2, [0.36, 0.32, 0.28]);
+        P('cylW', 0, 0, 0, 5.2, 0.35, 5.2, [0.48, 0.5, 0.36]);           // 草の生えた上面
+        YO = (alt + 0.35) * sc;
+        for (let k = 0; k < 8; k++) { const a2 = k / 8 * Math.PI * 2; P('box', Math.cos(a2) * 2.3, 0, Math.sin(a2) * 2.3, 1.6, 0.35, 0.22, C.plaster, -a2 + Math.PI / 2); }   // 白い塀
+        tenshu(0, 0, 1.25);
+        flag(1.8, 1.4, 2.2, col[f.P]);
+        YO = 0;
       }
       // ---- 旗（県の色の旗がはためく）
       for (const f of g.flags || []) {
@@ -6460,6 +6742,7 @@ const App = {
     this.drawGeneralTag(ctx);
   },
   onTap(sx, sy) {
+    if (this.state === STATE.PLAYING && this.nukeAim) { this.nukeTap(sx, sy); return; }   // 兵器の狙う場所を選ぶ（画面の端の矢印より優先）
     // 画面の端の矢印（大将・旗）をタップしたら、その場所へ
     if (this.state === STATE.PLAYING && this.edgeMarks && !this.isTps()) for (const m of this.edgeMarks) if (Math.hypot(m.px - sx, m.py - sy) < 26) { this.cam.flyTo(m.x, m.z, Math.min(this.cam.dist, 160), 0.5); return; }
     const i = this.pickCell(sx, sy);
@@ -6468,7 +6751,6 @@ const App = {
       return;
     }
     if (this.state === STATE.PLAYING && this.isTps() && this.build && !this.paused) { this.placeBuild(); return; }
-    if (this.state === STATE.PLAYING && this.nukeAim) { this.nukeTap(sx, sy); return; }   // 核ミサイルの着弾地点を選ぶ
     if (this.state !== STATE.PLAYING || this.paused || i < 0) return;
     const g = this.game, p = this.cam.groundAt(sx, sy);
     if (!p) return;
@@ -7069,38 +7351,75 @@ Object.assign(App, {
     this.ghostUpdate();
     this.genHud(gen);
   },
-  // ------------------------------------------------ 核ミサイル（あなたの核ミサイル基地から、地図で選んだ場所へ）
-  myNuke() {
+  // ------------------------------------------------ 最強兵器（核ミサイル・調略の大鐘・大鯰の地割れ・神風の大嵐・黒死の壺・天空城）
+  // 三人称視点の「兵器」ボタン → 使う兵器を選ぶ → 地図で狙う場所をタップ → 発射
+  myWeapons() {
     const g = this.game;
-    if (this.clock < (this.nukeScanAt || 0) && (!this.nukeBase || !this.nukeBase.dead)) return this.nukeBase;
-    this.nukeScanAt = this.clock + 0.5;
-    let best = null;
-    for (const b of g.buildings) if (b.type === 'nuke' && b.wallet === 0 && !b.dead && (!best || g.nukeReady(b) < g.nukeReady(best))) best = b;
-    this.nukeBase = best;
+    if (this.clock < (this.wpnScanAt || 0) && this.wpnCache) return this.wpnCache;
+    this.wpnScanAt = this.clock + 0.5;
+    const best = {};
+    for (const b of g.buildings) {
+      const k = !b.dead && b.wallet === 0 && BUILDINGS[b.type].super;
+      if (k && (!best[k] || g.superReady(b) < g.superReady(best[k]))) best[k] = b;
+    }
+    this.wpnCache = best;
     return best;
   },
+  myNuke() { return this.myWeapons().nuke || null; },
   updateNukeBtn() {
     const g = this.game, el = $('t-nuke');
-    if (!el || !g || !g.nukeReady) return;
-    const b = this.myNuke();
-    el.classList.toggle('hidden', !b);
-    if (!b) return;
-    const left = g.nukeReady(b), lab = left > 0 ? `${Math.ceil(left)}秒` : '核';
-    if (lab !== this.nukeLab) { this.nukeLab = lab; el.querySelector('span').textContent = lab; el.classList.toggle('cool', left > 0); }
+    if (!el || !g || !g.superReady) return;
+    const W = this.myWeapons(), kinds = Object.keys(W);
+    el.classList.toggle('hidden', !kinds.length);
+    if (!kinds.length) { if (!$('superpick').classList.contains('hidden')) $('superpick').classList.add('hidden'); return; }
+    let ready = 0, minLeft = 1e9;
+    for (const k of kinds) { const l = g.superReady(W[k]); if (l <= 0) ready++; minLeft = Math.min(minLeft, l); }
+    const icon = kinds.length === 1 ? BUILDINGS[W[kinds[0]].type].icon : '⚔', lab = ready ? (kinds.length === 1 ? CONFIG.SUPER[kinds[0]].name.slice(0, 2) : '兵器') : `${Math.ceil(minLeft)}秒`;
+    const key = icon + lab;
+    if (key !== this.nukeLab) { this.nukeLab = key; el.querySelector('i').textContent = icon; el.querySelector('span').textContent = lab; el.classList.toggle('cool', !ready); }
+    if (!$('superpick').classList.contains('hidden')) this.renderPicker();
   },
-  startNukeAim() {
-    const g = this.game, b = this.myNuke();
-    if (!b) { this.banner('核ミサイル基地がありません', 'ng', '「建築」の防衛から建てよう'); return; }
-    const left = g.nukeReady(b);
-    if (left > 0) { this.banner('核ミサイルはまだ撃てません', 'ng', `次の発射まであと${this.fmtDur(left)}`); return; }
-    const R = g.nukeRadius();
+  /** 兵器ボタン：1種類ならすぐ狙う、2種類以上なら選ぶ */
+  openWeapons() {
+    const kinds = Object.keys(this.myWeapons());
+    if (!kinds.length) { this.banner('最強兵器がありません', 'ng', '「建築」の「最強兵器」から建てよう'); return; }
+    if (kinds.length === 1) { this.startSuperAim(kinds[0]); return; }
+    const el = $('superpick');
+    el.classList.toggle('hidden');
+    if (!el.classList.contains('hidden')) this.renderPicker();
+  },
+  renderPicker() {
+    const g = this.game, W = this.myWeapons(), order = ['nuke', 'bell', 'rift', 'storm', 'plague', 'sky'];
+    const html = order.filter((k) => W[k]).map((k) => {
+      const left = g.superReady(W[k]);
+      return `<button data-wk="${k}" class="${left > 0 ? 'cool' : ''}"><i>${BUILDINGS[W[k].type].icon}</i><b>${CONFIG.SUPER[k].name}</b><small>${left > 0 ? `あと${Math.ceil(left)}秒` : '使える'}</small></button>`;
+    }).join('');
+    if (html !== this.pickHtml) { this.pickHtml = html; $('superpick').innerHTML = html; }
+  },
+  startNukeAim() { this.startSuperAim('nuke'); },
+  startSuperAim(kind) {
+    const g = this.game, b = this.myWeapons()[kind];
+    $('superpick').classList.add('hidden');
+    if (!b) return;
+    const left = g.superReady(b), name = CONFIG.SUPER[kind].name;
+    if (left > 0) { this.banner(`${name}はまだ使えません`, 'ng', `あと${this.fmtDur(left)}`); return; }
     this.setView('map');
-    this.nukeAim = { b, x: null, z: null };
+    this.nukeAim = { kind, b, pts: [] };
     document.body.classList.add('nuking');
     $('nukebar').classList.remove('hidden'); $('nb-fire').disabled = true;
-    $('nb-msg').textContent = '地図をタップして着弾地点を選ぶ';
-    this.cam.goal = null; this.cam.dist = Math.max(this.cam.dist, R * 9);
-    this.banner('☢ 着弾地点を選ぶ', 'ng', `赤い円（半径${CONFIG.NUKE_R * (this.map.scale || 1)}マス）の中の兵・建物は全て消える`);
+    $('nb-fire').textContent = `${BUILDINGS[b.type].icon} ${kind === 'bell' ? '鳴らす' : kind === 'sky' ? '出撃' : kind === 'plague' ? '投げ込む' : kind === 'storm' ? '呼ぶ' : kind === 'rift' ? '割る' : '発射'}`;
+    const R = g.superR(kind);
+    const help = {
+      nuke: ['☢ 着弾地点を選ぶ', `赤い円（半径${Math.round(R)}マス）の中の兵・建物は全て消える`],
+      bell: ['🔔 鐘を鳴らす場所を選ぶ', `金の円（半径${Math.round(R)}マス）の中の敵の兵・建物・土地が寝返る`],
+      rift: ['🌋 地割れの始まりと終わりの2か所を選ぶ', '帯の上の兵・建物は全滅し、しばらく渡れない'],
+      storm: ['🌀 大嵐を呼ぶ県を選ぶ', 'その県の土地をタップ（自県は選べない）'],
+      plague: ['⚱ 壺を投げ込む場所を選ぶ', '敵の兵が多い所ほど、どんどん広がる'],
+      sky: ['🏯 天空城を飛ばす先を選ぶ', '城はそこへ飛びながら真下を砲撃し続ける'],
+    }[kind];
+    $('nb-msg').textContent = kind === 'rift' ? '1か所目（地割れの始まり）をタップ' : '地図をタップして場所を選ぶ';
+    this.cam.goal = null; this.cam.dist = Math.max(this.cam.dist, (kind === 'storm' || kind === 'sky' || kind === 'rift' ? 120 * (this.map.scale || 1) : R * 9));
+    this.banner(help[0], 'ng', help[1]);
   },
   cancelNuke() {
     this.nukeAim = null;
@@ -7108,22 +7427,35 @@ Object.assign(App, {
     const bar = $('nukebar'); if (bar) bar.classList.add('hidden');
   },
   nukeTap(sx, sy) {
-    const p = this.cam.groundAt(sx, sy), A = this.nukeAim;
+    const p = this.cam.groundAt(sx, sy), A = this.nukeAim, g = this.game;
     if (!p || !A) return;
     const i = this.map.id(Math.floor(p.x), Math.floor(p.z));
     if (i < 0) return;
-    A.x = p.x; A.z = p.z;
-    const o = this.game.owner[i], nm = o === this.me ? '自県の領土（味方も消えます）' : this.map.ownerName(o) + (o === WASTE ? '' : 'の領土');
-    $('nb-msg').textContent = `着弾地点：${this.map.isLand(i) ? nm : '海'}`;
+    const o = g.owner[i], onLand = this.map.isLand(i);
+    const nm = !onLand ? '海' : o === this.me ? '自県の領土' : this.map.ownerName(o) + (o === WASTE ? '' : 'の領土');
+    if (A.kind === 'rift') {
+      if (A.pts.length >= 2) A.pts = [];
+      A.pts.push([p.x, p.z]);
+      $('nb-msg').textContent = A.pts.length === 1 ? '2か所目（地割れの終わり）をタップ' : `地割れ：長さ${Math.round(Math.min(Math.hypot(A.pts[1][0] - A.pts[0][0], A.pts[1][1] - A.pts[0][1]), CONFIG.SUPER.rift.len * (this.map.scale || 1)))}マス`;
+      $('nb-fire').disabled = A.pts.length < 2;
+      return;
+    }
+    if (A.kind === 'storm' && (!onLand || o === this.me || o === WASTE || !o)) { $('nb-msg').textContent = '敵の県の土地をタップしてください'; $('nb-fire').disabled = true; A.pts = []; return; }
+    A.pts = [[p.x, p.z]];
+    $('nb-msg').textContent = A.kind === 'storm' ? `大嵐：${this.map.prefs[o].name}全体` : `場所：${nm}${A.kind === 'nuke' && o === this.me ? '（味方も消えます）' : ''}`;
     $('nb-fire').disabled = false;
   },
   fireNuke() {
     const A = this.nukeAim, g = this.game;
-    if (!A || A.x === null) return;
-    const r = g.launchNuke(0, A.b, A.x, A.z);
+    if (!A || !A.pts.length) return;
+    const [x, z] = A.pts[0], t = { x, y: z };
+    if (A.kind === 'rift') { t.x2 = A.pts[1][0]; t.y2 = A.pts[1][1]; }
+    const r = g.fireSuper(0, A.b, t);
     this.cancelNuke();
-    if (!r.ok) { this.banner('発射できません', 'ng', r.why === 'cd' ? 'まだ待ち時間があります' : ''); return; }
-    this.cam.flyTo(A.x, A.z, Math.max(this.cam.dist, g.nukeRadius() * 7), 0.5);
+    this.wpnScanAt = 0;
+    if (!r || !r.ok) { this.banner('使えません', 'ng', r && r.why === 'cd' ? 'まだ待ち時間があります' : r && r.why === 'target' ? 'その場所には使えません' : ''); return; }
+    if (A.kind === 'nuke') this.cam.flyTo(x, z, Math.max(this.cam.dist, g.nukeRadius() * 7), 0.5);
+    else if (A.kind !== 'storm') this.cam.flyTo(A.kind === 'rift' ? (x + t.x2) / 2 : x, A.kind === 'rift' ? (z + t.y2) / 2 : z, null, 0.5);
   },
   onNuke(e) {
     const map = this.map;
@@ -7140,6 +7472,37 @@ Object.assign(App, {
       this.minimapDirty = true;
     }
   },
+  /** 核ミサイル以外の兵器が使われた */
+  onSuper(e) {
+    const map = this.map, cell = map.id(Math.floor(e.x), Math.floor(e.y));
+    (this.superFx || (this.superFx = [])).push({ ...e, t0: this.clock });
+    this.minimapDirty = true;
+    if (e.kind === 'bell') {
+      Sfx.fanfare();
+      this.banner('🔔 調略の大鐘が鳴り響く！', 'ok', `敵の兵${fmt(e.units)}人・拠点${e.nodes}・建物${fmt(e.blds)}棟・${fmt(e.cells)}マスが寝返った`);
+      this.log(`🔔 調略の大鐘：兵${fmt(e.units)}人・拠点${e.nodes}・${fmt(e.cells)}マスが寝返りました`, 'good', cell);
+    } else if (e.kind === 'rift') {
+      Sfx.boom(1); setTimeout(() => Sfx.boom(0.8), 300); setTimeout(() => Sfx.boom(0.6), 700);
+      this.shakeUntil = this.clock + 1.6;
+      this.banner('🌋 大地が裂けた！', 'ng', `兵${fmt(e.units)}人・建物${fmt(e.blds)}棟が地割れに飲まれた（${Math.round(e.life)}秒は渡れない）`);
+      this.log(`🌋 大鯰の地割れ：兵${fmt(e.units)}人・建物${fmt(e.blds)}棟が飲まれました`, 'good', cell);
+    } else if (e.kind === 'storm') {
+      Sfx.alert();
+      this.banner(`🌀 ${map.prefs[e.pref].name}に神風の大嵐！`, 'ok', `飛行機・軍艦${fmt(e.units)}が消え、${Math.round(e.life)}秒間 足は1/3・訓練と旗が止まる`);
+      this.log(`🌀 神風の大嵐：${map.prefs[e.pref].name}（飛行機・軍艦${fmt(e.units)}が消えた）`, 'good', cell);
+    } else if (e.kind === 'plague') {
+      Sfx.alert();
+      this.banner('⚱ 黒死の壺を投げ込んだ', 'ok', `敵の兵${fmt(e.units)}人がかかった。兵から兵へ広がっていく`);
+      this.log(`⚱ 黒死の壺：敵の兵${fmt(e.units)}人に疫病が広がり始めました`, 'good', cell);
+    } else if (e.kind === 'sky') {
+      Sfx.conch();
+      this.banner('🏯 天空城、出撃！', 'ok', '城が空を飛び、真下を砲撃し続ける');
+      this.log('🏯 天空城が出撃しました', 'good', cell);
+    } else if (e.kind === 'skyfall') {
+      Sfx.boom(1); setTimeout(() => Sfx.boom(0.8), 300);
+      this.banner(e.shot ? '🏯 天空城が撃ち落とされた' : '🏯 天空城が役目を終えて落ちた', e.shot ? 'ng' : 'def', '落ちた場所の周りも吹き飛んだ');
+    }
+  },
   /** 地面の上の円（カメラの後ろの部分は描かない） */
   groundCircle(ctx, x, z, r) {
     const cam = this.cam, a = [0, 0], N = 72;
@@ -7152,16 +7515,139 @@ Object.assign(App, {
     }
     return any;
   },
+  /** 続いている兵器の様子（地割れ・大嵐・疫病・天空城の体力）と、使った瞬間の演出 */
+  drawSuperState(ctx) {
+    const g = this.game, cam = this.cam, v = [0, 0], w2 = [0, 0], t = this.clock;
+    // 地割れ：黒いギザギザの裂け目と、ふちの赤い光
+    for (const r of g.rifts || []) {
+      const left = r.until - g.time, fade = Math.min(1, left / 10);
+      const N = 40, pts = [];
+      for (let k = 0; k <= N; k++) {
+        const q = k / N, x = r.x1 + (r.x2 - r.x1) * q, z = r.y1 + (r.y2 - r.y1) * q;
+        const nx = -(r.y2 - r.y1) / r.L, nz = (r.x2 - r.x1) / r.L, j = (Math.sin(k * 2.7) + Math.sin(k * 7.1) * 0.5) * r.hw * 0.25;
+        pts.push([x + nx * j, z + nz * j, nx, nz]);
+      }
+      ctx.save(); ctx.globalAlpha = fade;
+      for (const [w, col] of [[r.hw * 1.0, 'rgba(120,40,10,.55)'], [r.hw * 0.55, 'rgba(20,10,8,.95)'], [r.hw * 0.15, 'rgba(255,110,30,.9)']]) {
+        const side = (sgn) => pts.map(([x, z, nx, nz]) => cam.project(x + nx * w * sgn, 0.05, z + nz * w * sgn, [0, 0]));
+        const A = side(1), B = side(-1);
+        if (!A.every(Boolean) || !B.every(Boolean)) continue;
+        ctx.beginPath(); A.forEach((p, k) => (k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); for (let k = B.length - 1; k >= 0; k--) ctx.lineTo(B[k][0], B[k][1]); ctx.closePath();
+        ctx.fillStyle = col; ctx.fill();
+      }
+      ctx.restore();
+    }
+    // 大嵐：その県の拠点の上に黒い雲の渦と稲妻。カメラがその県の中なら画面全体が暗く雨
+    for (const st of g.storms || []) {
+      if (st.until <= g.time) continue;
+      for (const n of g.nodes) {
+        if (n.owner !== st.pref || !cam.project(n.x, 0, n.y, v)) continue;
+        if (v[0] < -60 || v[0] > this.w + 60 || v[1] < -60 || v[1] > this.h + 60) continue;
+        const rr = 26 + 6 * Math.sin(t * 2 + n.id);
+        for (let q = 0; q < 3; q++) { ctx.fillStyle = `rgba(${30 + q * 15},${35 + q * 15},${55 + q * 15},.55)`; ctx.beginPath(); ctx.ellipse(v[0] + Math.cos(t * 1.5 + q * 2.1 + n.id) * 8, v[1] - 22 + q * 4, rr - q * 6, (rr - q * 6) * 0.45, 0, 0, 7); ctx.fill(); }
+        if (((t * 3 + n.id * 0.37) % 2.3) < 0.12) { ctx.strokeStyle = '#fff6b0'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(v[0], v[1] - 20); ctx.lineTo(v[0] - 6, v[1] - 8); ctx.lineTo(v[0] + 3, v[1] - 6); ctx.lineTo(v[0] - 4, v[1] + 6); ctx.stroke(); }
+      }
+      const c = this.map.id(Math.floor(cam.tx), Math.floor(cam.tz));
+      if (c >= 0 && g.owner[c] === st.pref) {
+        ctx.fillStyle = 'rgba(20,25,40,.35)'; ctx.fillRect(0, 0, this.w, this.h);
+        ctx.strokeStyle = 'rgba(190,205,230,.5)'; ctx.lineWidth = 1.2; ctx.beginPath();
+        for (let k = 0; k < 140; k++) { const sx = ((k * 97.3 + t * 420) % (this.w + 80)) - 40, sy = ((k * 53.7 + t * 900 + k * k) % (this.h + 40)) - 20; ctx.moveTo(sx, sy); ctx.lineTo(sx - 9, sy + 22); }
+        ctx.stroke();
+        if ((t % 3.1) < 0.08) { ctx.fillStyle = 'rgba(255,255,240,.5)'; ctx.fillRect(0, 0, this.w, this.h); }
+      }
+    }
+    // 疫病：かかった兵の上に黒紫のもや
+    if (g.plagueOn) {
+      const a = g.lerpA ? g.lerpA() : 1;
+      let n = 0;
+      for (const u of g.units) {
+        if (!u.sick || !u.alive || n > 400) continue;
+        const x = u.px + (u.x - u.px) * a, z = u.py + (u.y - u.py) * a;
+        if (!cam.project(x, this.unitH() * 1.2, z, v) || v[0] < -20 || v[0] > this.w + 20 || v[1] < -20 || v[1] > this.h + 20) continue;
+        const r0 = Math.max(3, Math.min(14, (this.pxAt ? this.pxAt(x, 0.5, z) : 4) * 0.3));
+        ctx.fillStyle = `rgba(90,30,110,${0.35 + 0.15 * Math.sin(t * 4 + u.id)})`; ctx.beginPath(); ctx.arc(v[0] + Math.sin(t * 2 + u.id) * 2, v[1] - Math.abs(Math.sin(t + u.id)) * 3, r0, 0, 7); ctx.fill();
+        n++;
+      }
+    }
+    // 天空城の耐久
+    for (const f of g.skyForts || []) {
+      if (!cam.project(f.x, this.skyAlt() + 4 * this.skyScale(), f.y, v) || v[0] < -40 || v[0] > this.w + 40 || v[1] < -40 || v[1] > this.h + 40) continue;
+      const fr = Math.max(0, f.hp / f.maxHp);
+      ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(v[0] - 41, v[1] - 4, 82, 8);
+      ctx.fillStyle = this.map.prefs[f.P].color; ctx.fillRect(v[0] - 40, v[1] - 3, 80 * fr, 6);
+      ctx.font = '700 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(30,18,6,.9)';
+      ctx.strokeText('天空城', v[0], v[1] - 6); ctx.fillStyle = '#ffe9a8'; ctx.fillText('天空城', v[0], v[1] - 6);
+    }
+    // 使った瞬間：大鐘の金の波紋・地割れの土煙・天空城の墜落
+    if (this.superFx && this.superFx.length) {
+      const keep = [];
+      for (const f of this.superFx) {
+        const age = t - f.t0;
+        if (f.kind === 'bell' && age < 3) {
+          keep.push(f);
+          for (let q = 0; q < 3; q++) { const k = (age - q * 0.35) / 2.2; if (k <= 0 || k >= 1) continue; if (this.groundCircle(ctx, f.x, f.y, f.r * k)) { ctx.lineWidth = 4; ctx.strokeStyle = `rgba(255,220,100,${1 - k})`; ctx.stroke(); } }
+          if (age < 0.5) { ctx.fillStyle = `rgba(255,230,140,${0.4 * (1 - age / 0.5)})`; ctx.fillRect(0, 0, this.w, this.h); }
+        } else if (f.kind === 'rift' && age < 2.5) {
+          keep.push(f);
+          for (let k = 0; k < 12; k++) {
+            const q = (k + 0.5) / 12, x = f.x + (f.x2 - f.x) * q, z = f.y + (f.y2 - f.y) * q;
+            if (!cam.project(x, age * 2, z, v)) continue;
+            ctx.fillStyle = `rgba(140,110,80,${0.5 * (1 - age / 2.5)})`; ctx.beginPath(); ctx.arc(v[0], v[1], 8 + age * 14, 0, 7); ctx.fill();
+          }
+        } else if (f.kind === 'skyfall' && age < 3) {
+          keep.push(f);
+          if (cam.project(f.x, 0, f.y, v)) { const k = age / 3; ctx.fillStyle = `rgba(255,${Math.round(180 - 120 * k)},60,${0.85 * (1 - k)})`; ctx.beginPath(); ctx.ellipse(v[0], v[1] - 10, 30 + 90 * k, (30 + 90 * k) * 0.6, 0, 0, 7); ctx.fill(); }
+        } else if (f.kind === 'storm' && age < 1.2) {
+          keep.push(f);
+          ctx.fillStyle = `rgba(230,240,255,${0.5 * (1 - age / 1.2)})`; ctx.fillRect(0, 0, this.w, this.h);
+        } else if (f.kind === 'plague' && age < 2) {
+          keep.push(f);
+          if (this.groundCircle(ctx, f.x, f.y, f.r * (0.3 + age * 0.5))) { ctx.fillStyle = `rgba(90,30,110,${0.35 * (1 - age / 2)})`; ctx.fill(); }
+        }
+      }
+      this.superFx = keep;
+    }
+  },
+  /** 天空城の高さと大きさ（三人称視点は兵の大きさに合わせる） */
+  skyAlt() { return this.isTps() ? 9 : Math.max(6, this.unitH() * 8); },
+  skyScale() { return this.isTps() ? 1.6 : Math.max(1.2, this.unitH() * 1.6); },
   drawNukeFx(ctx) {
     const g = this.game, cam = this.cam, v = [0, 0], w2 = [0, 0];
     if (!g) return;
-    // 狙っている場所：赤い円
+    this.drawSuperState(ctx);
+    // 狙っている場所
     const A = this.nukeAim;
-    if (A && A.x !== null) {
-      const R = g.nukeRadius(), pulse = 0.5 + 0.5 * Math.sin(this.clock * 5);
+    if (A && A.pts.length) {
+      const pulse = 0.5 + 0.5 * Math.sin(this.clock * 5), [ax, az] = A.pts[0];
+      const cross = (x, z) => { if (cam.project(x, 0, z, v)) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(v[0] - 14, v[1]); ctx.lineTo(v[0] + 14, v[1]); ctx.moveTo(v[0], v[1] - 14); ctx.lineTo(v[0], v[1] + 14); ctx.stroke(); } };
       ctx.save();
-      if (this.groundCircle(ctx, A.x, A.z, R)) { ctx.fillStyle = `rgba(220,30,20,${0.22 + 0.08 * pulse})`; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#ff5a3a'; ctx.stroke(); }
-      if (cam.project(A.x, 0, A.z, v)) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(v[0] - 14, v[1]); ctx.lineTo(v[0] + 14, v[1]); ctx.moveTo(v[0], v[1] - 14); ctx.lineTo(v[0], v[1] + 14); ctx.stroke(); }
+      if (A.kind === 'nuke' || A.kind === 'bell' || A.kind === 'plague') {
+        const R = g.superR(A.kind), gold = A.kind === 'bell', pur = A.kind === 'plague';
+        if (this.groundCircle(ctx, ax, az, R)) {
+          ctx.fillStyle = gold ? `rgba(240,200,60,${0.2 + 0.08 * pulse})` : pur ? `rgba(120,40,140,${0.25 + 0.08 * pulse})` : `rgba(220,30,20,${0.22 + 0.08 * pulse})`; ctx.fill();
+          ctx.lineWidth = 3; ctx.strokeStyle = gold ? '#ffe07a' : pur ? '#d08aff' : '#ff5a3a'; ctx.stroke();
+        }
+        cross(ax, az);
+      } else if (A.kind === 'rift') {
+        cross(ax, az);
+        if (A.pts[1]) {
+          let [bx, bz] = A.pts[1];
+          const L = Math.hypot(bx - ax, bz - az), maxL = CONFIG.SUPER.rift.len * (this.map.scale || 1);
+          if (L > maxL) { bx = ax + (bx - ax) / L * maxL; bz = az + (bz - az) / L * maxL; }
+          const hw = CONFIG.SUPER.rift.hw * (this.map.scale || 1), nx = -(bz - az) / (L || 1) * hw, nz = (bx - ax) / (L || 1) * hw;
+          const q = [[ax + nx, az + nz], [bx + nx, bz + nz], [bx - nx, bz - nz], [ax - nx, az - nz]].map(([x, z]) => cam.project(x, 0.05, z, [0, 0]));
+          if (q.every(Boolean)) { ctx.beginPath(); q.forEach((p, k) => (k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.closePath(); ctx.fillStyle = `rgba(200,80,20,${0.3 + 0.1 * pulse})`; ctx.fill(); ctx.strokeStyle = '#ff9a4a'; ctx.lineWidth = 2; ctx.stroke(); }
+          cross(bx, bz);
+        }
+      } else if (A.kind === 'storm') {
+        const c = this.map.id(Math.floor(ax), Math.floor(az)), Q = c >= 0 ? g.owner[c] : 0;
+        if (Q && Q <= 47) for (const n of g.nodes) if (n.owner === Q && cam.project(n.x, 0, n.y, v)) { ctx.fillStyle = `rgba(40,50,90,${0.35 + 0.1 * pulse})`; ctx.beginPath(); ctx.arc(v[0], v[1], 18, 0, 7); ctx.fill(); ctx.strokeStyle = '#9ab8ff'; ctx.lineWidth = 2; ctx.stroke(); }
+        cross(ax, az);
+      } else if (A.kind === 'sky') {
+        const b = A.b, o = [0, 0];
+        if (cam.project(b.x, 0, b.y, o) && cam.project(ax, 0, az, v)) { ctx.setLineDash([10, 6]); ctx.strokeStyle = '#ffe07a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(o[0], o[1]); ctx.lineTo(v[0], v[1]); ctx.stroke(); ctx.setLineDash([]); }
+        cross(ax, az);
+      }
       ctx.restore();
     }
     if (!this.nukeFx || !this.nukeFx.length) return;
@@ -7443,7 +7929,8 @@ Object.assign(App, {
     joy.addEventListener('pointerup', up); joy.addEventListener('pointercancel', up);
     $('bc-rot').addEventListener('click', () => this.rotateBuild());
     $('bc-close').addEventListener('click', () => this.endBuild());
-    $('t-nuke').addEventListener('click', () => this.startNukeAim());
+    $('t-nuke').addEventListener('click', () => this.openWeapons());
+    $('superpick').addEventListener('click', (e) => { const b = e.target.closest('[data-wk]'); if (b) this.startSuperAim(b.dataset.wk); });
     // 建物のカードと分類の帯は、指でなぞって左右に動かす（画面を回しているときもゲーム画面の向きで。ブラウザ任せだと回した画面では動かない）
     for (const el of [$('buildmenu'), $('bcats')]) this.dragScroll(el);
     $('nb-cancel').addEventListener('click', () => { this.cancelNuke(); this.setView('tps'); });

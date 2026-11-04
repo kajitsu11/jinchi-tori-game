@@ -83,6 +83,15 @@ const CONFIG = {
   NUKE_R: 30,          // 核ミサイルの焼き尽くす半径（元の地図のマス。細かい地図ではその S 倍）
   NUKE_CD: 900,        // 次の発射までの待ち時間（秒。試作版の早い試合では1/4）
   NUKE_FLIGHT: 4.5,    // 発射から着弾まで（秒）
+  // 最強兵器（長さは元の地図のマス。細かい地図ではその S 倍。待ち時間は試作版の早い試合では1/4）
+  SUPER: {
+    nuke: { name: '核ミサイル', cd: 900 },
+    bell: { name: '調略の大鐘', cd: 900, r: 30, stun: 30 },
+    rift: { name: '大鯰の地割れ', cd: 900, len: 180, hw: 5, life: 150 },
+    storm: { name: '神風の大嵐', cd: 900, life: 120 },
+    plague: { name: '黒死の壺', cd: 900, r: 8, life: 240, spread: 3.5, dmg: 0.022 },
+    sky: { name: '天空城', cd: 1200, life: 300, hp: 5000, spd: 3, bomb: 0.4 },
+  },
   FILL: 0.035, FILL_TOP: 0.7,     // 領土の塗りの濃さ（斜め／真上）。斜めは国境線が主役
   TREE_MAX: 3500,
   LOG_MAX: 3, BANNER_MS: 1800, MINIMAP_REFRESH: 1.0, MAX_DPR: 2, HUD_REFRESH: 0.25,
@@ -137,7 +146,6 @@ const BUILDINGS = {
   wall: { cat: 'def', name: '石垣', icon: '🪨', cost: { wood: 100 }, hp: 2000, desc: 'とても頑丈。周り6マスの敵兵の足が半分に', aura: { r: 6, enemySlow: 0.5 } },
   mines: { cat: 'def', name: '地雷原', icon: '💥', cost: { wood: 60, gold: 40 }, hp: 100, desc: '近くを通った敵兵に大きな被害（30秒で再装填）', mine: { r: 3, dmg: 60, every: 30 } },
   gasshelter: { cat: 'def', name: '防毒壕', icon: '😷', cost: { wood: 100, gold: 60 }, hp: 300, desc: '周り12マスの味方は毒ガスの被害が1/5', aura: { r: 12, gasRes: 0.2 } },
-  nuke: { cat: 'def', name: '核ミサイル基地', icon: '☢', cost: { wood: 3000, gold: 5000 }, hp: 1500, desc: '伝説の最強兵器。あなたが着弾地点を選んで発射：半径30マスの兵・建物・旗を全て消し去り、土地を焦土にする（次の発射まで待ち時間）', nuke: true },
   radar: { cat: 'def', name: 'レーダー', icon: '📡', cost: { wood: 150, gold: 200 }, hp: 300, desc: '周り25マスで忍者を見つける・高射砲の威力 +50%', aura: { r: 25, detect: true, aa: 1.5 } },
   trench: { cat: 'def', name: '塹壕', icon: '🪖', cost: { wood: 70 }, hp: 400, desc: '周り6マスの味方の受ける被害 −40%', aura: { r: 6, armor: 0.6 } },
   // ---- 支援
@@ -148,12 +156,18 @@ const BUILDINGS = {
   temple: { cat: 'sup', name: '寺', icon: '🛕', cost: { wood: 150, gold: 80 }, hp: 350, desc: '周り20マスの味方の拠点は占領されにくい（1.5倍）', aura: { r: 20, hold: 1.5 } },
   lighthouse: { cat: 'sup', name: '灯台', icon: '🗼', cost: { wood: 100, gold: 50 }, hp: 250, desc: '周り25マスの味方の軍艦の攻撃 +40%（海の近くだけ）', aura: { r: 25, navy: 1.4 }, need: 'coast' },
   // ---- 拠点
+  nuke: { cat: 'super', name: '核ミサイル基地', icon: '☢', cost: { wood: 3000, gold: 5000 }, hp: 1500, desc: '伝説の最強兵器。あなたが着弾地点を選んで発射：半径30マスの兵・建物・旗を全て消し去り、土地を焦土にする', nuke: true, super: 'nuke' },
+  bell: { cat: 'super', name: '調略の大鐘', icon: '🔔', cost: { wood: 3000, gold: 5000 }, hp: 1500, desc: '鳴らした場所の周り（半径30マス）の敵の兵・建物・土地・拠点（県庁以外）を全て寝返らせる。寝返った兵は30秒動けない', super: 'bell' },
+  rift: { cat: 'super', name: '大鯰の祠', icon: '🌋', cost: { wood: 3000, gold: 5000 }, hp: 1500, desc: '2か所を選ぶと、その間に長い地割れが走る：帯の上の兵・建物は全滅し、地割れはしばらく渡れない', super: 'rift' },
+  storm: { cat: 'super', name: '神風の祭壇', icon: '🌀', cost: { wood: 3000, gold: 5000 }, hp: 1500, desc: '選んだ県全体を大嵐に：飛行機は墜落・軍艦は沈み、兵の足は1/3、訓練と旗が止まる（2分）', super: 'storm' },
+  plague: { cat: 'super', name: '黒死の壺蔵', icon: '⚱', cost: { wood: 3000, gold: 5000 }, hp: 1500, desc: '投げ込んだ所から疫病が敵の兵へうつって広がる。かかった兵は体力が減って倒れる（診療所の近くで治る）', super: 'plague' },
+  sky: { cat: 'super', name: '天空城の礎', icon: '🏯', cost: { wood: 3000, gold: 5000 }, hp: 1500, desc: '巨大な城を空に浮かべ、選んだ場所へ飛ばす。真下を砲撃し続ける（高射砲で削られ、耐久が尽きると落ちる）', super: 'sky' },
   town: { cat: 'node', name: '町', icon: '🏘️', cost: { wood: 250, gold: 150 }, desc: '国境を広げる・金 +43/時', node: true, make: { gold: 0.012 } },
   fort: { cat: 'node', name: '砦', icon: '🏰', cost: { wood: 150, gold: 300 }, desc: '国境を広げ、近くの敵兵を撃つ', node: true, range: 13, dps: 2.9, hits: 'land' },
   castle: { cat: 'node', name: '城', icon: '🏯', cost: { wood: 400, gold: 600 }, desc: '広い国境（1.4倍）と強い守り。飛行機も撃つ', node: true, range: 15, dps: 3.5, hits: 'land,sea,air', radius: 1.4 },
 };
 const BUILD_ORDER = Object.keys(BUILDINGS);
-const BUILD_CATS = [['eco', '経済'], ['mil', '兵の生産'], ['def', '防衛'], ['sup', '支援'], ['node', '拠点']];
+const BUILD_CATS = [['eco', '経済'], ['mil', '兵の生産'], ['def', '防衛'], ['sup', '支援'], ['node', '拠点'], ['super', '最強兵器']];
 /**
  * 兵種。dom: land=陸 sea=海 air=空。hits: 撃てる相手。vsB: 建物への攻撃の倍率。splash: 範囲攻撃の半径。
  * fuel: 飛行機が飛べる秒数（切れると基地へ帰る＝いなくなる）。stealth: 塔などに狙われない（レーダーの近くは別）

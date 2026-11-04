@@ -260,6 +260,53 @@ function assert(cond, msg) { if (!cond) throw new Error('assert: ' + msg); }
     assert(r.waste > 100, 'scorched ' + JSON.stringify(r));
   });
 
+  await test('最強兵器5種：大鐘で寝返り・地割れで全滅と通行止め・大嵐で飛行機墜落・疫病が広がる・天空城が飛ぶ', async () => {
+    await richPlayer();
+    const r = await ev(() => {
+      const g = window.__jinchi.game, me = g.me;
+      for (const k of ['wood', 'gold']) g.res[k][0] = 200000;
+      const cap = g.nodes.find((n) => n.owner === me && n.type === 'capital') || g.nodes.find((n) => n.owner === me);
+      const mk = (type) => { let c = -1; for (let rr = 4; rr < 120 && c < 0; rr += 2) for (let a = 0; a < 6.28 && c < 0; a += 0.3) { const q = g.cellAt(cap.x + Math.cos(a) * rr, cap.y + Math.sin(a) * rr); if (q >= 0 && !g.canBuild(type, me, q, 0)) c = q; } return c < 0 ? null : g.playerBuild(type, c).building; };
+      const foeN = g.nodes.filter((n) => n.owner !== me && n.owner > 0 && n.type !== 'capital');
+      const out = {};
+      // 大鐘
+      const n1 = foeN[0], P1 = n1.owner;
+      for (let k = 0; k < 5; k++) g.spawnUnit(P1, n1.x, n1.y, 2, -1);
+      const rb = g.fireSuper(0, mk('bell'), { x: n1.x, y: n1.y });
+      const R = g.superR('bell');
+      out.bell = { ok: rb.ok, units: rb.units, nodeMine: g.nodes[n1.id].owner === me, foesLeft: g.units.filter((u) => u.alive && u.pref !== me && !u.ghost && (u.x - n1.x) ** 2 + (u.y - n1.y) ** 2 < R * R * 0.9).length };
+      // 地割れ
+      const n2 = foeN.find((n) => n.owner !== me && Math.hypot(n.x - n1.x, n.y - n1.y) > R * 2) || foeN[1];
+      for (let k = 0; k < 5; k++) g.spawnUnit(n2.owner, n2.x, n2.y, 1, -1);
+      const rr = g.fireSuper(0, mk('rift'), { x: n2.x - 30, y: n2.y, x2: n2.x + 30, y2: n2.y });
+      out.rift = { ok: rr.ok, units: rr.units, blocked: g.inRift(n2.x, n2.y) };
+      // 大嵐
+      const Q = n2.owner;
+      for (let k = 0; k < 3; k++) g.spawnUnit(Q, n2.x, n2.y, 4, -1, 'fighter');
+      const rs = g.fireSuper(0, mk('storm'), { x: n2.x, y: n2.y });
+      out.storm = { ok: rs.ok, pref: rs.pref === Q, air: g.units.filter((u) => u.alive && u.pref === Q && u.bit === 4).length, own: g.fireSuper(0, mk('storm'), { x: cap.x, y: cap.y }).ok };
+      // 疫病
+      const n3 = foeN.find((n) => n.owner !== me && n !== n1 && n !== n2) || foeN[2];
+      for (let k = 0; k < 20; k++) g.spawnUnit(n3.owner, n3.x, n3.y, 3, -1);
+      const rp = g.fireSuper(0, mk('plague'), { x: n3.x, y: n3.y });
+      // 天空城
+      const sk = mk('sky'), rk = g.fireSuper(0, sk, { x: n3.x, y: n3.y });
+      const d0 = Math.hypot(n3.x - sk.x, n3.y - sk.y);
+      for (let k = 0; k < 40; k++) g.step(0.25);
+      const f = g.skyForts[0];
+      out.plague = { ok: rp.ok, start: rp.units, sickNow: g.units.filter((u) => u.alive && u.sick).length + g.stats.kills };
+      out.sky = { ok: rk.ok, flying: !!f, closer: f ? Math.hypot(n3.x - f.x, n3.y - f.y) < d0 - 5 : false };
+      out.again = g.fireSuper(0, sk, { x: n3.x, y: n3.y }).ok;
+      return out;
+    });
+    assert(r.bell.ok && r.bell.units >= 5 && r.bell.nodeMine && r.bell.foesLeft === 0, 'bell ' + JSON.stringify(r.bell));
+    assert(r.rift.ok && r.rift.units >= 5 && r.rift.blocked, 'rift ' + JSON.stringify(r.rift));
+    assert(r.storm.ok && r.storm.pref && r.storm.air === 0 && !r.storm.own, 'storm ' + JSON.stringify(r.storm));
+    assert(r.plague.ok && r.plague.start >= 10, 'plague ' + JSON.stringify(r.plague));
+    assert(r.sky.ok && r.sky.flying && r.sky.closer, 'sky ' + JSON.stringify(r.sky));
+    assert(!r.again, 'cooldown');
+  });
+
   await test('敵兵は守りのない建物を壊す', async () => {
     const s = await ev(() => {
       const g = window.__jinchi.game;

@@ -227,6 +227,7 @@ const App = {
       if (this.corpses.length < 300) this.corpses.push({ x: u.x, z: u.y, yaw: s ? s.yaw : 0, kind: (u.id % 3 !== 0 ? 0 : 2), col: this.colCache ? this.colCache[u.pref] : [0.5, 0.5, 0.5], t: this.clock });
     });
     g.on('nuke', (e) => this.onNuke(e));
+    g.on('super', (e) => this.onSuper(e));
     g.on('destroyed', (b) => {
       if (this.game && this.game.detonating) return;   // 核の着弾でまとめて消えた建物は1つずつ記録しない
       if (b.owner === this.me && (b.wallet === 0 || b.wallet === undefined)) this.log(`🔥 ${BUILDINGS[b.type].name}が壊されました`, 'bad', b.cell); if (this.sel && this.sel.b === b) this.hidePanel(); });
@@ -333,7 +334,7 @@ const App = {
     }, { signal });
     $('minimap').addEventListener('pointerdown', (e) => this.onMinimap(e), { signal });
     signal.addEventListener('abort', () => {
-      this.hidePanel(); this.setMode(null); this.endBuild(); this.cancelNuke(); this.nukeFx = [];
+      this.hidePanel(); this.setMode(null); this.endBuild(); this.cancelNuke(); this.nukeFx = []; this.superFx = [];
       this.view = null; document.body.classList.remove('v-tps', 'v-map', 'building');
       Object.assign(this.cam, { yaw: 0, ty: 0, fovY: CONFIG.FOV * Math.PI / 180, minDist: 0, nearMin: 0, pitchGoal: CONFIG.CAMERA_PITCH });
     });
@@ -357,11 +358,11 @@ const App = {
   /** 下の建築メニュー（カード） */
   buildMenu() {
     const cat = this.bcat || 'eco';
-    $('bcats').innerHTML = BUILD_CATS.map(([k, name]) => `<button data-cat="${k}" class="${k === cat && !this.menuHidden ? 'on' : ''}">${name}${k === cat ? (this.menuHidden ? ' ▲' : ' ▼') : ''}</button>`).join('');
+    $('bcats').innerHTML = BUILD_CATS.filter(([k]) => !(ONLINE && k === 'super')).map(([k, name]) => `<button data-cat="${k}" class="${k === cat && !this.menuHidden ? 'on' : ''}">${name}${k === cat ? (this.menuHidden ? ' ▲' : ' ▼') : ''}</button>`).join('');
     let html = '';
     for (const k of BUILD_ORDER) {
       const d = BUILDINGS[k];
-      if (d.cat !== cat || (d.nuke && ONLINE)) continue;   // 核ミサイルは1人用だけ
+      if (d.cat !== cat || (d.super && ONLINE)) continue;   // 最強兵器は1人用だけ
       const cost = RES_KEYS.filter((r) => d.cost[r]).map((r) => `<span data-r="${r}">${seal(r, 'mini r-' + r)}${d.cost[r]}</span>`).join('');
       html += `<button class="bcard" data-b="${k}" title="${escapeHtml(d.desc)}">${seal(k, 'big c-' + d.cat)}<b>${d.name}</b><small>${cost}</small></button>`;
     }
@@ -643,13 +644,14 @@ const App = {
       red: [0.72, 0.2, 0.15], green: [0.3, 0.55, 0.2],
     };
     let cx = 0, cz = 0, rot = 0, cs = 1, sn = 0, S = 1, OC = C.red;
+    let YO = 0;      // 高さの持ち上げ（空に浮かぶ天空城など）
     let GH = null;   // 設計図の色（置ける=緑・置けない=赤）
     let TK = 1;   // 建物ごとの色のむら（場所から決まる。古い・新しい・日焼けの違いのように見せる）
     const at = (x, z, r, s, oc) => { cx = x; cz = z; rot = r; cs = Math.cos(r); sn = Math.sin(r); S = s; OC = oc || C.red; TK = 0.84 + (((x * 12.9898 + z * 78.233) * 43758.5453) % 1 + 1) % 1 * 0.3; };
     const P = (mesh, lx, ly, lz, sx, sy, sz, c, r2, tilt) => {
       const wx = cx + (lx * cs - lz * sn) * S, wz = cz + (lx * sn + lz * cs) * S;
       if (GH) c = [c[0] * 0.4 + GH[0] * 0.6, c[1] * 0.4 + GH[1] * 0.6, c[2] * 0.4 + GH[2] * 0.6];
-      I[mesh].push(wx, ly * S, wz, sx * S, sy * S, sz * S, c, rot + (r2 || 0), tilt || 0, c === OC || GH ? 1 : TK);
+      I[mesh].push(wx, ly * S + YO, wz, sx * S, sy * S, sz * S, c, rot + (r2 || 0), tilt || 0, c === OC || GH ? 1 : TK);
     };
     const pad = (lx, lz, w, d, c) => P('pad', lx, 0.015, lz, w, 0.01, d, c || C.dirt);
     const shadow = (w, d) => I.shadow.push(cx + 0.35 * S, 0.02, cz - 0.4 * S, w * 1.25 * S, 0.01, d * 1.25 * S, [0, 0, 0], rot);   // 影は奥・右へ
@@ -1002,6 +1004,54 @@ const App = {
             pad(0, 0, 1.4, 1.4, C.stone); shadow(0.7, 0.7);
             P('cylW', 0, 0, 0, 0.35, 2.2, 0.35, [0.95, 0.95, 0.92]); P('box', 0, 2.2, 0, 0.45, 0.3, 0.45, C.lantern); P('coneT', 0, 2.5, 0, 0.4, 0.3, 0.4, C.red);
             break;
+          case 'bell': {   // 調略の大鐘：石垣の上の鐘楼（金の大鐘・朱の柱・瓦屋根）
+            pad(0, 0, 2.8, 2.8, C.stone); shadow(1.8, 1.8);
+            P('box', 0, 0, 0, 2.2, 0.35, 2.2, C.stoneDk);
+            for (const [a2, b2] of [[-0.8, -0.8], [0.8, -0.8], [-0.8, 0.8], [0.8, 0.8]]) P('cylW', a2, 0.35, b2, 0.14, 1.9, 0.14, [0.66, 0.2, 0.14]);
+            P('roofT', 0, 2.2, 0, 2.4, 0.9, 2.4, C.kawara);
+            const sw = Math.sin(this.clock * 1.5 + b.id) * 0.06;
+            P('sphere', 0, 0.85, 0, 1.0, 1.25, 1.0, [0.85, 0.65, 0.22], 0, sw);   // 大鐘
+            P('cylW', 0, 0.75, 0, 1.06, 0.12, 1.06, [0.7, 0.52, 0.18]);
+            P('cylW', 1.2, 1.3, 0, 0.16, 0.16, 1.2, C.wood, Math.PI / 2, 0);   // 撞木
+            break;
+          }
+          case 'rift': {   // 大鯰の祠：苔むした石の祠と、大きな鯰の石像・しめ縄・裂けた地面
+            pad(0, 0, 3.0, 2.6, [0.38, 0.33, 0.28]); shadow(1.6, 1.4);
+            P('box', -0.7, 0, -0.5, 1.1, 0.9, 0.9, C.stone); P('roofT', -0.7, 0.9, -0.5, 1.4, 0.6, 1.2, [0.3, 0.42, 0.28]);
+            P('sphere', 0.6, 0, 0.4, 1.4, 0.7, 0.9, [0.3, 0.3, 0.32]);                 // 鯰の胴
+            P('sphere', 1.2, 0.15, 0.4, 0.6, 0.45, 0.7, [0.32, 0.32, 0.34]);           // 頭
+            for (const sd of [-1, 1]) P('cylW', 1.45, 0.35, 0.4 + sd * 0.25, 0.04, 0.6, 0.04, [0.2, 0.2, 0.2], 0, sd * 1.2);   // ひげ
+            P('cylW', 0.6, 0.62, 0.4, 1.2, 0.08, 0.6, [0.92, 0.88, 0.7]);              // しめ縄
+            P('box', 0.2, 0.02, 1.15, 2.2, 0.03, 0.12, [0.12, 0.08, 0.06], 0.3);      // 地面の裂け目
+            break;
+          }
+          case 'storm': {   // 神風の祭壇：白い石段・朱の鳥居・風車のように回る幣（ぬさ）
+            pad(0, 0, 2.8, 2.8, C.stone); shadow(1.6, 1.6);
+            for (let k = 0; k < 3; k++) P('box', 0, k * 0.2, 0, 2.2 - k * 0.5, 0.2, 2.2 - k * 0.5, [0.9 - k * 0.04, 0.9 - k * 0.04, 0.86]);
+            for (const sd of [-1, 1]) P('cylW', sd * 0.55, 0.6, 0, 0.1, 1.4, 0.1, C.red);
+            P('box', 0, 1.95, 0, 1.6, 0.1, 0.14, C.red); P('box', 0, 1.7, 0, 1.3, 0.07, 0.1, C.red);
+            const sp = this.clock * 3 + b.id;
+            for (let k = 0; k < 4; k++) P('box', 0, 1.15, 0, 0.9, 0.14, 0.02, [0.95, 0.95, 0.95], sp + k * Math.PI / 4);   // 回る幣
+            P('sphere', 0, 2.1, 0, 0.5, 0.35, 0.5, [0.35, 0.4, 0.55]);                 // 小さな雲
+            break;
+          }
+          case 'plague': {   // 黒死の壺蔵：黒い土蔵と、紫の煙がもれる大きな壺
+            pad(0, 0, 2.6, 2.4, [0.28, 0.24, 0.22]); shadow(1.6, 1.4);
+            P('boxW', -0.5, 0, -0.4, 1.2, 0.9, 1.0, [0.18, 0.16, 0.16]); P('roofT', -0.5, 0.9, -0.4, 1.5, 0.6, 1.3, C.kawara);
+            P('sphere', 0.7, 0, 0.5, 0.9, 1.1, 0.9, [0.22, 0.18, 0.2]);               // 壺
+            P('cylW', 0.7, 1.0, 0.5, 0.45, 0.2, 0.45, [0.22, 0.18, 0.2]);
+            P('sphere', 0.7, 1.15 + Math.sin(this.clock * 2 + b.id) * 0.08, 0.5, 0.6, 0.4, 0.6, [0.45, 0.22, 0.55]);   // 紫の煙
+            for (let k = 0; k < 3; k++) P('box', 0.2 + k * 0.4, 0.02, 1.1, 0.25, 0.25, 0.02, [0.85, 0.82, 0.7]);   // 封じの札
+            break;
+          }
+          case 'sky': {   // 天空城の礎：岩の台座と、出撃中でなければ小さな天守が浮かぶ
+            pad(0, 0, 3.0, 3.0, C.stone); shadow(1.8, 1.8);
+            P('coneT', 0, 0, 0, 2.2, 0.6, 2.2, C.stoneDk);
+            for (let k = 0; k < 4; k++) { const a2 = k * Math.PI / 2 + this.clock * 0.5; P('sphere', Math.cos(a2) * 1.1, 0.7 + Math.sin(this.clock * 2 + k) * 0.1, Math.sin(a2) * 1.1, 0.25, 0.25, 0.25, [0.5, 0.75, 1.0]); }   // 光る石
+            const out = this.game && this.game.skyForts && this.game.skyForts.some((f) => f.P === b.owner && Math.hypot(f.x - b.x, f.y - b.y) < 3);
+            if (!out) { YO = 1.0 * S; P('coneT', 0, 0, 0, 1.2, -0.7, 1.2, C.stone); tenshu(0, 0, 0.45); YO = 0; }
+            break;
+          }
           case 'nuke': {   // 核ミサイル基地：コンクリートの台・発射台に立つ白いミサイル（赤い先端）・黄色と黒の警告の帯・格納庫
             const conc = [0.62, 0.62, 0.6], concDk = [0.42, 0.42, 0.42], yel = [0.95, 0.78, 0.15], blk = [0.12, 0.12, 0.12];
             pad(0, 0, 3.4, 3.0, conc); shadow(2.0, 1.8);
@@ -1023,6 +1073,24 @@ const App = {
           default:
             pad(0, 0, 2.0, 2.0); shadow(1.4, 1.4); minka(0, 0, 1.2, 0.9, 0.6, C.kawara, 0); flag(0.9, 0.7, 1.5, c);
         }
+      }
+      // ---- 天空城：岩の土台ごと空に浮かぶ天守閣（下に影、下から砲煙）
+      for (const f of g.skyForts || []) {
+        const a3 = g.lerpA ? g.lerpA() : 1, fx = f.px + (f.x - f.px) * a3, fz = f.py + (f.y - f.py) * a3;
+        if (!visible(fx, fz) && !visible(fx, fz + 8)) continue;
+        const sc = this.skyScale(), alt = this.skyAlt() / sc + Math.sin(this.clock * 0.8 + f.id) * 0.3;
+        at(fx, fz, Math.sin(this.clock * 0.2) * 0.1, sc, col[f.P]);
+        I.shadow.push(fx, 0.03, fz, 6 * sc, 0.01, 6 * sc, [0, 0, 0], 0);
+        YO = alt * sc;
+        for (let k = 0; k < 3; k++) { const a2 = this.clock * 2 + k * 2.1; P('sphere', Math.cos(a2) * 1.5, -3.6 - (this.clock * 3 + k) % 3, Math.sin(a2) * 1.5, 0.6, 0.6, 0.6, [0.75, 0.73, 0.7]); }   // 砲煙（城の下）
+        P('coneT', 0, 0, 0, 5.5, -3.2, 5.5, [0.42, 0.38, 0.33]);        // 逆さの岩山（土台）
+        P('coneT', 0.8, -2.6, 0.6, 2.2, -1.6, 2.2, [0.36, 0.32, 0.28]);
+        P('cylW', 0, 0, 0, 5.2, 0.35, 5.2, [0.48, 0.5, 0.36]);           // 草の生えた上面
+        YO = (alt + 0.35) * sc;
+        for (let k = 0; k < 8; k++) { const a2 = k / 8 * Math.PI * 2; P('box', Math.cos(a2) * 2.3, 0, Math.sin(a2) * 2.3, 1.6, 0.35, 0.22, C.plaster, -a2 + Math.PI / 2); }   // 白い塀
+        tenshu(0, 0, 1.25);
+        flag(1.8, 1.4, 2.2, col[f.P]);
+        YO = 0;
       }
       // ---- 旗（県の色の旗がはためく）
       for (const f of g.flags || []) {
@@ -1759,6 +1827,7 @@ const App = {
     this.drawGeneralTag(ctx);
   },
   onTap(sx, sy) {
+    if (this.state === STATE.PLAYING && this.nukeAim) { this.nukeTap(sx, sy); return; }   // 兵器の狙う場所を選ぶ（画面の端の矢印より優先）
     // 画面の端の矢印（大将・旗）をタップしたら、その場所へ
     if (this.state === STATE.PLAYING && this.edgeMarks && !this.isTps()) for (const m of this.edgeMarks) if (Math.hypot(m.px - sx, m.py - sy) < 26) { this.cam.flyTo(m.x, m.z, Math.min(this.cam.dist, 160), 0.5); return; }
     const i = this.pickCell(sx, sy);
@@ -1767,7 +1836,6 @@ const App = {
       return;
     }
     if (this.state === STATE.PLAYING && this.isTps() && this.build && !this.paused) { this.placeBuild(); return; }
-    if (this.state === STATE.PLAYING && this.nukeAim) { this.nukeTap(sx, sy); return; }   // 核ミサイルの着弾地点を選ぶ
     if (this.state !== STATE.PLAYING || this.paused || i < 0) return;
     const g = this.game, p = this.cam.groundAt(sx, sy);
     if (!p) return;

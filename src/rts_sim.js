@@ -411,6 +411,7 @@ class Sim {
     this.runPending();
     this.updateGeneral();
     this.updateEvents();
+    this.updateStormSet();
     this.buildHash();
     this.planAll();
     this.aiBuildAll();
@@ -424,6 +425,9 @@ class Sim {
     this.combat(dt);
   }
   stepD(dt) {
+    if (this.skyForts && this.skyForts.length) this.updateSky(dt);
+    if (this.plagueOn) this.updatePlague(dt);
+    if (this.rifts && this.rifts.length) this.rifts = this.rifts.filter((r) => r.until > this.time);
     this.moveAll(dt);
     this.updateNodes(dt);
     if (CONFIG.FLAG_MODE) this.updateFlags(dt);
@@ -772,7 +776,7 @@ class Sim {
     const capOf = (P) => { let v = cap.get(P); if (v === undefined) cap.set(P, v = this.unitCap(P)); return v; };
     for (let i = slot4; i < tr.length; i += 4) {
       const b = tr[i];
-      if (b.dead) continue;
+      if (b.dead || (this.stormSet && this.stormSet.has(b.owner))) continue;   // 大嵐の県は訓練が止まる
       const def = BUILDINGS[b.type];
       b.t += dt * 4;
       const need = def.train * (CONFIG.TRAIN_MULT || 1);
@@ -1024,6 +1028,7 @@ class Sim {
     const def = UNITS[u.type], S = this.S;
     // 三人称視点であなたが直接動かしている大将は、勝手に歩かない（射程に入った敵とは自動で戦う）
     if (u.isGeneral && this.genManual) { u.chase = -1; u.dest = null; u.path = null; u.goalNode = -1; return; }
+    if (u.stunUntil > this.time) { u.dest = null; u.path = null; u.thinkAt = u.stunUntil; return; }
     // 通常の兵士（足軽）は、敵の領土に入ったら旗を立てる
     if (CONFIG.FLAG_MODE && u.type === 'ashigaru' && u.engaged < 0 && (u.role === 'atk' || u.fromPlayer) && u.goalNode !== -2 && u.follow === undefined && this.rng() < 0.5) {
       const gn = this.nodes[u.goalNode];   // 攻め先の拠点の近くで立てる（途中で立てても守れないので）
@@ -1148,6 +1153,13 @@ class Sim {
     if (hitB) this.buildingsNear(x, y, r, (b) => { if (b.owner !== P) { b.hp -= hitB; b.hitAt = this.time; this.hurtB.push(b); } });
     if (this.booms.length < 200) this.booms.push([x, y, r, this.time, kind || 0, ox === undefined ? x : ox, oy === undefined ? y : oy]);
   }
+  /** 戦闘の計算の外で起きる爆発（砲撃・天空城など）：体力を直接減らす（倒れるのは次の戦闘の計算で） */
+  boomDirect(x, y, r, dmg, P, hitB, kind, ox, oy) {
+    this.forUnitsNear(x, y, r, (v) => { if (v.pref !== P && v.bit !== 4 && !v.ghost && v.alive) v.hp -= dmg * (v.buff ? v.buff.armor : 1); });
+    if (hitB) this.buildingsNear(x, y, r, (b) => { if (b.owner !== P) { b.hp -= hitB; b.hitAt = this.time; (this.hurtB || (this.hurtB = [])).push(b); } });
+    if (!this.booms) this.booms = [];
+    if (this.booms.length < 200) this.booms.push([x, y, r, this.time, kind || 0, ox === undefined ? x : ox, oy === undefined ? y : oy]);
+  }
   /** by：撃った兵（あなたの部隊の撃破を数えるため） */
   hitUnit(v, a, by) {
     if (v.isGeneral) a /= 1 + 0.1 * ((this.genLv || 1) - 1);   // 大将はレベルが上がるほど被害が少ない
@@ -1167,7 +1179,7 @@ class Sim {
     // 兵が多いときは、兵の攻撃を2組に分けて1刻みおきに計算する（そのぶん2刻み分の被害を与える）
     const half = U.length > 1500, parity = (this.tickNo || 0) & 1;
     for (const u of U) {
-      if (!u.alive || u.ghost) continue;   // 幽霊の大将は戦わない
+      if (!u.alive || u.ghost || u.stunUntil > this.time) continue;   // 幽霊の大将・寝返ったばかりの兵は戦わない
       if (half && (u.id & 1) !== parity) continue;
       const udt = half ? dt * 2 : dt;
       const def = UNITS[u.type], buff = u.buff || {};
@@ -1291,7 +1303,8 @@ class Sim {
     for (const u of this.units) {
       u.px = u.x; u.py = u.y;
       if (u.engaged >= 0 || u.hitB) continue;
-      let sp = base * UNITS[u.type].spd * (u.buff ? u.buff.spd : 1) * (u.boostUntil > this.time ? 1.3 : 1);
+      if (u.stunUntil > this.time) continue;   // 寝返ったばかりの兵は動けない
+      let sp = (this.stormSet && this.stormSet.has(u.pref) ? 0.33 : 1) * base * UNITS[u.type].spd * (u.buff ? u.buff.spd : 1) * (u.boostUntil > this.time ? 1.3 : 1);
       const def = UNITS[u.type];
       if (u.bit === 1 && this.rains) for (const r of this.rains) if (r.until > this.time && Math.abs(u.x - r.x) < r.r && Math.abs(u.y - r.y) < r.r) { sp *= 0.55; break; }   // 大雨で足が遅い
       let tx, ty, stopAt = 0;
@@ -1309,6 +1322,11 @@ class Sim {
       const dx = tx - u.x, dy = ty - u.y, d = Math.hypot(dx, dy);
       if (d <= stopAt) continue;
       if (u.bit === 2) { this.sail(u, dx / d, dy / d, Math.min(sp, d - stopAt)); if (d - stopAt <= sp) { u.dest = null; } continue; }
+      // 地割れは渡れない（陸の兵）
+      if (this.rifts && this.rifts.length && u.bit === 1) {
+        const nx = d - stopAt <= sp ? tx : u.x + dx / d * sp, ny = d - stopAt <= sp ? ty : u.y + dy / d * sp;
+        if (this.inRift(nx, ny) && !this.inRift(u.x, u.y)) { if (++u.stuck > 12) { u.dest = null; u.path = null; u.goalNode = -1; u.chase = -1; u.thinkAt = this.time + 3; u.stuck = 0; } continue; }
+      }
       if (d - stopAt <= sp) {
         u.x = tx - (stopAt ? dx / d * stopAt : 0); u.y = ty - (stopAt ? dy / d * stopAt : 0);
         if (u.chase < 0) { if (u.path && u.pi < u.path.length) u.pi++; else { u.dest = null; u.path = null; } }
@@ -1383,7 +1401,7 @@ class Sim {
         keep.push(f); continue;
       }
       f.hp = Math.min(100, f.hp + CONFIG.FLAG_DECAY * 0.5 * dt);
-      if (own >= en) f.prog += dt * rate;   // 敵の兵のほうが多いあいだは進まない（決戦中は速い）
+      if (own >= en && !(this.stormSet && this.stormSet.has(f.pref))) f.prog += dt * rate;   // 大嵐の県の旗は進まない   // 敵の兵のほうが多いあいだは進まない（決戦中は速い）
       if (f.prog >= CONFIG.FLAG_HOLD) { this.completeFlag(f); continue; }
       keep.push(f);
     }
@@ -1552,6 +1570,178 @@ class Sim {
     h.abil[kind] = this.time + def.cd * (CONFIG.ABILITY_CD_MULT || 1);
     this.emit('ability', { w, kind, x, y });
     return { ok: true };
+  }
+  // ---------------------------------------------------------- 最強兵器（核ミサイル・調略の大鐘・大鯰の地割れ・神風の大嵐・黒死の壺・天空城）
+  superReady(b) { return b.type === 'nuke' ? this.nukeReady(b) : Math.max(0, (b.superAt || 0) - this.time); }
+  superR(kind) { const d = CONFIG.SUPER[kind] || {}; return (d.r || CONFIG.NUKE_R) * this.S; }
+  /** 財布 w の人が自分の兵器 b を使う。t = { x, y, x2, y2 } */
+  fireSuper(w, b, t) {
+    if (!b || b.dead || b.wallet !== w || !BUILDINGS[b.type].super) return { ok: false, why: 'no' };
+    const kind = BUILDINGS[b.type].super;
+    if (kind === 'nuke') return this.launchNuke(w, b, t.x, t.y);
+    if (this.superReady(b) > 0) return { ok: false, why: 'cd' };
+    const D = CONFIG.SUPER[kind], P = b.owner, S = this.S;
+    let r;
+    if (kind === 'bell') r = this.superBell(P, w, t.x, t.y, D);
+    else if (kind === 'rift') r = this.superRift(P, w, t.x, t.y, t.x2, t.y2, D);
+    else if (kind === 'storm') r = this.superStorm(P, w, t.x, t.y, D);
+    else if (kind === 'plague') r = this.superPlague(P, w, t.x, t.y, D);
+    else if (kind === 'sky') r = this.superSky(P, w, b, t.x, t.y, D);
+    if (!r || !r.ok) return r || { ok: false };
+    b.superAt = this.time + D.cd * (CONFIG.ABILITY_CD_MULT || 1);
+    this.stats.supers = (this.stats.supers || 0) + 1;
+    this.emit('super', Object.assign({ kind, by: P, w, S }, r));
+    void S;
+    return r;
+  }
+  /** 取った土地を、いちばん近い自分の拠点の領土にする */
+  homeCells(P, x, y, changed) {
+    let home = null, hd = 1e18;
+    for (const n of this.nodes) if (n.owner === P) { const d = (n.x - x) ** 2 + (n.y - y) ** 2; if (d < hd) { hd = d; home = n; } }
+    if (!home || !changed.length) return;
+    const dist = this.nodeDist, cap = Math.min(255, Math.round(Math.sqrt(hd)));
+    for (const i of changed) { this.nodeOf[i] = home.id; dist[i] = cap; }
+    const old = this.nodeCells[home.id], add = new Int32Array(old.length + changed.length);
+    add.set(old); add.set(changed, old.length);
+    this.nodeCells[home.id] = add;
+  }
+  /** 調略の大鐘：半径の中の敵の兵・建物・土地・拠点（県庁以外）を寝返らせる */
+  superBell(P, w, x, y, D) {
+    const R = D.r * this.S, R2 = R * R, map = this.map;
+    const c = this.cellAt(x, y);
+    if (c < 0 || !map.initPref[c]) return { ok: false, why: 'target' };
+    let units = 0, nodes = 0;
+    for (const u of this.units) {
+      if (!u.alive || u.ghost || u.pref === P || (u.x - x) ** 2 + (u.y - y) ** 2 > R2) continue;
+      u.pref = P; u.fromPlayer = false; u.hw = -1; delete u.follow; u.role = 'atk'; u.stunUntil = this.time + D.stun;
+      u.chase = -1; u.engaged = -1; u.dest = null; u.path = null; u.goalNode = -1; u.tgt = -1; u.sick = 0;
+      units++;
+    }
+    for (const n of this.nodes) if (n.owner !== P && n.type !== 'capital' && (n.x - x) ** 2 + (n.y - y) ** 2 <= R2) { this.capture(n, P); nodes++; }
+    const changed = [];
+    for (let yy = Math.floor(y - R); yy <= y + R; yy++) for (let xx = Math.floor(x - R); xx <= x + R; xx++) {
+      if ((xx + 0.5 - x) ** 2 + (yy + 0.5 - y) ** 2 > R2) continue;
+      const i = map.id(xx, yy);
+      if (i < 0 || !map.initPref[i]) continue;
+      const o = this.owner[i];
+      if (o !== P && !(this.nodes[this.nodeOf[i]] && this.nodes[this.nodeOf[i]].cell === i && this.nodes[this.nodeOf[i]].type === 'capital')) { this.moveCell(i, o, P); changed.push(i); }
+    }
+    this.homeCells(P, x, y, changed);
+    this.flipBuildings(changed, P);
+    let blds = 0;
+    for (const b of this.buildings) if (!b.dead && b.owner === P && b.wallet === P && (b.x - x) ** 2 + (b.y - y) ** 2 <= R2 && changed.length) { if (w >= 0 && this.isHuman(w)) { b.wallet = w; b.byPlayer = true; } blds++; }
+    this.cat = null;
+    if (changed.length) this.emit('cells', changed);
+    for (let p = 1; p <= 47; p++) if (this.counts[p] === 0 && this.nodeCount[p] === 0) this.eliminate(p);
+    this.checkEnd();
+    return { ok: true, x, y, r: R, units, nodes, blds, cells: changed.length };
+  }
+  /** 大鯰の地割れ：(x,y)→(x2,y2) の帯の上を全滅させ、しばらく渡れなくする */
+  superRift(P, w, x, y, x2, y2, D) {
+    if (x2 === undefined) return { ok: false, why: 'target' };
+    const S = this.S, maxL = D.len * S;
+    let L = Math.hypot(x2 - x, y2 - y);
+    if (L < 4) return { ok: false, why: 'short' };
+    if (L > maxL) { x2 = x + (x2 - x) / L * maxL; y2 = y + (y2 - y) / L * maxL; L = maxL; }
+    const hw = D.hw * S, seg = { x1: x, y1: y, x2, y2, hw, until: this.time + D.life, L };
+    let units = 0, blds = 0;
+    for (const u of this.units) if (u.alive && !u.ghost && u.bit !== 4 && this.segDist(seg, u.x, u.y) <= hw) { u.alive = false; units++; this.emit('death', u); }
+    this.detonating = true;
+    for (const b of this.buildings) if (!b.dead && this.segDist(seg, b.x, b.y) <= hw) { this.removeBuilding(b, true); blds++; }
+    this.detonating = false;
+    if (blds) { this.buildings = this.buildings.filter((b) => !b.dead); this.cat = null; }
+    if (this.flags) this.flags = this.flags.filter((f) => this.segDist(seg, f.x, f.y) > hw);
+    (this.rifts || (this.rifts = [])).push(seg);
+    return { ok: true, x, y, x2, y2, hw, units, blds, life: D.life };
+  }
+  segDist(s, px, py) {
+    const vx = s.x2 - s.x1, vy = s.y2 - s.y1, l2 = vx * vx + vy * vy || 1;
+    const t = Math.max(0, Math.min(1, ((px - s.x1) * vx + (py - s.y1) * vy) / l2));
+    return Math.hypot(px - s.x1 - vx * t, py - s.y1 - vy * t);
+  }
+  inRift(x, y) { for (const r of this.rifts) if (r.until > this.time && this.segDist(r, x, y) <= r.hw) return true; return false; }
+  /** 神風の大嵐：(x,y) の土地の県全体 */
+  superStorm(P, w, x, y, D) {
+    const c = this.cellAt(x, y), Q = c >= 0 ? this.owner[c] : 0;
+    if (!Q || Q === P || Q > 47) return { ok: false, why: 'target' };
+    let units = 0;
+    for (const u of this.units) if (u.alive && u.pref === Q && (u.bit === 4 || u.bit === 2)) { u.alive = false; units++; this.emit('death', u); }   // 飛行機は墜落・軍艦は沈む
+    (this.storms || (this.storms = [])).push({ pref: Q, until: this.time + D.life, by: P });
+    this.updateStormSet();
+    return { ok: true, x, y, pref: Q, units, life: D.life };
+  }
+  updateStormSet() {
+    if (!this.storms || !this.storms.length) { this.stormSet = null; return; }
+    this.storms = this.storms.filter((s) => s.until > this.time);
+    this.stormSet = this.storms.length ? new Set(this.storms.map((s) => s.pref)) : null;
+  }
+  /** 黒死の壺：疫病の始まり */
+  superPlague(P, w, x, y, D) {
+    const R = D.r * this.S, R2 = R * R;
+    if (this.cellAt(x, y) < 0) return { ok: false, why: 'target' };
+    let n = 0;
+    for (const u of this.units) if (u.alive && !u.ghost && u.pref !== P && (u.x - x) ** 2 + (u.y - y) ** 2 <= R2) { u.sick = P; n++; }
+    this.plagueOn = true;
+    (this.plagues || (this.plagues = [])).push({ P, until: this.time + D.life });
+    return { ok: true, x, y, r: R, units: n, life: D.life };
+  }
+  updatePlague(dt) {
+    const D = CONFIG.SUPER.plague, S = this.S, hp = (u) => (UNITS[u.type] || UNITS.ashigaru).hp;
+    const active = new Set((this.plagues || []).filter((q) => q.until > this.time).map((q) => q.P));
+    const spreadNow = (this.tickNo & 3) === 0, r = D.spread * S;
+    let sick = 0, newly = 0;
+    for (const u of this.units) {
+      if (!u.alive || !u.sick) continue;
+      sick++;
+      u.hp -= hp(u) * D.dmg * dt;   // 体力がじわじわ減る（倒れるのは次の戦闘の計算で）
+      if (spreadNow) {
+        // 診療所の近くで治る
+        let cured = false;
+        this.auraNear(u.x, u.y, 12, (b, d) => { if (!cured && b.type === 'hospital' && b.owner === u.pref && d < 10) cured = true; });
+        if (cured) { u.sick = 0; continue; }
+        if (active.has(u.sick) && newly < 300) this.forUnitsNear(u.x, u.y, r, (v) => {
+          if (!v.alive || v.sick || v.ghost || newly >= 300) return;
+          if (v.pref !== u.sick || this.rng() < 0.03) { v.sick = u.sick; newly++; }   // まれに味方にもうつる
+        });
+      }
+    }
+    if (!sick && !active.size) this.plagueOn = false;
+  }
+  /** 天空城：兵器の場所から浮かび上がり、(x,y) へ飛んで真下を砲撃し続ける */
+  superSky(P, w, b, x, y, D) {
+    if (this.cellAt(x, y) < 0 && !this.map.isLand(this.cellAt(x, y))) return { ok: false, why: 'target' };
+    const f = { id: (this.skySeq = (this.skySeq || 0) + 1), x: b.x, y: b.y, px: b.x, py: b.y, tx: x, ty: y, P, w, hp: D.hp, maxHp: D.hp, until: this.time + D.life, t0: this.time, cd: 1 };
+    (this.skyForts || (this.skyForts = [])).push(f);
+    return { ok: true, x, y, ox: b.x, oy: b.y, id: f.id, life: D.life };
+  }
+  updateSky(dt) {
+    const D = CONFIG.SUPER.sky, S = this.S, keep = [];
+    for (const f of this.skyForts) {
+      f.px = f.x; f.py = f.y;
+      const dx = f.tx - f.x, dy = f.ty - f.y, d = Math.hypot(dx, dy), sp = D.spd * S * dt;
+      if (d > sp) { f.x += dx / d * sp; f.y += dy / d * sp; } else { f.x = f.tx; f.y = f.ty; }
+      // 真下を砲撃
+      f.cd -= dt;
+      if (f.cd <= 0) {
+        f.cd = D.bomb;
+        const a = this.rng() * 6.28, rr = this.rng() * 5 * S;
+        this.boomDirect(f.x + Math.cos(a) * rr, f.y + Math.sin(a) * rr, 2.5 * S, 70, f.P, 140, 1, f.x, f.y);
+      }
+      // 敵の高射砲・城・戦闘機に削られる
+      this.buildingsNear(f.x, f.y, 14 * S, (b, bd) => {
+        if (b.owner === f.P) return;
+        const bdf = BUILDINGS[b.type];
+        if (bdf.hits && bdf.hits.includes('air') && bd <= (bdf.range || 10) * 1.5) f.hp -= (bdf.dps || 2) * dt * 8;
+      });
+      this.forUnitsNear(f.x, f.y, 8 * S, (v) => { if (v.pref !== f.P && v.bit === 4 && v.alive) f.hp -= 3 * dt * 4; });
+      if (f.hp <= 0 || this.time >= f.until) {   // 落ちる
+        this.boomDirect(f.x, f.y, 6 * S, 160, -1, 300, 1, f.x, f.y);
+        this.emit('super', { kind: 'skyfall', x: f.x, y: f.y, id: f.id, by: f.P, shot: f.hp <= 0 });
+        continue;
+      }
+      keep.push(f);
+    }
+    this.skyForts = keep;
   }
   // ---------------------------------------------------------- 核ミサイル
   /** 発射できるまでの残り秒（0なら発射できる）。b は核ミサイル基地 */
