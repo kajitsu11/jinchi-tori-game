@@ -177,7 +177,7 @@ const App = {
     const seed = seedParam ? +seedParam : (Date.now() & 0x7fffffff);
     this.game = new Sim(this.map, p, seed);
     this.game.sliced = true;   // 刻みの仕事を数コマに分ける（カクつかないように）
-    if (TRIAL) this.openingN = this.game.openingBattle();   // 試作版：最初から各地で大乱戦
+    if (TRIAL) this.openingN = this.game.openingBattle({ total: 11000, works: 10 });   // 最初から兵1万人・建物4千棟以上で国境ぞいに大乱戦   // 試作版：最初から各地で大乱戦
     // 確認用の早送り（例：?speed=600 で 1秒＝10分）
     this.speed = clamp(+(new URLSearchParams(location.search).get('speed') || 1), 1, 5000);
     this.renderer.attachGame(this.game, p);
@@ -1727,9 +1727,15 @@ const App = {
       for (const b of g.buildings) {
         if (b.hp >= b.maxHp || !(g.time - (b.hitAt || -99) < 3)) continue;
         if (!cam.project(b.x, clamp(cam.dist * 0.0016, 0.9, 7) * 2.4, b.y, v) || !onScreen()) continue;
-        ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(v[0] - 12, v[1] - 6, 24, 4);
-        ctx.fillStyle = b.hp / b.maxHp > 0.5 ? '#ffcf3f' : '#ff4a3d';
-        ctx.fillRect(v[0] - 12, v[1] - 6, 24 * Math.max(0, b.hp) / b.maxHp, 4);
+        // 体力の棒はその県の色（減っても同じ色）。左に家の形の印をつけて、兵の体力の棒と見分ける
+        const pc = (map.prefs[b.owner] && map.prefs[b.owner].color) || '#ccc', bx = v[0] - 10, by = v[1] - 6;
+        ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(bx - 1, by - 1, 26, 6);
+        ctx.fillStyle = pc; ctx.fillRect(bx, by, 24 * Math.max(0, b.hp) / b.maxHp, 4);
+        // 家の印（屋根＋壁）
+        const hx = bx - 9, hy = by + 2;
+        ctx.beginPath(); ctx.moveTo(hx - 6, hy - 1); ctx.lineTo(hx, hy - 7); ctx.lineTo(hx + 6, hy - 1); ctx.lineTo(hx + 4.5, hy - 1); ctx.lineTo(hx + 4.5, hy + 5); ctx.lineTo(hx - 4.5, hy + 5); ctx.lineTo(hx - 4.5, hy - 1); ctx.closePath();
+        ctx.fillStyle = pc; ctx.fill(); ctx.lineWidth = 1.3; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.stroke();
+        ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(hx - 1.2, hy + 1.5, 2.4, 3.5);   // 戸
       }
     }
     // 拠点の名前と占領ゲージ
