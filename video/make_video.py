@@ -28,7 +28,7 @@ OUT = os.path.join(HERE, "selfish_gene.mp4")
 TMP = os.environ.get("VIDEO_TMP", os.path.join(HERE, "_build"))
 VOICEVOX = os.environ.get("VOICEVOX_URL", "http://127.0.0.1:50021")
 SPEAKER = int(os.environ.get("VOICEVOX_SPEAKER", "3"))  # 3 = ずんだもん(ノーマル)
-CREDIT_VOICE = "VOICEVOX:ずんだもん"
+CREDIT_VOICE = "VOICEVOX:ずんだもん、VOICEVOX:四国めたん"
 os.makedirs(TMP, exist_ok=True)
 
 FONT_PATH = "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf"
@@ -337,6 +337,7 @@ def bob(t, k=0, amp=10, speed=2.4):
 def text3d(d, xy, s, size, color, a=1.0, anchor="mm", depth=None, stroke=None):
     if a <= 0.02:
         return
+    size = int(size)
     depth = max(2, size // 16) if depth is None else depth
     stroke = max(2, size // 14) if stroke is None else stroke
     x, y = xy
@@ -495,208 +496,219 @@ def bob(t, k=0, amp=10, speed=2.4):
     return amp * math.sin(t * speed + k * 1.3)
 
 
-# ---------------------------------------------------------------- scenes (写真版)
+# ---------------------------------------------------------------- scenes (ずんだもん × 四国めたん 掛け合い版)
 # 描画関数 draw(img, d, t, T, L): t=シーン内秒, T=シーン長, L=各セリフの開始秒
+ZUN, MET = "zundamon", "metan"
+SPEAKERS = {ZUN: dict(id=3, name="ずんだもん", color=(60, 170, 70), dark=(10, 50, 15)),
+            MET: dict(id=2, name="四国めたん", color=(220, 70, 140), dark=(70, 10, 40))}
 
 
-def s_title(img, d, t, T, L):
+def Lk(L, k, T):
+    return L[k] if k < len(L) else T + 99
+
+
+def option_card(img, d, box, letter, text, a, state=None):
+    """クイズの選択肢カード. state: None / 'wrong' / 'right'."""
+    col = {None: (50, 70, 150), "wrong": (70, 70, 80), "right": (180, 40, 60)}[state]
+    card(img, box, a, col, YELLOW if state == "right" else None)
+    x0, y0, x1, y1 = box
+    text3d(d, (x0 + 60, (y0 + y1) / 2), letter, 60, YELLOW, a)
+    label(d, (x0 + 120, (y0 + y1) / 2), text, 44, WHITE if state != "wrong" else GRAY, a, anchor="lm")
+
+
+def s_open(img, d, t, T, L):
     photo_bg(img, "lion_bg", t, T, dim=0.35, zoom=(1.0, 1.15), focus=(0.5, 0.4))
     a = appear(t, 0.2)
-    text3d(d, (W / 2, 190), "生き物は「種を守るため」に", 96, WHITE, a)
-    text3d(d, (W / 2, 340), "生きている？", 140, YELLOW, a)
+    text3d(d, (W / 2, 190), "生き物は「種を守るため」に", 92, WHITE, a)
+    text3d(d, (W / 2, 330), "生きている？", 130, YELLOW, a)
     for i, (k, cap) in enumerate([("lemming", "レミング"), ("bees", "ミツバチ"), ("bat", "チスイコウモリ"), ("cubs", "子ライオン")]):
         polaroid(img, k, 330 + i * 420, 720 + bob(t, i, 6), 330, 220, rot=(-6, 4, -3, 7)[i], scale=pop(t, 0.5 + 0.2 * i), caption=cap)
-    if len(L) > 1:
-        stamp_x(d, W / 2 + 470, 330, 120, pop(t, L[1]))
-        text3d(d, (W / 2, 500), "→ 実は ちがう！", 80, RED, appear(t, L[1] + 0.3))
+    stamp_x(d, W / 2 + 440, 320, 115, pop(t, Lk(L, 1, T)))
+    if t >= Lk(L, 3, T):
+        b = pop(t, Lk(L, 3, T))
+        card(img, (260, 420, 1660, 560), appear(t, Lk(L, 3, T)), (170, 30, 50), YELLOW)
+        text3d(d, (W / 2, 490), "答え：「自分の遺伝子」を残すため", 66 * max(0.3, b), YELLOW, appear(t, Lk(L, 3, T)))
+
+
+def s_quiz(img, d, t, T, L):
+    photo_bg(img, "lion_family", t, T, dim=0.6, zoom=(1.0, 1.1))
+    a = appear(t, 0.2)
+    badge(d, 330, 150, "QUIZ", a, RED, 48)
+    text3d(d, (W / 2 + 120, 150), "新しいボスのオスが、群れの子に最初にすることは？", 52, WHITE, a)
+    polaroid(img, "lion_male", 300, 500, 300, 340, rot=-4, scale=pop(t, 0.4), focus=(0.5, 0.3), caption="新しいボス")
+    ans = Lk(L, 2, T)
+    opts = [("A", "一緒に遊んであげる"), ("B", "敵から守ってあげる"), ("C", "殺してしまう")]
+    for i, (lt, s) in enumerate(opts):
+        st = 0.8 + i * 0.4
+        state = None
+        if t >= ans:
+            state = "right" if lt == "C" else "wrong"
+        option_card(img, d, (640, 300 + i * 150, 1700, 410 + i * 150), lt, s, appear(t, st), state)
+    if t >= Lk(L, 1, T):
+        badge(d, 1800, 450, "ずんだもん", appear(t, Lk(L, 1, T)), SPEAKERS[ZUN]["color"], 26)
+    if t >= ans:
+        text3d(d, (1580, 610), "正解！", 60, RED, pop(t, ans))
+    if t >= Lk(L, 4, T):
+        card(img, (440, 780, 1480, 870), appear(t, Lk(L, 4, T)), (120, 80, 20), YELLOW)
+        label(d, (960, 825), "この謎は、動画の後半でスッキリ解けます", 40, YELLOW, appear(t, Lk(L, 4, T)))
 
 
 def s_belief(img, d, t, T, L):
     photo_bg(img, "herd", t, T, dim=0.4, zoom=(1.05, 1.2), pan=(0.4, 0))
     a = appear(t, 0.2)
-    text3d(d, (W / 2, 110), "よく聞く説明「種の存続のため」", 70, WHITE, a)
+    text3d(d, (W / 2, 110), "昔の常識「種の存続のため」", 70, WHITE, a)
+    card(img, (120, 230, 980, 340), a, (120, 80, 20), YELLOW)
+    label(d, (550, 285), "「群選択」… 1960年代に広まった考え方", 40, YELLOW, a)
     polaroid(img, "herd2", 1450, 430, 560, 340, rot=4, scale=pop(t, 0.6), caption="ヌーの大移動")
-    if len(L) > 1:
-        b = appear(t, L[1])
-        card(img, (120, 300, 980, 560), b, (120, 60, 30), ORANGE)
-        label(d, (550, 370), "「仲間が増えすぎたら…", 46, WHITE, b)
-        label(d, (550, 440), "みんなのために、", 46, WHITE, b)
-        label(d, (550, 505), "自分は子どもを我慢しよう」", 46, ORANGE, b)
-    if len(L) > 2:
-        card(img, (360, 760, 1560, 850), appear(t, L[2]), (120, 80, 20), YELLOW)
-        label(d, (W / 2, 805), "「群選択」… 1960年代に広く信じられた考え方", 46, YELLOW, appear(t, L[2]))
+    if t >= Lk(L, 1, T):
+        b = appear(t, Lk(L, 1, T))
+        card(img, (120, 400, 980, 640), b, (120, 60, 30), ORANGE)
+        label(d, (550, 465), "仲間が増えすぎたら…", 46, WHITE, b)
+        label(d, (550, 540), "みんなのために、", 46, WHITE, b)
+        label(d, (550, 605), "子どもを我慢しよう？", 46, ORANGE, b)
 
 
 def s_lemming(img, d, t, T, L):
     photo_bg(img, "coast", t, T, dim=0.35, zoom=(1.0, 1.12))
     a = appear(t, 0.1)
-    text3d(d, (W / 2, 100), "レミングの「集団自殺」", 84, WHITE, a)
-    label(d, (W / 2, 195), "増えすぎた仲間を減らすための自己犠牲？", 48, GRAY, a)
-    polaroid(img, "lemming", 520, 520, 560, 380, rot=-4, scale=pop(t, 0.3), caption="ノルウェーレミング")
-    if len(L) > 1:
-        b = appear(t, L[1])
-        card(img, (1000, 290, 1820, 560), b, (150, 30, 50), RED)
-        text3d(d, (1410, 360), "実はウソ！", 76, YELLOW, b)
-        label(d, (1410, 445), "1958年のディズニー映画『白い荒野』で", 34, WHITE, b)
-        label(d, (1410, 500), "撮影用に「演出」された場面が広まった", 34, WHITE, b)
-        stamp_x(d, 520, 480, 110, pop(t, L[1] + 0.4))
-    if len(L) > 2:
-        c = appear(t, L[2])
-        card(img, (1000, 610, 1820, 720), c, (40, 60, 140))
-        label(d, (1410, 665), "実際は移動中の事故。自分から死ぬ習性はない", 32, YELLOW, c)
+    text3d(d, (W / 2, 100), "レミングの「集団自殺」伝説", 80, WHITE, a)
+    polaroid(img, "lemming", 520, 500, 560, 380, rot=-4, scale=pop(t, 0.3), caption="ノルウェーレミング")
+    if t >= Lk(L, 1, T):
+        b = appear(t, Lk(L, 1, T))
+        card(img, (1000, 260, 1820, 530), b, (150, 30, 50), RED)
+        text3d(d, (1410, 330), "実は「演出」！", 72, YELLOW, b)
+        label(d, (1410, 415), "1958年 ディズニー映画『白い荒野』の", 34, WHITE, b)
+        label(d, (1410, 470), "撮影で作られた場面が広まった", 34, WHITE, b)
+    stamp_x(d, 520, 460, 110, pop(t, Lk(L, 2, T)))
+    if t >= Lk(L, 3, T):
+        c = appear(t, Lk(L, 3, T))
+        card(img, (1000, 580, 1820, 690), c, (40, 60, 140))
+        label(d, (1410, 635), "本当は：移動中の事故。自分から死ぬ習性はない", 30, YELLOW, c)
 
 
 def s_cheater(img, d, t, T, L):
     photo_bg(img, "mouse", t, T, dim=0.72, zoom=(1.0, 1.08), blur=True)
-    text3d(d, (W / 2, 90), "「種のため」の弱点：ズルい個体", 72, WHITE, appear(t, 0.1))
+    text3d(d, (W / 2, 80), "思考実験：「ズルい個体」が1割いたら？", 64, WHITE, appear(t, 0.1))
     a = appear(t, 0.3)
-    card(img, (90, 180, 830, 800), a, (40, 60, 140))
-    label(d, (460, 750), "我慢する個体（種のため）", 36, YELLOW, a)
+    card(img, (70, 170, 780, 790), a, (40, 60, 140))
+    label(d, (425, 215), "我慢する村：子は1匹ずつ", 34, YELLOW, a)
     for i in range(9):
-        x = 240 + (i % 3) * 220
+        x = 210 + (i % 3) * 215
         y = 330 + (i // 3) * 150
-        fx = ((i * 0.13) % 0.6 + 0.2, 0.5)
-        if i == 8 and len(L) > 1 and t >= L[1]:
-            roundphoto(img, "mouse", x, y, 68, scale=pop(t, L[1]), ring=PURPLE, focus=(0.4, 0.6))
-            badge(d, x + 40, y - 55, "ズル", pop(t, L[1] + 0.2), PURPLE, 28)
+        if i == 8 and t >= Lk(L, 1, T):
+            roundphoto(img, "mouse", x, y, 66, scale=pop(t, Lk(L, 1, T)), ring=PURPLE, focus=(0.4, 0.6))
+            badge(d, x + 40, y - 55, "2匹産む", pop(t, Lk(L, 1, T) + 0.2), PURPLE, 26)
         else:
-            roundphoto(img, "mouse", x, y, 60, a, ring=YELLOW, focus=(0.4, 0.6), gray=True)
-    if len(L) > 1:
-        label(d, (460, 220), "ズルい個体：遠慮せず たくさん産む", 36, PURPLE, appear(t, L[1]))
-    if len(L) > 2:
-        c = appear(t, L[2])
-        gx, gy, gw, gh = 960, 220, 860, 500
+            roundphoto(img, "mouse", x, y, 58, a, ring=YELLOW, focus=(0.4, 0.6), gray=True)
+    label(d, (425, 750), "ズルい性質は子に遺伝すると仮定", 30, GRAY, a)
+    st = Lk(L, 3, T)
+    if t >= st:
+        c = appear(t, st)
+        gx, gy, gw, gh = 900, 200, 940, 500
         d.polygon([(gx, gy + gh), (gx + 30, gy + gh - 20), (gx + gw + 30, gy + gh - 20), (gx + gw, gy + gh)], fill=rgba((80, 100, 180), c))
-        label(d, (gx + gw / 2, gy + gh + 45), "世代 →", 36, WHITE, c)
+        label(d, (gx + gw / 2, gy + gh + 45), "世代 →", 34, WHITE, c)
         p = 0.1
-        n = 10
+        n = 8
         bw = gw / n
-        span = (L[3] if len(L) > 3 else T) - L[2]
+        span = max(2.0, Lk(L, 4, T) - st)
         for g in range(n):
-            ba = appear(t, L[2] + 0.4 + g * span * 0.7 / n, 0.35)
+            ba = appear(t, st + 0.3 + g * span * 0.8 / n, 0.35)
             x0 = gx + g * bw + 12
-            bh = gh * 0.92 * ba
-            bar3d(d, x0, gy + gh, bw - 34, bh * (1 - p), YELLOW, ba, 16)
-            bar3d(d, x0, gy + gh - bh * (1 - p), bw - 34, bh * p, PURPLE, ba, 16)
+            bh = gh * 0.88 * ba
+            bar3d(d, x0, gy + gh, bw - 36, bh * (1 - p), YELLOW, ba, 16)
+            bar3d(d, x0, gy + gh - bh * (1 - p), bw - 36, bh * p, PURPLE, ba, 16)
+            hl = g in (3, 7)
+            label(d, (x0 + (bw - 36) / 2, gy + gh - bh - 30), f"{p * 100:.0f}%", 30 if not hl else 36, RED if hl else WHITE, ba)
+            label(d, (x0 + (bw - 36) / 2, gy + gh + 18), f"{g}", 24, GRAY, ba)
             p = 2 * p / (2 * p + (1 - p))
-    if len(L) > 3:
-        text3d(d, (W / 2, 850), "→「種のため」の性質は すぐ消える", 60, YELLOW, appear(t, L[3]))
+    if t >= Lk(L, 4, T):
+        card(img, (900, 130, 1840, 200), appear(t, Lk(L, 4, T)), (170, 30, 50), YELLOW)
+        label(d, (1370, 165), "3世代で約5割、7世代で9割超え！", 34, YELLOW, appear(t, Lk(L, 4, T)))
+    if t >= Lk(L, 6, T):
+        text3d(d, (W / 2, 850), "→「種のために我慢する性質」は すぐ消える", 56, YELLOW, appear(t, Lk(L, 6, T)))
 
 
 def s_gene(img, d, t, T, L):
-    photo_bg(img, "dna", t, T, dim=0.45, zoom=(1.0, 1.18), focus=(0.5, 0.5))
-    text3d(d, (W / 2, 90), "遺伝子の目線で見ると…", 76, WHITE, appear(t, 0.1))
-    a = appear(t, 0.3)
-    polaroid(img, "dawkins", 330, 470, 330, 420, rot=-3, scale=pop(t, 0.3), focus=(0.5, 0.2), caption="R.ドーキンス")
-    card(img, (560, 230, 900, 420), a, (170, 30, 50), RED)
-    text3d(d, (730, 290), "『利己的な遺伝子』", 34, WHITE, a)
-    text3d(d, (730, 365), "1976年", 44, YELLOW, a)
-    if len(L) > 1:
-        b = appear(t, L[1])
-        polaroid(img, "lion_rock", 1300, 470, 470, 300, rot=3, scale=pop(t, L[1]), caption="体 ＝ 乗り物")
-        dna3d(img, d, 1700, 480, 380, 120, t, appear(t, L[1] + 0.5))
-        arrow3d(d, (1620, 480), (1560, 480), PINK, appear(t, L[1] + 0.8))
-        label(d, (1300, 250), "体は 遺伝子を運ぶ「乗り物」", 46, GREEN, b)
-        label(d, (1600, 720), "遺伝子 ＝「自己複製子」", 40, PINK, appear(t, L[1] + 0.5))
-    if len(L) > 2:
-        text3d(d, (W / 2, 840), "残るのは「コピーを残すのがうまい遺伝子」だけ", 56, YELLOW, appear(t, L[2]))
+    photo_bg(img, "dna", t, T, dim=0.45, zoom=(1.0, 1.18))
+    text3d(d, (W / 2, 80), "発想の転換：遺伝子の目線で見る", 70, WHITE, appear(t, 0.1))
+    polaroid(img, "dawkins", 260, 420, 280, 360, rot=-3, scale=pop(t, 0.3), focus=(0.5, 0.2), caption="R.ドーキンス")
+    card(img, (90, 650, 430, 760), appear(t, 0.5), (170, 30, 50), RED)
+    label(d, (260, 705), "『利己的な遺伝子』1976", 30, WHITE, appear(t, 0.5))
+    k = Lk(L, 2, T)
+    if t >= k:
+        dna3d(img, d, 640, 430, 360, 110, t, appear(t, k))
+        label(d, (640, 650), "設計図＝遺伝子", 36, PINK, appear(t, k))
+        arrow3d(d, (720, 430), (830, 430), PINK, appear(t, k + 0.4))
+        polaroid(img, "lion_rock", 1080, 410, 380, 250, rot=3, scale=pop(t, k + 0.4), caption="体＝使い捨てロボット")
+        arrow3d(d, (1290, 430), (1400, 430), PINK, appear(t, k + 1.4))
+        polaroid(img, "cubs", 1630, 420, 340, 230, rot=-3, scale=pop(t, k + 1.6), caption="次の体へ乗り換え")
+        label(d, (1360, 640), "体は壊れても、設計図はコピーされて続いていく", 36, WHITE, appear(t, k + 2.0))
+    if t >= Lk(L, 4, T):
+        text3d(d, (W / 2, 850), "今いる生き物 ＝「コピー上手な遺伝子」の乗り物", 54, YELLOW, appear(t, Lk(L, 4, T)))
 
 
-def s_cycle(img, d, t, T, L):
-    photo_bg(img, "chicks2", t, T, dim=0.62, zoom=(1.0, 1.1), blur=True)
-    text3d(d, (W / 2, 80), "自然選択のしくみ（遺伝子目線）", 64, WHITE, appear(t, 0.1))
-    cx, cy, rx, ry = W / 2, 440, 520, 250
-    items = [("dna", "遺伝子", "体をつくる", PINK), ("lion_male", "体", "生きのびる", GREEN),
-             ("chicks", "繁殖", "子を残す", ORANGE), ("cubs", "コピー", "遺伝子が増える", BLUE)]
-    for i, (key, h, s, col) in enumerate(items):
-        st = 0.3 + i * 0.9
-        a = appear(t, st)
-        ang = -math.pi / 2 + i * math.pi / 2
-        x, y = cx + rx * math.cos(ang), cy + ry * math.sin(ang)
-        card(img, (x - 210, y - 85, x + 210, y + 85), a, darker(col, 0.55), col)
-        roundphoto(img, key, x - 125, y, 66, scale=pop(t, st), ring=col, focus=(0.5, 0.35))
-        text3d(d, (x + 60, y - 22), h, 50, col, a)
-        label(d, (x + 60, y + 36), s, 32, WHITE, a)
-        ang2 = ang + math.pi / 2
-        x2, y2 = cx + rx * math.cos(ang2), cy + ry * math.sin(ang2)
-        b = appear(t, st + 0.6)
-        mx, my = (x + x2) / 2, (y + y2) / 2
-        arrow3d(d, ((x * 1.6 + mx) / 2.6, (y * 1.6 + my) / 2.6), ((x2 * 1.6 + mx) / 2.6, (y2 * 1.6 + my) / 2.6), WHITE, b, 12, 30)
-    dna3d(img, d, cx, cy, 250, 90, t, appear(t, 3.8))
-    if len(L) > 1:
-        text3d(d, (W / 2, 850), "主役は「体」ではなく、コピーされ続ける「遺伝子」", 52, YELLOW, appear(t, L[1]))
-
-
-def s_lion(img, d, t, T, L):
-    photo_bg(img, "lion_family", t, T, dim=0.55, zoom=(1.0, 1.12))
-    text3d(d, (W / 2, 90), "証拠①：ライオンの子殺し", 76, WHITE, appear(t, 0.1))
-    polaroid(img, "lion_male", 290, 420, 300, 340, rot=-4, scale=pop(t, 0.3), focus=(0.5, 0.3), caption="新しいオス")
-    if len(L) > 1:
-        b = appear(t, L[1])
-        arrow3d(d, (470, 420), (580, 420), RED, b)
-        polaroid(img, "cubs", 820, 430, 380, 250, rot=3, scale=pop(t, L[1]), caption="前のオスの子")
-        stamp_x(d, 820, 410, 100, pop(t, L[1] + 0.9))
-    if len(L) > 2:
-        c = appear(t, L[2])
-        arrow3d(d, (1040, 420), (1130, 420), YELLOW, c)
-        polaroid(img, "lioness", 1350, 410, 360, 230, rot=-3, scale=pop(t, L[2]), caption="メスが再び妊娠可能に")
-        heart(d, 1500, 300, 44, pop(t, L[2] + 0.4))
-        polaroid(img, "cubs2", 1700, 470, 240, 180, rot=6, scale=pop(t, L[2] + 0.9), caption="自分の子")
-    if len(L) > 3:
-        e = appear(t, L[3])
-        card(img, (300, 690, 1620, 850), e, (60, 40, 110))
-        label(d, (W / 2, 735), "種にとって：子どもが減る ×", 46, RED, e)
-        label(d, (W / 2, 805), "オスの遺伝子にとって：自分のコピーが増える ○", 46, GREEN, e)
+def s_answer(img, d, t, T, L):
+    photo_bg(img, "lion_family", t, T, dim=0.55, zoom=(1.1, 1.0))
+    text3d(d, (W / 2, 80), "クイズの答え合わせ：ライオンの子殺し", 66, WHITE, appear(t, 0.1))
+    polaroid(img, "lion_male", 270, 400, 280, 320, rot=-4, scale=pop(t, 0.3), focus=(0.5, 0.3), caption="新しいオス")
+    k1 = Lk(L, 1, T)
+    if t >= k1:
+        arrow3d(d, (430, 400), (540, 400), RED, appear(t, k1))
+        polaroid(img, "cubs", 770, 410, 360, 240, rot=3, scale=pop(t, k1), caption="前のオスの子")
+        stamp_x(d, 770, 390, 95, pop(t, k1 + 0.8))
+        arrow3d(d, (990, 400), (1080, 400), YELLOW, appear(t, k1 + 1.2))
+        polaroid(img, "lioness", 1300, 390, 340, 220, rot=-3, scale=pop(t, k1 + 1.2), caption="メスが再び妊娠可能に")
+    k2 = Lk(L, 2, T)
+    if t >= k2:
+        heart(d, 1450, 290, 40, pop(t, k2))
+        polaroid(img, "cubs2", 1680, 450, 240, 180, rot=6, scale=pop(t, k2 + 0.5), caption="自分の子")
+    if t >= Lk(L, 3, T):
+        e = appear(t, Lk(L, 3, T))
+        card(img, (300, 680, 1620, 850), e, (60, 40, 110))
+        label(d, (W / 2, 728), "種にとって：子どもが減る ×", 46, RED, e)
+        label(d, (W / 2, 800), "オスの遺伝子にとって：自分のコピーが早く増える ○", 44, GREEN, e)
 
 
 def s_puzzle(img, d, t, T, L):
     photo_bg(img, "bees", t, T, dim=0.4, zoom=(1.0, 1.25), focus=(0.55, 0.4))
-    text3d(d, (W / 2, 90), "でも、助け合う生き物もいるよね？", 70, WHITE, appear(t, 0.1))
-    polaroid(img, "bees2", 520, 420, 520, 340, rot=-4, scale=pop(t, 0.4), caption="働きバチ")
-    polaroid(img, "meerkats", 1400, 420, 300, 380, rot=4, scale=pop(t, 0.8), focus=(0.5, 0.3), caption="見張り役のミーアキャット")
-    if len(L) > 1:
-        b = appear(t, L[1])
-        card(img, (220, 660, 1700, 760), b, (50, 70, 150))
-        label(d, (W / 2, 710), "働きバチは一生 子どもを産まず、巣のために働き、敵を刺して死ぬことも", 38, WHITE, b)
-    if len(L) > 2:
-        c = appear(t, L[2])
-        text3d(d, (W / 2, 840), "「利己的な遺伝子」で説明できる？", 66, YELLOW, c)
-        text3d(d, (1720, 260), "？", 220, RED, pop(t, L[2]), depth=12)
+    text3d(d, (W / 2, 90), "でも、自分を犠牲にする生き物もいる？", 66, WHITE, appear(t, 0.1))
+    polaroid(img, "bees2", 560, 440, 560, 360, rot=-4, scale=pop(t, 0.4), caption="子を産まずに働く 働きバチ")
+    polaroid(img, "meerkats", 1380, 440, 300, 380, rot=4, scale=pop(t, 0.9), focus=(0.5, 0.3), caption="見張り役")
+    if t >= Lk(L, 1, T):
+        text3d(d, (1720, 260), "？", 220, RED, pop(t, Lk(L, 1, T)), depth=12)
+        text3d(d, (W / 2, 840), "ここが理論のいちばん面白いところ", 60, YELLOW, appear(t, Lk(L, 1, T)))
 
 
 def s_hamilton(img, d, t, T, L):
     photo_bg(img, "family", t, T, dim=0.7, zoom=(1.0, 1.1), blur=True)
-    text3d(d, (W / 2, 80), "答え：血縁選択（ハミルトン則, 1964）", 62, WHITE, appear(t, 0.1))
-    a = appear(t, 0.4)
-    text3d(d, (W / 2, 280), "r × B ＞ C", 180, YELLOW, a, depth=14)
-    if len(L) > 1:
+    text3d(d, (W / 2, 80), "血縁選択（ハミルトン則, 1964）", 62, WHITE, appear(t, 0.1))
+    k = Lk(L, 1, T)
+    if t >= k:
+        text3d(d, (W / 2, 260), "r × B ＞ C", 170, YELLOW, appear(t, k), depth=14)
         items = [("r", "family", "血縁度", "同じ遺伝子を持つ確率", PINK),
                  ("B", "chicks", "相手の得", "相手が増やせる子の数", GREEN),
                  ("C", "lemming2", "自分の損", "自分が失う子の数", RED)]
         for i, (sym, key, h, s, col) in enumerate(items):
-            b = appear(t, L[1] + i * 0.8)
+            b = appear(t, k + i * 0.7)
             x = 380 + i * 580
-            card(img, (x - 260, 450, x + 260, 760), b, darker(col, 0.5), col)
-            roundphoto(img, key, x - 150, 540, 62, scale=pop(t, L[1] + i * 0.8), ring=col)
-            text3d(d, (x + 60, 540), sym, 100, col, b)
-            label(d, (x, 650), h, 48, WHITE, b)
-            label(d, (x, 715), s, 30, GRAY, b)
-    if len(L) > 2:
-        text3d(d, (W / 2, 845), "満たすとき、助ける遺伝子は増えていく", 58, YELLOW, appear(t, L[2]))
+            card(img, (x - 260, 420, x + 260, 700), b, darker(col, 0.5), col)
+            roundphoto(img, key, x - 150, 505, 60, scale=pop(t, k + i * 0.7), ring=col)
+            text3d(d, (x + 60, 505), sym, 96, col, b)
+            label(d, (x, 605), h, 46, WHITE, b)
+            label(d, (x, 665), s, 30, GRAY, b)
+    if t >= Lk(L, 3, T):
+        card(img, (260, 740, 1660, 870), appear(t, Lk(L, 3, T)), (110, 80, 20), YELLOW)
+        label(d, (W / 2, 780), "家族を助ける ＝ 家族の中にある", 40, WHITE, appear(t, Lk(L, 3, T)))
+        label(d, (W / 2, 835), "「自分と同じ遺伝子のコピー」を助けている", 44, YELLOW, appear(t, Lk(L, 3, T)))
 
 
 def s_family(img, d, t, T, L):
     photo_bg(img, "family", t, T, dim=0.68, zoom=(1.0, 1.1))
     text3d(d, (W / 2, 70), "血縁度 r ＝ 同じ遺伝子を持っている確率", 58, WHITE, appear(t, 0.1))
     me = (W / 2, 420)
-    nodes = [
-        ("親", "親", (W / 2, 200), "1/2", ORANGE),
-        ("きょうだい", "兄", (W / 2 - 540, 400), "1/2", GREEN),
-        ("子", "子", (W / 2, 640), "1/2", PINK),
-        ("いとこ", "従", (W / 2 - 540, 640), "1/8", GRAY),
-        ("孫", "孫", (W / 2 + 540, 640), "1/4", PURPLE),
-        ("赤の他人", "他", (W / 2 + 540, 240), "ほぼ 0", (140, 140, 160)),
-    ]
+    nodes = [("親", "親", (W / 2, 200), "1/2", ORANGE), ("きょうだい", "兄", (W / 2 - 540, 400), "1/2", GREEN),
+             ("子", "子", (W / 2, 640), "1/2", PINK), ("いとこ", "従", (W / 2 - 540, 640), "1/8", GRAY),
+             ("孫", "孫", (W / 2 + 540, 640), "1/4", PURPLE), ("赤の他人", "他", (W / 2 + 540, 240), "ほぼ 0", (140, 140, 160))]
     for i, (name, ch, (x, y), r, col) in enumerate(nodes):
         b = appear(t, 0.6 + i * 0.5)
         d.line([(me[0] + 4, me[1] + 8), (x + 4, y + 8)], fill=rgba(darker(col, 0.4), b), width=12)
@@ -709,8 +721,8 @@ def s_family(img, d, t, T, L):
         text3d(d, (x + 95, y), r, 54, YELLOW, b, anchor="lm")
     ball(img, me[0], me[1], 90 * max(0.05, pop(t, 0.3)), BLUE, appear(t, 0.3))
     text3d(d, me, "自分", 52, WHITE, appear(t, 0.3))
-    if len(L) > 1:
-        c = appear(t, L[1])
+    if t >= Lk(L, 2, T):
+        c = appear(t, Lk(L, 2, T))
         card(img, (200, 725, 1720, 880), c, (110, 80, 20), YELLOW)
         label(d, (W / 2, 775), "「兄弟2人か、いとこ8人のためなら命を捨てる」", 46, YELLOW, c)
         label(d, (W / 2, 842), "― J.B.S.ホールデン（とされる冗談）　1/2×2 ＝ 1/8×8 ＝ 1人分", 30, WHITE, c)
@@ -719,81 +731,101 @@ def s_family(img, d, t, T, L):
 def s_bee(img, d, t, T, L):
     photo_bg(img, "queen", t, T, dim=0.6, zoom=(1.0, 1.15), blur=True)
     text3d(d, (W / 2, 70), "ハチが自分で産まない理由（の一つの説）", 58, WHITE, appear(t, 0.1))
-    a = appear(t, 0.3)
     polaroid(img, "queen", 470, 330, 420, 280, rot=-3, scale=pop(t, 0.3), focus=(0.5, 0.45), caption="女王（染色体2セット）")
     card(img, (1150, 210, 1700, 330), appear(t, 0.6), (80, 70, 50), (200, 170, 110))
     label(d, (1425, 270), "オス（染色体1セットだけ）", 40, WHITE, appear(t, 0.6))
     polaroid(img, "bees2", 1425, 500, 340, 200, rot=4, scale=pop(t, 0.9), caption="働きバチ（姉妹）")
-    if len(L) > 1:
-        b = appear(t, L[1])
+    k = Lk(L, 1, T)
+    if t >= k:
+        b = appear(t, k)
         gx, gy = 330, 660
         label(d, (gx, gy + 28), "姉妹との血縁度", 40, WHITE, b, anchor="lm")
         hbar3d(d, gx + 360, gy, 900 * 0.75 * b, 56, GREEN, b)
         text3d(d, (gx + 400 + 900 * 0.75 * b, gy + 28), "3/4", 54, GREEN, b, anchor="lm")
-        c = appear(t, L[1] + 1.0)
+        c = appear(t, k + 1.0)
         label(d, (gx, gy + 118), "自分の子との血縁度", 40, WHITE, c, anchor="lm")
         hbar3d(d, gx + 360, gy + 90, 900 * 0.5 * c, 56, PINK, c)
         text3d(d, (gx + 400 + 900 * 0.5 * c, gy + 118), "1/2", 54, PINK, c, anchor="lm")
-    if len(L) > 2:
-        label(d, (W / 2, 855), "※ 現在は「巣の環境」など他の要因も重要と考えられています", 34, GRAY, appear(t, L[2]))
+    if t >= Lk(L, 3, T):
+        label(d, (W / 2, 855), "※ 現在は「巣の環境」など他の要因も重要と考えられています", 34, GRAY, appear(t, Lk(L, 3, T)))
 
 
 def s_bat(img, d, t, T, L):
     photo_bg(img, "bat", t, T, dim=0.72, zoom=(1.0, 1.1), blur=True)
-    text3d(d, (W / 2, 80), "証拠②：チスイコウモリの血のおすそわけ", 62, WHITE, appear(t, 0.1))
-    polaroid(img, "bat", 400, 380, 440, 290, rot=-4, scale=pop(t, 0.3), caption="血を吸えたコウモリ")
-    polaroid(img, "bat2", 1520, 380, 440, 290, rot=4, scale=pop(t, 0.5), gray=True, caption="吸えなかったコウモリ")
-    if len(L) > 1:
-        b = appear(t, L[1])
+    text3d(d, (W / 2, 80), "血のつながりがなくても助け合う？", 62, WHITE, appear(t, 0.1))
+    k = Lk(L, 1, T)
+    polaroid(img, "bat", 400, 380, 440, 290, rot=-4, scale=pop(t, k), caption="血を吸えたコウモリ")
+    polaroid(img, "bat2", 1520, 380, 440, 290, rot=4, scale=pop(t, k + 0.3), gray=True, caption="吸えなかったコウモリ")
+    if t >= k:
+        b = appear(t, k + 0.6)
         arrow3d(d, (680, 330), (1240, 330), RED, b)
-        x = 700 + ((t - L[1]) * 260) % 520
+        x = 700 + ((t - k) * 260) % 520
         blood_drop(d, x, 275, 22, b)
         label(d, (960, 210), "血を吐き戻して分ける", 36, PINK, b)
-    if len(L) > 2:
-        c = appear(t, L[2])
+    k2 = Lk(L, 2, T)
+    if t >= k2:
+        c = appear(t, k2)
         arrow3d(d, (1240, 450), (680, 450), GREEN, c)
         label(d, (960, 500), "次は お返しされやすい", 36, GREEN, c)
         card(img, (360, 600, 1560, 770), c, (30, 100, 80), GREEN)
         label(d, (W / 2, 650), "互恵的利他行動（トリヴァース, 1971）", 46, GREEN, c)
         label(d, (W / 2, 720), "「お互いさま」は長い目で見て遺伝子の得になる", 34, WHITE, c)
-    if len(L) > 3:
-        text3d(d, (W / 2, 845), "優しさも「遺伝子の損得」で説明できる", 56, YELLOW, appear(t, L[3]))
+
+
+def s_daily(img, d, t, T, L):
+    photo_bg(img, "family", t, T, dim=0.5, zoom=(1.0, 1.12), focus=(0.5, 0.3))
+    text3d(d, (W / 2, 80), "身近なことも「遺伝子の目線」で見ると…", 62, WHITE, appear(t, 0.1))
+    k = Lk(L, 1, T)
+    if t >= k:
+        for i, (s, s2) in enumerate([("親が子どもに甘い", "→ 自分のコピー（1/2）への投資"), ("おばあちゃんが孫をかわいがる", "→ 自分のコピー（1/4）への投資")]):
+            st = k + i * 1.2
+            y = 260 + i * 200
+            card(img, (300, y - 70, 1620, y + 70), appear(t, st), (30, 100, 80), GREEN)
+            check_mark(d, 370, y, 32, pop(t, st))
+            label(d, (430, y - 22), s, 46, WHITE, appear(t, st), anchor="lm")
+            label(d, (430, y + 34), s2, 36, YELLOW, appear(t, st), anchor="lm")
+    if t >= Lk(L, 2, T):
+        text3d(d, (W / 2, 720), "お小遣いも遺伝子のしわざ…？", 64, PINK, pop(t, Lk(L, 2, T)))
 
 
 def s_caution(img, d, t, T, L):
     photo_bg(img, "dna", t, T, dim=0.55, zoom=(1.2, 1.0))
-    text3d(d, (W / 2, 90), "！ 注意ポイント", 76, ORANGE, appear(t, 0.1))
+    text3d(d, (W / 2, 90), "！ 誤解しやすいポイント", 72, ORANGE, appear(t, 0.1))
     a = appear(t, 0.3)
     card(img, (200, 190, 1720, 440), a, (110, 60, 20), ORANGE)
     dna3d(img, d, 330, 315, 170, 70, t, a)
     label(d, (1030, 280), "遺伝子に「心」や「意志」はない", 54, WHITE, a)
     label(d, (1030, 365), "「利己的」は たとえ話。増えた遺伝子が残った、というだけ", 32, GRAY, a)
-    if len(L) > 1:
-        b = appear(t, L[1])
+    if t >= Lk(L, 1, T):
+        b = appear(t, Lk(L, 1, T))
         card(img, (200, 500, 1720, 750), b, (80, 50, 140), PURPLE)
-        roundphoto(img, "meerkats", 330, 625, 80, scale=pop(t, L[1]), ring=PURPLE, focus=(0.5, 0.35))
+        roundphoto(img, "meerkats", 330, 625, 80, scale=pop(t, Lk(L, 1, T)), ring=PURPLE, focus=(0.5, 0.35))
         label(d, (1030, 590), "「利己的な遺伝子」≠「利己的な性格」", 54, WHITE, b)
         label(d, (1030, 675), "遺伝子が増えるためなら、体は とても協力的にもなる", 34, GRAY, b)
-    if len(L) > 2:
-        label(d, (W / 2, 845), "※ 集団レベルの選択（マルチレベル選択）は今も研究・議論が続いています", 34, GRAY, appear(t, L[2]))
+    if t >= Lk(L, 2, T):
+        label(d, (W / 2, 845), "※ 集団レベルの選択（マルチレベル選択）は今も研究・議論が続いています", 34, GRAY, appear(t, Lk(L, 2, T)))
 
 
 def s_human(img, d, t, T, L):
     photo_bg(img, "family", t, T, dim=0.45, zoom=(1.0, 1.12), focus=(0.5, 0.3))
-    text3d(d, (W / 2, 80), "じゃあ人間は？", 84, WHITE, appear(t, 0.1))
-    if len(L) > 1:
+    text3d(d, (W / 2, 80), "人間は 遺伝子のロボット？", 80, WHITE, appear(t, 0.1))
+    k = Lk(L, 1, T)
+    if t >= k:
+        c = appear(t, k)
+        card(img, (440, 200, 1720, 420), c, (110, 80, 20), YELLOW)
+        polaroid(img, "dawkins", 330, 300, 190, 240, rot=-5, scale=pop(t, k), focus=(0.5, 0.2))
+        label(d, (1080, 275), "「この地上で、我々人間だけが", 44, YELLOW, c)
+        label(d, (1080, 350), "利己的な自己複製子の専制支配に反逆できる」", 40, YELLOW, c)
+    k2 = Lk(L, 2, T)
+    if t >= k2:
         for i, s in enumerate(["養子を育てる", "見知らぬ人に寄付", "子を持たない選択"]):
-            st = L[1] + i * 0.5
+            st = k2 + i * 0.5
             x = 380 + i * 580
-            card(img, (x - 250, 470, x + 250, 580), appear(t, st), (30, 100, 80), GREEN)
-            check_mark(d, x - 185, 525, 30, pop(t, st))
-            label(d, (x + 30, 525), s, 40, WHITE, appear(t, st))
-    if len(L) > 2:
-        c = appear(t, L[2])
-        card(img, (440, 640, 1720, 860), c, (110, 80, 20), YELLOW)
-        polaroid(img, "dawkins", 330, 720, 190, 240, rot=-5, scale=pop(t, L[2]), focus=(0.5, 0.2))
-        label(d, (1080, 715), "「この地上で、我々人間だけが", 44, YELLOW, c)
-        label(d, (1080, 790), "利己的な自己複製子の専制支配に反逆できる」", 40, YELLOW, c)
+            card(img, (x - 250, 520, x + 250, 630), appear(t, st), (30, 100, 80), GREEN)
+            check_mark(d, x - 185, 575, 30, pop(t, st))
+            label(d, (x + 30, 575), s, 40, WHITE, appear(t, st))
+    if t >= Lk(L, 3, T):
+        text3d(d, (W / 2, 780), "ずんだ餅を みんなに配る！", 64, GREEN, pop(t, Lk(L, 3, T)))
 
 
 def s_summary(img, d, t, T, L):
@@ -802,17 +834,18 @@ def s_summary(img, d, t, T, L):
     pts = ["生き物は「種のため」に生きているわけではない",
            "残るのは「自分のコピーを増やすのがうまい遺伝子」",
            "助け合いも 血縁選択・お互いさま で説明できる",
-           "ただし遺伝子に意志はない。人間は逆らうこともできる"]
+           "でも人間は、遺伝子の損得に逆らうこともできる"]
     for i, s in enumerate(pts):
         st = 0.4 + i * 0.9
         a = appear(t, st)
-        y = 230 + i * 135
-        card(img, (200, y - 52, 1720, y + 52), a, (50, 70, 150))
-        check_mark(d, 270, y, 32, pop(t, st))
-        label(d, (330, y), s, 44, WHITE, a, anchor="lm")
-    if len(L) > 1:
-        for i, k in enumerate(["lion_male", "bees", "bat", "lemming", "dna"]):
-            roundphoto(img, k, 560 + i * 200, 820, 62, scale=pop(t, L[-1] + 0.15 * i), focus=(0.5, 0.4))
+        y = 230 + i * 125
+        card(img, (200, y - 50, 1720, y + 50), a, (50, 70, 150))
+        check_mark(d, 270, y, 30, pop(t, st))
+        label(d, (330, y), s, 42, WHITE, a, anchor="lm")
+    if t >= Lk(L, 2, T):
+        c = pop(t, Lk(L, 2, T))
+        card(img, (380, 740, 1540, 870), appear(t, Lk(L, 2, T)), (60, 140, 70), WHITE)
+        text3d(d, (W / 2, 805), "遺伝子に逆らってやりたいこと、コメントで教えてね！", 44 * max(0.4, c), WHITE, appear(t, Lk(L, 2, T)))
 
 
 def _credit_lines():
@@ -838,99 +871,125 @@ def s_credit(img, d, t, T, L):
     a = appear(t, 0.1)
     text3d(d, (W / 2, 80), "ご視聴ありがとうございました！", 70, YELLOW, a)
     card(img, (120, 150, 1800, 900), a, (30, 40, 90))
-    label(d, (W / 2, 200), f"音声：{CREDIT_VOICE}　／　参考：R.ドーキンス『利己的な遺伝子』ほか", 34, WHITE, a)
+    label(d, (W / 2, 200), f"音声：{CREDIT_VOICE}　／　参考：R.ドーキンス『利己的な遺伝子』ほか", 32, WHITE, a)
     label(d, (W / 2, 255), "写真：Wikimedia Commons（一部トリミング・加工）　撮影者とライセンス：", 30, GRAY, a)
     half = (len(CREDIT_LINES) + 1) // 2
     for i, s in enumerate(CREDIT_LINES):
         col, row = divmod(i, half)
         label(d, (180 + col * 820, 310 + row * 44), s, 26, WHITE, a, anchor="lm")
-    label(d, (W / 2, 870), "CC BY / CC BY-SA の各ライセンス本文は creativecommons.org を参照", 24, GRAY, a)
+    label(d, (W / 2, 870), "各写真の出典URLとライセンス全文へのリンクは概要欄に記載", 24, GRAY, a)
 
 
-# (章タイトル, [(字幕, 読み上げ用テキスト or None), ...], 描画関数)
+Z, M = ZUN, MET
+# (章タイトル, [(話者, 字幕, 読み上げ用テキスト or None), ...], 描画関数)
 SCENES = [
-    ("はじめに", [
-        ("「動物は種を守るために生きている」…そう聞いたことはありませんか？", None),
-        ("実はこれ、現代の生物学では「まちがい」とされています。", None),
-        ("生き物は「自分の遺伝子を残すため」に生きている。今日はその話を深掘りします。", None),
-    ], s_title),
-    ("昔の考え方", [
-        ("かつては、生き物は「種のため」に行動すると考えられていました。", None),
-        ("仲間が増えすぎたら、自分が犠牲になって数を調整する…というイメージです。", None),
-        ("この考え方は「群選択」と呼ばれ、1960年代には広く信じられていました。", None),
+    ("オープニング", [
+        (Z, "めたん！動物ってえらいのだ。みんな「種を守るため」に生きてるのだ！", None),
+        (M, "あら、ずんだもん。それ、今の生物学では「まちがい」とされていますのよ。", None),
+        (Z, "えっ！？じゃあ何のために生きてるのだ？", None),
+        (M, "答えは「自分の遺伝子を残すため」。今日はこの「利己的な遺伝子」の話を、とことん深掘りしますわ。", None),
+    ], s_open),
+    ("クイズ", [
+        (M, "まずはクイズですわ。群れの新しいボスになったオスライオンが、群れの子どもたちに最初にすることは？", None),
+        (Z, "ボスなんだから、Bの「守ってあげる」に決まってるのだ！", None),
+        (M, "残念。正解はC。前のオスの子どもを、殺してしまうことがあるんですの。", None),
+        (Z, "ひどすぎるのだ…！種のためどころか、仲間を減らしてるのだ！", None),
+        (M, "この謎は、動画の後半でスッキリ解けますわよ。", None),
+    ], s_quiz),
+    ("昔の常識", [
+        (M, "かつては、生き物は「種のため」に行動すると考えられていましたの。1960年代に広まった「群選択」という考え方ですわ。", None),
+        (Z, "増えすぎたら、みんなのために子どもを我慢する…みたいな感じなのだ？", None),
+        (M, "その通り。その代表例として有名なのが、「レミングの集団自殺」ですわ。", None),
     ], s_belief),
-    ("レミングの伝説", [
-        ("その代表例が「レミングの集団自殺」。増えすぎると崖から海へ飛び込む、という話です。", None),
-        ("でもこれはウソ。1958年のドキュメンタリー映画の演出が広まったものでした。", None),
-        ("実際のレミングは、移動中に事故で落ちることはあっても、自分から死にに行く習性はありません。", None),
+    ("レミング伝説", [
+        (Z, "知ってるのだ！増えすぎたレミングが、崖から海に飛び込むやつなのだ！", None),
+        (M, "実はそれ、1958年のディズニー映画『白い荒野』の撮影で作られた「演出」が広まったものなんですの。", None),
+        (Z, "ヤラセだったのだ！？", None),
+        (M, "本物のレミングは、移動中に事故で落ちることはあっても、自分から死にに行く習性はありませんわ。", None),
     ], s_lemming),
-    ("種のため説の弱点", [
-        ("では「種のため」の考え方の、何がまずいのでしょうか。種のために子どもを控える集団を考えます。", None),
-        ("そこに、遠慮せずたくさん子どもを産む「ズルい個体」が一匹だけ現れたら？", None),
-        ("ズルい個体の子は、親の性質を受け継いで、またたくさん産みます。世代を重ねるごとに、その割合はどんどん増えていきます。", None),
-        ("つまり「種のために我慢する性質」は、自然選択の中ですぐに消えてしまうのです。", None),
+    ("思考実験", [
+        (M, "そもそも「種のため」説には、致命的な弱点がありますの。みんなが子どもを1匹ずつに我慢している村を考えてみて。", None),
+        (M, "そこに、ルール無視で2匹産む「ズルい個体」が1割まざったら、どうなると思います？", None),
+        (Z, "1割くらいなら、大したことないのだ。", None),
+        (M, "では実際に計算してみましょう。ズルい性質が子に遺伝するとして、世代ごとの割合は…", None),
+        (M, "3世代で約5割、7世代で9割を超えますわ。", None),
+        (Z, "ズルい方が、あっという間に勝っちゃうのだ…！", None),
+        (M, "そう。「種のために我慢する性質」は、自然選択の中ではすぐに消えてしまうんですの。", None),
     ], s_cheater),
     ("遺伝子の目線", [
-        ("そこで登場したのが、1976年のドーキンスの本『利己的な遺伝子』です。", None),
-        ("この考え方では、体は遺伝子を運ぶための「乗り物」にすぎません。主役は、自分をコピーし続ける遺伝子です。", None),
-        ("何世代もたったあと、生き残っているのは「コピーを残すのがうまかった遺伝子」だけ、というわけです。", None),
+        (M, "そこで1976年、ドーキンスが『利己的な遺伝子』で広めたのが、「遺伝子の目線」で見る考え方ですわ。", None),
+        (Z, "遺伝子の目線…？", None),
+        (M, "たとえるなら、体は遺伝子が乗る「使い捨てのロボット」。ロボットは壊れても、設計図である遺伝子はコピーされて、次のロボットに乗り換えていきますの。", None),
+        (Z, "ずんだもんの体も、遺伝子の乗り物だったのだ…！", None),
+        (M, "何世代もたった後に残っているのは、「コピーを増やすのがうまかった遺伝子」だけ。それが、今いる生き物たちなんですわ。", None),
     ], s_gene),
-    ("自然選択のしくみ", [
-        ("遺伝子が体をつくり、体が生きのびて子を残し、遺伝子のコピーが増える。このサイクルが何億年も繰り返されてきました。", None),
-        ("体は一代で死にますが、遺伝子はコピーとして次の世代に受け継がれていきます。", None),
-    ], s_cycle),
-    ("ライオンの子殺し", [
-        ("この考え方を裏付ける例が、ライオンの子殺しです。群れを乗っ取った新しいオスは…", None),
-        ("前のオスの子どもたちを殺してしまうことがあります。", None),
-        ("子育て中のメスは妊娠しませんが、子を失うと再び妊娠できるようになり、新しいオスの子を産むのです。", None),
-        ("種にとってはマイナスでも、オスの遺伝子にとってはプラス。「種のため」では説明できない行動です。", None),
-    ], s_lion),
-    ("助け合いのナゾ", [
-        ("でも、ちょっと待ってください。自然界には、他者を助ける生き物もいますよね。", None),
-        ("たとえば働きバチは、一生自分の子を産まず、巣のために働き、敵を刺して死ぬこともあります。", None),
-        ("これは「自分の遺伝子を残す」と矛盾しないのでしょうか？", None),
+    ("クイズの答え", [
+        (Z, "あっ、じゃあさっきのライオンも…！", None),
+        (M, "ええ。子育て中のメスは妊娠しませんが、子を失うと、また妊娠できるようになりますの。", None),
+        (M, "新しいオスにとっては、自分の遺伝子を持つ子を早く残せる。だから子殺しの性質が残ってきたと考えられていますわ。", None),
+        (Z, "種にはマイナスでも、オスの遺伝子にはプラス。クイズの謎が解けたのだ！", None),
+    ], s_answer),
+    ("最大のナゾ", [
+        (Z, "でも待つのだ。働きバチは自分の子を産まずに、巣のために働くのだ。これこそ「種のため」じゃないのだ？", None),
+        (M, "鋭いですわね。実はここが、この理論のいちばん面白いところですの。", None),
     ], s_puzzle),
     ("ハミルトン則", [
-        ("その答えが、1964年にハミルトンが示した「血縁選択」です。", None),
-        ("血縁度r、相手が得る利益B、自分が払うコストC。", "血縁度アール、相手が得る利益ビー、自分が払うコストシー。"),
-        ("rかけるBがCより大きければ、自分を犠牲にしてでも親族を助ける遺伝子は、集団の中で増えていきます。", None),
+        (M, "1964年、ハミルトンは「血縁選択」という考え方を示しました。", None),
+        (M, "血縁度r、相手が得る利益B、自分のコストC。rかけるBがCより大きければ、身内を助ける遺伝子は増えていきますの。",
+         "血縁度アール、相手が得る利益ビー、自分のコストシー。アールかけるビーがシーより大きければ、身内を助ける遺伝子は増えていきますの。"),
+        (Z, "むずかしいのだ…ずんだもんにも分かるように言ってほしいのだ。", None),
+        (M, "つまり、家族の中には「自分と同じ遺伝子」が入っている。家族を助けるのは、遺伝子から見れば「自分のコピーを助けている」のと同じなんですの。", None),
     ], s_hamilton),
-    ("血縁度とは", [
-        ("血縁度とは、ある遺伝子を相手も持っている確率のこと。親子やきょうだいは2分の1、いとこは8分の1です。", None),
-        ("生物学者ホールデンは「兄弟2人か、いとこ8人のためなら命を捨てる」と冗談を言ったとされています。計算上、自分1人分と同じだからです。", None),
+    ("血縁度", [
+        (M, "親子やきょうだいは2分の1、孫は4分の1、いとこは8分の1の確率で、同じ遺伝子を持っていますわ。", None),
+        (Z, "ずんだもんにきょうだいがいたら、ずんだ餅好きの遺伝子も、半分の確率で持ってるってことなのだ？", None),
+        (M, "たとえとしてはそうですわね。生物学者ホールデンは「兄弟2人か、いとこ8人のためなら命を捨てる」と冗談を言ったとされていますの。", None),
+        (Z, "2分の1が2人で1人分、8分の1が8人で1人分…計算が合ってるのだ！", None),
     ], s_family),
-    ("ハチの特殊な家族", [
-        ("ハチのメスは染色体を2セット、オスは1セットしか持ちません。この特殊な仕組みのせいで…", None),
-        ("働きバチどうしの姉妹の血縁度は4分の3。自分で子を産むと2分の1なので、妹を育てるほうが遺伝子的にお得になります。", None),
-        ("ただし現在では、これだけでなく、巣の環境など他の要因も重要だと考えられています。", None),
+    ("ハチの家族", [
+        (M, "ハチはもっと特殊ですわ。メスは染色体を2セット、オスは1セットしか持ちませんの。", None),
+        (M, "そのせいで、働きバチの姉妹どうしの血縁度は4分の3。自分の子の2分の1より高いんですの。", None),
+        (Z, "自分で産むより、妹を育てた方が遺伝子的にお得なのだ！", None),
+        (M, "ただし今は、巣の環境など他の要因も大事だと考えられていますわ。これだけで全部は説明できないのも、科学の面白いところですわね。", None),
     ], s_bee),
-    ("お互いさまの進化", [
-        ("血のつながりがなくても助け合う例があります。チスイコウモリです。", None),
-        ("彼らは2、3日血を吸えないと餓死してしまうため、たっぷり吸えた個体が、仲間に血を吐き戻して分けてあげます。", None),
-        ("そして助けてもらった個体は、次はお返しをしやすい。これを「互恵的利他行動」と言います。", None),
-        ("長い目で見れば、お互いさまの関係は、自分の遺伝子にとっても得なのです。", None),
+    ("お互いさま", [
+        (Z, "じゃあ、血のつながってない相手は助けないのだ？", None),
+        (M, "そうとも限りませんの。チスイコウモリは2、3日血を吸えないと餓死してしまうので、吸えた個体が、仲間に血を吐き戻して分けてあげますの。", None),
+        (M, "そして助けてもらった個体は、次にお返しをしやすい。これを「互恵的利他行動」といいますわ。", None),
+        (Z, "お互いさまは、長い目で見ると自分の得になるのだ！", None),
     ], s_bat),
-    ("注意ポイント", [
-        ("ただし注意。遺伝子に心や意志があるわけではありません。「利己的」はあくまでたとえ話です。", None),
-        ("また、利己的な遺伝子は、利己的な性格を意味しません。遺伝子が増えるためなら、体はとても協力的にもなります。", None),
-        ("なお、集団レベルでの選択がどこまで働くかは、今も研究と議論が続いているテーマです。", None),
+    ("身近な例", [
+        (M, "この考え方で見ると、身近なことも説明できますのよ。", None),
+        (M, "親が子どもに甘いのも、おばあちゃんが孫をかわいがるのも、遺伝子から見ると「自分のコピーへの投資」なんですの。", None),
+        (Z, "おばあちゃんがお小遣いをくれるのも、遺伝子のしわざだったのだ…！", None),
+        (M, "ふふ、そう言うと、ちょっと夢がありませんけれど。", None),
+    ], s_daily),
+    ("誤解ポイント", [
+        (M, "ただし注意。遺伝子に心や意志があるわけではありませんわ。「利己的」は、あくまでたとえ話。", None),
+        (M, "それに「利己的な遺伝子」は「利己的な性格」という意味ではありません。遺伝子が増えるためなら、体はとても協力的にもなりますの。", None),
+        (Z, "あと、集団レベルの選択がどこまで働くかは、今も研究が続いてるらしいのだ。", None),
     ], s_caution),
-    ("人間の場合", [
-        ("では、私たち人間はどうでしょう。私たちの体も、もちろん遺伝子がつくっています。", None),
-        ("でも人間は、養子を育てたり、見知らぬ人に寄付したり、子どもを持たない人生を選んだりもします。", None),
-        ("ドーキンス自身もこう書いています。「この地上で、我々人間だけが、利己的な自己複製子の専制支配に反逆できる」。", None),
+    ("人間は？", [
+        (Z, "でも、ずんだもんは遺伝子のロボットってことなのだ…？なんかさびしいのだ。", None),
+        (M, "そこがドーキンスの面白いところ。彼は「この地上で、我々人間だけが、利己的な自己複製子の専制支配に反逆できる」と書いていますの。", None),
+        (M, "養子を育てたり、見知らぬ人に寄付したり。人間は、遺伝子の損得だけでは動かない生き物なんですわ。", None),
+        (Z, "ずんだもんも遺伝子に逆らって、ずんだ餅をみんなに配るのだ！", None),
     ], s_human),
     ("まとめ", [
-        ("まとめです。生き物は種のためではなく、結果として「自分の遺伝子のコピーを残す」ように生きています。", None),
-        ("助け合いや自己犠牲も、血縁選択やお互いさまで説明できる。でも、遺伝子に縛られないのも人間の面白さ。以上、利己的な遺伝子の雑学でした！", None),
+        (M, "まとめですわ。生き物は種のためではなく、結果として「自分の遺伝子のコピーを残す」ように生きている。助け合いも、血縁選択やお互いさまで説明できますの。", None),
+        (M, "でも人間は、それに逆らうこともできる。", None),
+        (Z, "みんなは、遺伝子に逆らってやってみたいこと、あるのだ？コメントで教えてほしいのだ！", None),
+        (M, "それでは、また次の雑学でお会いしましょう。", None),
     ], s_summary),
     ("クレジット", [], s_credit),
 ]
+
 
 # VOICEVOX が読み間違えやすい語の補正 (長い語から順に置換)
 READING_FIX = {
     "自己複製子": "じこふくせいし",
     "子殺し": "こごろし",
+    "白い荒野": "しろいこうや",
     "2、3日": "にさんにち",
     "種": "しゅ",
 }
@@ -949,15 +1008,16 @@ def _post(path, params, body=None):
         return r.read()
 
 
-def tts(s):
-    cache = os.path.join(TMP, f"vv_{SPEAKER}_{hashlib.md5(s.encode()).hexdigest()[:16]}.wav")
+def tts(s, spk=None):
+    sid = SPEAKERS[spk]["id"] if spk else SPEAKER
+    cache = os.path.join(TMP, f"vv_{sid}_{hashlib.md5(s.encode()).hexdigest()[:16]}.wav")
     if not os.path.exists(cache):
         for k in sorted(READING_FIX, key=len, reverse=True):
             s = s.replace(k, READING_FIX[k])
-        q = json.loads(_post("/audio_query", {"text": s, "speaker": SPEAKER}))
+        q = json.loads(_post("/audio_query", {"text": s, "speaker": sid}))
         q.update(speedScale=1.15, intonationScale=1.15, prePhonemeLength=0.05, postPhonemeLength=0.1,
                  outputSamplingRate=SR, outputStereo=False)
-        open(cache, "wb").write(_post("/synthesis", {"speaker": SPEAKER}, q))
+        open(cache, "wb").write(_post("/synthesis", {"speaker": sid}, q))
     with wave.open(cache) as w:
         x = np.frombuffer(w.readframes(w.getnframes()), np.int16).astype(np.float32) / 32768.0
     return x
@@ -968,11 +1028,11 @@ def build_timeline():
     for si, (title, lines, fn) in enumerate(SCENES):
         t = HEAD
         starts, subs = [], []
-        for (sub, reading) in lines:
-            x = tts(reading or sub)
+        for (spk, sub, reading) in lines:
+            x = tts(reading or sub, spk)
             dur = len(x) / SR
             starts.append(t)
-            subs.append((sub, cur + t, cur + t + dur))
+            subs.append((sub, cur + t, cur + t + dur, spk))
             voice_chunks.append((cur + t, x))
             t += dur + GAP
         T = (t - GAP + TAIL) if lines else 9.0
@@ -1096,18 +1156,22 @@ def draw_chrome(img, d, si, gt, subs):
     w = 70 + len(title) * 38
     d.rounded_rectangle([28, 22, 28 + w, 82], radius=16, fill=(255, 214, 64, 255), outline=(120, 80, 0, 255), width=3)
     d.text((28 + w / 2, 52), title, font=font(36), fill=NAVY, anchor="mm")
-    label(d, (W - 30, 46), CREDIT_VOICE, 26, (230, 240, 230), 0.85, anchor="rm")
+    label(d, (W - 16, 6), CREDIT_VOICE, 20, (230, 240, 230), 0.85, anchor="rt")
     d.rectangle([0, H - 8, int(W * gt / TOTAL), H], fill=YELLOW)
-    cur = None
-    for (s, a, b) in subs:
+    cur, spk = None, None
+    for (s, a, b, sp) in subs:
         if a - 0.1 <= gt <= b + GAP:
-            cur = sub_page(s, a, b, gt)
+            cur, spk = sub_page(s, a, b, gt), sp
     if cur:
+        info = SPEAKERS.get(spk, SPEAKERS[ZUN])
         top = H - 34 - 61 * len(cur)
+        nw = len(info["name"]) * 32 + 40
+        d.rounded_rectangle([60, top - 52, 60 + nw, top - 6], radius=14, fill=info["color"] + (255,), outline=(255, 255, 255, 255), width=3)
+        d.text((60 + nw / 2, top - 29), info["name"], font=font(32), fill=WHITE, anchor="mm")
         for i, ln in enumerate(cur):
             y = top + 30 + i * 61
-            d.text((W / 2, y), ln, font=font(50), fill=WHITE, anchor="mm", stroke_width=9, stroke_fill=SUB_GREEN)
-            d.text((W / 2, y), ln, font=font(50), fill=WHITE, anchor="mm", stroke_width=4, stroke_fill=(10, 40, 15))
+            d.text((W / 2, y), ln, font=font(50), fill=WHITE, anchor="mm", stroke_width=9, stroke_fill=info["color"])
+            d.text((W / 2, y), ln, font=font(50), fill=WHITE, anchor="mm", stroke_width=4, stroke_fill=info["dark"])
 
 
 def frame(tl, si, gt):
@@ -1126,7 +1190,7 @@ def frame(tl, si, gt):
 
 def render(tl, audio_path, total):
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
-           "-r", str(FPS), "-i", "-", "-i", audio_path, "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+           "-r", str(FPS), "-i", "-", "-i", audio_path, "-c:v", "libx264", "-preset", "slow", "-crf", "24",
            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", OUT]
     p = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     nframes = int(total * FPS)
