@@ -280,6 +280,63 @@ def roundphoto(img, key, cx, cy, r, a=1.0, scale=1.0, ring=WHITE, focus=(0.5, 0.
     img.paste(im, (int(cx - im.width / 2), int(cy - im.height / 2)), im)
 
 
+
+# ---------------------------------------------------------------- 3D CG sequences (three.js で事前レンダリング)
+SEQ_DIR = os.environ.get("SEQ3D", os.path.join(HERE, "_3d"))
+_seqmeta = {}
+_seqimg = {}
+
+
+def seq_meta(name):
+    if name not in _seqmeta:
+        p = os.path.join(SEQ_DIR, name, "meta.json")
+        m = json.load(open(p)) if os.path.exists(p) else None
+        if m:
+            # 透明な余白を切り詰める (数フレームの不透明部分の和集合)
+            box = None
+            for i in sorted({0, m["frames"] // 3, 2 * m["frames"] // 3, m["frames"] - 1}):
+                b = Image.open(os.path.join(SEQ_DIR, name, f"{i:04d}.png")).getchannel("A").getbbox()
+                if b:
+                    box = b if box is None else (min(box[0], b[0]), min(box[1], b[1]), max(box[2], b[2]), max(box[3], b[3]))
+            pad = 12
+            m["bbox"] = (max(0, box[0] - pad), max(0, box[1] - pad), box[2] + pad, box[3] + pad) if box else None
+        _seqmeta[name] = m
+    return _seqmeta[name]
+
+
+def seq_index(name, t):
+    m = seq_meta(name)
+    n, secs = m["frames"], m["seconds"]
+    if m["loop"]:
+        return int((t % secs) / secs * n) % n
+    return int(round(clamp(t / secs) * (n - 1)))
+
+
+def seq3d(img, name, cx, cy, h, t, a=1.0, scale=1.0):
+    """3D CGの連番を (cx,cy) 中心・高さ h で合成. 戻り値: (倍率, 左, 上, フレーム番号)."""
+    m = seq_meta(name)
+    if m is None or a <= 0.02 or scale <= 0.05:
+        return None
+    i = seq_index(name, t)
+    hh = max(8, int(h * round(scale * 20) / 20))
+    k = (name, i, hh, round(a, 1))
+    if k not in _seqimg:
+        if len(_seqimg) > 400:
+            _seqimg.clear()
+        im = Image.open(os.path.join(SEQ_DIR, name, f"{i:04d}.png")).convert("RGBA")
+        if m.get("bbox"):
+            im = im.crop(m["bbox"])
+        f = hh / im.height
+        im = im.resize((max(1, int(im.width * f)), hh), Image.LANCZOS)
+        if a < 0.99:
+            im.putalpha(im.getchannel("A").point(lambda v: int(v * a)))
+        _seqimg[k] = (im, f)
+    im, f = _seqimg[k]
+    left, top = int(cx - im.width / 2), int(cy - im.height / 2)
+    img.paste(im, (left, top), im)
+    ox, oy = (m["bbox"][0], m["bbox"][1]) if m.get("bbox") else (0, 0)
+    return f, left - ox * f, top - oy * f, i
+
 # ---------------------------------------------------------------- vector marks
 def stamp_x(d, cx, cy, s, a=1.0, color=RED):
     if a <= 0.02:
@@ -519,6 +576,8 @@ def option_card(img, d, box, letter, text, a, state=None):
 def s_open(img, d, t, T, L):
     photo_bg(img, "lion_bg", t, T, dim=0.35, zoom=(1.0, 1.15), focus=(0.5, 0.4))
     a = appear(t, 0.2)
+    seq3d(img, "dna", 170, 300, 460, t, appear(t, 0.4), scale=pop(t, 0.4))
+    seq3d(img, "dna", W - 170, 300, 460, t + 2.5, appear(t, 0.6), scale=pop(t, 0.6))
     text3d(d, (W / 2, 190), "生き物は「種を守るため」に", 92, WHITE, a)
     text3d(d, (W / 2, 330), "生きている？", 130, YELLOW, a)
     for i, (k, cap) in enumerate([("lemming", "レミング"), ("bees", "ミツバチ"), ("bat", "チスイコウモリ"), ("cubs", "子ライオン")]):
@@ -604,23 +663,20 @@ def s_cheater(img, d, t, T, L):
     st = Lk(L, 3, T)
     if t >= st:
         c = appear(t, st)
-        gx, gy, gw, gh = 900, 200, 940, 500
-        d.polygon([(gx, gy + gh), (gx + 30, gy + gh - 20), (gx + gw + 30, gy + gh - 20), (gx + gw, gy + gh)], fill=rgba((80, 100, 180), c))
-        label(d, (gx + gw / 2, gy + gh + 45), "世代 →", 34, WHITE, c)
-        p = 0.1
-        n = 8
-        bw = gw / n
         span = max(2.0, Lk(L, 4, T) - st)
-        for g in range(n):
-            ba = appear(t, st + 0.3 + g * span * 0.8 / n, 0.35)
-            x0 = gx + g * bw + 12
-            bh = gh * 0.88 * ba
-            bar3d(d, x0, gy + gh, bw - 36, bh * (1 - p), YELLOW, ba, 16)
-            bar3d(d, x0, gy + gh - bh * (1 - p), bw - 36, bh * p, PURPLE, ba, 16)
-            hl = g in (3, 7)
-            label(d, (x0 + (bw - 36) / 2, gy + gh - bh - 30), f"{p * 100:.0f}%", 30 if not hl else 36, RED if hl else WHITE, ba)
-            label(d, (x0 + (bw - 36) / 2, gy + gh + 18), f"{g}", 24, GRAY, ba)
-            p = 2 * p / (2 * p + (1 - p))
+        m = seq_meta("bars")
+        tb = clamp((t - st - 0.2) / (span * 0.9)) * m["seconds"]
+        r = seq3d(img, "bars", 1370, 545, 470, tb, c)
+        label(d, (1370, 815), "世代 →", 34, WHITE, c)
+        if r:
+            f, left, top, i = r
+            p = 0.1
+            for g, (x, y, e, bx, by) in enumerate(m["data"][i]):
+                hl = g in (3, 7)
+                if e > 0.25:
+                    label(d, (left + x * f, top + y * f - 8), f"{p * 100:.0f}%", 36 if hl else 30, RED if hl else WHITE, clamp(e))
+                label(d, (left + bx * f, top + by * f + 22), f"{g}", 26, GRAY, c)
+                p = 2 * p / (2 * p + (1 - p))
     if t >= Lk(L, 4, T):
         card(img, (900, 130, 1840, 200), appear(t, Lk(L, 4, T)), (170, 30, 50), YELLOW)
         label(d, (1370, 165), "3世代で約5割、7世代で9割超え！", 34, YELLOW, appear(t, Lk(L, 4, T)))
@@ -636,7 +692,7 @@ def s_gene(img, d, t, T, L):
     label(d, (260, 705), "『利己的な遺伝子』1976", 30, WHITE, appear(t, 0.5))
     k = Lk(L, 2, T)
     if t >= k:
-        dna3d(img, d, 640, 430, 360, 110, t, appear(t, k))
+        seq3d(img, "dna", 640, 420, 430, t, appear(t, k), scale=pop(t, k))
         label(d, (640, 650), "設計図＝遺伝子", 36, PINK, appear(t, k))
         arrow3d(d, (720, 430), (830, 430), PINK, appear(t, k + 0.4))
         polaroid(img, "lion_rock", 1080, 410, 380, 250, rot=3, scale=pop(t, k + 0.4), caption="体＝使い捨てロボット")
@@ -671,6 +727,7 @@ def s_answer(img, d, t, T, L):
 
 def s_puzzle(img, d, t, T, L):
     photo_bg(img, "bees", t, T, dim=0.4, zoom=(1.0, 1.25), focus=(0.55, 0.4))
+    seq3d(img, "honeycomb", W / 2, 560, 700, t, appear(t, 0.2), scale=pop(t, 0.2))
     text3d(d, (W / 2, 90), "でも、自分を犠牲にする生き物もいる？", 66, WHITE, appear(t, 0.1))
     polaroid(img, "bees2", 560, 440, 560, 360, rot=-4, scale=pop(t, 0.4), caption="子を産まずに働く 働きバチ")
     polaroid(img, "meerkats", 1380, 440, 300, 380, rot=4, scale=pop(t, 0.9), focus=(0.5, 0.3), caption="見張り役")
@@ -731,10 +788,14 @@ def s_family(img, d, t, T, L):
 def s_bee(img, d, t, T, L):
     photo_bg(img, "queen", t, T, dim=0.6, zoom=(1.0, 1.15), blur=True)
     text3d(d, (W / 2, 70), "ハチが自分で産まない理由（の一つの説）", 58, WHITE, appear(t, 0.1))
-    polaroid(img, "queen", 470, 330, 420, 280, rot=-3, scale=pop(t, 0.3), focus=(0.5, 0.45), caption="女王（染色体2セット）")
-    card(img, (1150, 210, 1700, 330), appear(t, 0.6), (80, 70, 50), (200, 170, 110))
-    label(d, (1425, 270), "オス（染色体1セットだけ）", 40, WHITE, appear(t, 0.6))
-    polaroid(img, "bees2", 1425, 500, 340, 200, rot=4, scale=pop(t, 0.9), caption="働きバチ（姉妹）")
+    polaroid(img, "queen", 380, 290, 380, 240, rot=-3, scale=pop(t, 0.3), focus=(0.5, 0.45), caption="女王（メス）")
+    seq3d(img, "chromo2", 380, 545, 150, t, appear(t, 0.6), scale=pop(t, 0.6))
+    label(d, (380, 625), "染色体 2セット", 34, PINK, appear(t, 0.6))
+    card(img, (1150, 170, 1700, 270), appear(t, 0.8), (80, 70, 50), (200, 170, 110))
+    label(d, (1425, 220), "オス", 44, WHITE, appear(t, 0.8))
+    seq3d(img, "chromo1", 1425, 360, 150, t, appear(t, 0.9), scale=pop(t, 0.9))
+    label(d, (1425, 440), "染色体 1セットだけ", 34, BLUE, appear(t, 0.9))
+    polaroid(img, "bees2", 900, 420, 300, 190, rot=4, scale=pop(t, 1.2), caption="働きバチ（姉妹）")
     k = Lk(L, 1, T)
     if t >= k:
         b = appear(t, k)
@@ -793,7 +854,7 @@ def s_caution(img, d, t, T, L):
     text3d(d, (W / 2, 90), "！ 誤解しやすいポイント", 72, ORANGE, appear(t, 0.1))
     a = appear(t, 0.3)
     card(img, (200, 190, 1720, 440), a, (110, 60, 20), ORANGE)
-    dna3d(img, d, 330, 315, 170, 70, t, a)
+    seq3d(img, "dna", 330, 315, 230, t, a)
     label(d, (1030, 280), "遺伝子に「心」や「意志」はない", 54, WHITE, a)
     label(d, (1030, 365), "「利己的」は たとえ話。増えた遺伝子が残った、というだけ", 32, GRAY, a)
     if t >= Lk(L, 1, T):
